@@ -6,6 +6,11 @@
 // Module name is spikenaut_soc_basys3_top (unique; avoids collision with
 // synapse_demo_basys3_top in synapse-link-hdl/examples/basys3/).
 //
+// E2 / #39: RAM instances load merged_v2 Q8.8 images via INIT_FILE at
+// elaboration / bitstream init. Paths are relative to the tool CWD — run
+// Vivado batch and Verilator from the repo root (see mem/README.md).
+// build_soc.tcl may override with absolute paths via -generic.
+//
 // RTL dependencies (compiled in lib_core / lib_bridge before this file):
 //   spikenaut-core-sv/rtl/LifNeuron.sv
 //   spikenaut-core-sv/rtl/WeightRam.sv
@@ -15,7 +20,15 @@
 //   spikenaut-bridge-sv/rtl/UartTx.sv
 //   spikenaut-bridge-sv/rtl/SiliconBridge.sv
 
-module spikenaut_soc_basys3_top (
+module spikenaut_soc_basys3_top #(
+    // merged_v2 defaults (repo-root relative). Override from build_soc.tcl.
+    parameter string WEIGHT_INIT_FILE = "spikenaut-core-sv/mem/merged_v2_weights.mem",
+    parameter string THRESH_INIT_FILE = "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
+    parameter string LEAK_INIT_FILE   = "spikenaut-core-sv/mem/merged_v2_decay.mem",
+    // 256-entry weight image => ADDR_WIDTH=8 (not core default 10).
+    parameter int    WEIGHT_ADDR_W    = 8,
+    parameter int    NEURON_ADDR_W    = 8
+)(
     input  logic        clk,       // 100 MHz on-board oscillator
     input  logic        rst_n,     // Physically active-high button (U18/BTNC/CPU_RESET); inverted to rst (active-low) internally per gh-14 5u3.5. XDC port name kept for compatibility.
     // UART
@@ -32,8 +45,6 @@ module spikenaut_soc_basys3_top (
     localparam int BAUD_RATE       = 115_200;
     localparam int DATA_WIDTH      = 16;
     localparam int PARAM_WIDTH     = 16;
-    localparam int WEIGHT_ADDR_W   = 10;
-    localparam int NEURON_ADDR_W   = 8;
 
     // gh-14 5u3.5 (P1): inversion in RTL (XDC pin/port rst_n kept for compatibility;
     // BTNC/CPU_RESET U18 is active-high). Use 'rst' (active-low) for all submodules + local logic.
@@ -70,14 +81,15 @@ module spikenaut_soc_basys3_top (
     // ----------------------------------------------------------------
     // Per NeuronParamRam contract (gh-14 5u3.6/5u3.7): stores ONE param per addr.
     // Multiple param types (threshold/leak) require separate RAM instances.
-    // Note (Devin): both instances currently uninitialized (we=0, addr=0) -- content
-    // is undefined until a host load path writes them (out of scope for gh-14).
+    // E2: $readmemh from merged_v2; host UART rewrite remains a later path.
+    // we=0, addr=0 => dout settles to image word 0 after first post-reset read.
     logic [PARAM_WIDTH-1:0] threshold_param;
     logic [PARAM_WIDTH-1:0] leak_param;
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),
-        .PARAM_WIDTH (PARAM_WIDTH)
+        .PARAM_WIDTH (PARAM_WIDTH),
+        .INIT_FILE   (THRESH_INIT_FILE)
     ) u_npram_threshold (
         .clk  (clk),
         .rst_n (rst),
@@ -89,7 +101,8 @@ module spikenaut_soc_basys3_top (
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),
-        .PARAM_WIDTH (PARAM_WIDTH)
+        .PARAM_WIDTH (PARAM_WIDTH),
+        .INIT_FILE   (LEAK_INIT_FILE)
     ) u_npram_leak (
         .clk  (clk),
         .rst_n (rst),
@@ -106,7 +119,8 @@ module spikenaut_soc_basys3_top (
 
     WeightRam #(
         .ADDR_WIDTH (WEIGHT_ADDR_W),
-        .DATA_WIDTH (DATA_WIDTH)
+        .DATA_WIDTH (DATA_WIDTH),
+        .INIT_FILE  (WEIGHT_INIT_FILE)
     ) u_wram (
         .clk  (clk),
         .rst_n (rst),

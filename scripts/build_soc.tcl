@@ -31,6 +31,7 @@ create_project -force $project_name $project_dir -part $part
 # Full list (traced from build order + insts in Basys3_Top + XDC):
 #   bridge: UartRx.sv UartTx.sv SiliconBridge.sv (spikenaut-bridge-sv/rtl)
 #   core:   LifNeuron.sv WeightRam.sv NeuronParamRam.sv StdpController.sv (spikenaut-core-sv/rtl)
+#   mem:    merged_v2_{weights,thresholds,decay}.mem (spikenaut-core-sv/mem) — E2 INIT
 #   soc:    Basys3_Top.sv (spikenaut-soc-sv/rtl)  -- top=spikenaut_soc_basys3_top
 #   xdc:    constraints/basys3.xdc (used by both tops)
 # See also sim_core.tcl, dedup greps in README, and headers in each .sv.
@@ -73,6 +74,26 @@ read_verilog -sv [list \
 ]
 
 # ---------------------------------------------------------------------------
+# 3b. E2 / #39 — merged_v2 .mem images for $readmemh BRAM init
+#     Paths: absolute generics so synth works even if CWD drifts; add_files
+#     keeps Vivado dependency-aware. Run batch from repo root still preferred.
+# ---------------------------------------------------------------------------
+set core_mem [file join $repo_root spikenaut-core-sv mem]
+set weight_mem [file join $core_mem merged_v2_weights.mem]
+set thresh_mem [file join $core_mem merged_v2_thresholds.mem]
+set decay_mem  [file join $core_mem merged_v2_decay.mem]
+
+foreach mem_f [list $weight_mem $thresh_mem $decay_mem] {
+    if {![file isfile $mem_f]} {
+        error "build_soc.tcl: missing mem image: $mem_f"
+    }
+}
+add_files -norecurse [list $weight_mem $thresh_mem $decay_mem]
+set_property file_type {Memory Initialization Files} [get_files $weight_mem]
+set_property file_type {Memory Initialization Files} [get_files $thresh_mem]
+set_property file_type {Memory Initialization Files} [get_files $decay_mem]
+
+# ---------------------------------------------------------------------------
 # 4. Constraints
 # ---------------------------------------------------------------------------
 read_xdc [file join $repo_root constraints basys3.xdc]
@@ -81,7 +102,11 @@ read_xdc [file join $repo_root constraints basys3.xdc]
 # 5. Synthesis
 # ---------------------------------------------------------------------------
 set_property top spikenaut_soc_basys3_top [current_fileset]
-synth_design -top spikenaut_soc_basys3_top -part $part
+# Override INIT paths with absolute paths (Vivado $readmemh resolution).
+synth_design -top spikenaut_soc_basys3_top -part $part \
+    -generic "WEIGHT_INIT_FILE=$weight_mem" \
+    -generic "THRESH_INIT_FILE=$thresh_mem" \
+    -generic "LEAK_INIT_FILE=$decay_mem"
 
 # ---------------------------------------------------------------------------
 # 6. Implementation

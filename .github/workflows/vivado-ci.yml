@@ -44,7 +44,12 @@ jobs:
             # shellcheck disable=SC1091
             source "${HOME}/Xilinx/env.sh"
           fi
-          command -v vivado
+          # Do not print full install/license paths (public Actions logs).
+          if ! command -v vivado >/dev/null 2>&1; then
+            echo "vivado: not found on PATH"
+            exit 1
+          fi
+          echo "vivado: found on PATH (install path redacted)"
           vivado -version | head -5
 
           # Prefer env/runner-provided license (file, dir, colon-list, or port@server).
@@ -53,18 +58,19 @@ jobs:
           fi
 
           # Validate each PATH-like entry: allow file, directory, or port@host.
+          # Log redacted status only — real path stays in GITHUB_ENV for later steps.
           IFS=':' read -r -a _lic_entries <<< "${XILINXD_LICENSE_FILE}"
           for _entry in "${_lic_entries[@]}"; do
             [ -n "${_entry}" ] || continue
             case "${_entry}" in
               *@*)
-                echo "Using floating/server license entry: ${_entry}"
+                echo "Using floating/server license entry: (redacted host)"
                 ;;
               *)
                 if [ -f "${_entry}" ] || [ -d "${_entry}" ]; then
-                  echo "Using local license entry: ${_entry}"
+                  echo "Using local license entry: (redacted)"
                 else
-                  echo "Missing Xilinx license path entry: ${_entry}"
+                  echo "Missing Xilinx license path entry: (redacted)"
                   exit 1
                 fi
                 ;;
