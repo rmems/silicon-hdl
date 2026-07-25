@@ -104,9 +104,9 @@ read_xdc [file join $repo_root constraints basys3.xdc]
 set_property top spikenaut_soc_basys3_top [current_fileset]
 # Override INIT paths with absolute paths (Vivado $readmemh resolution).
 synth_design -top spikenaut_soc_basys3_top -part $part \
-    -generic "WEIGHT_INIT_FILE=$weight_mem" \
-    -generic "THRESH_INIT_FILE=$thresh_mem" \
-    -generic "LEAK_INIT_FILE=$decay_mem"
+    -generic "WEIGHT_INIT_FILE=\"$weight_mem\"" \
+    -generic "THRESH_INIT_FILE=\"$thresh_mem\"" \
+    -generic "LEAK_INIT_FILE=\"$decay_mem\""
 
 # ---------------------------------------------------------------------------
 # 6. Implementation
