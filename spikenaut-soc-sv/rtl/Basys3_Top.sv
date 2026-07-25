@@ -83,6 +83,10 @@ module spikenaut_soc_basys3_top #(
     // Multiple param types (threshold/leak) require separate RAM instances.
     // E2: $readmemh from merged_v2; host UART rewrite remains a later path.
     // we=0, addr=0 => dout settles to image word 0 after first post-reset read.
+    // Note (E3 board smoke): LifNeuron applies leak every 100 MHz cycle while
+    // UART rx_valid is 1 cycle/byte — continuous UART traffic alone will not
+    // integrate to threshold with these Q8.8 values. E3 should gate updates to
+    // protocol timesteps or use a demo stim path, not rely on raw UART bytes.
     logic [PARAM_WIDTH-1:0] threshold_param;
     logic [PARAM_WIDTH-1:0] leak_param;
 
