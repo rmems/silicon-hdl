@@ -104,9 +104,10 @@ jobs:
             STATE=$(gh api "repos/$OWNER/$REPO/issues/$DISPATCH_NUM" --jq .state)
             sync_one "$DISPATCH_NUM" "$STATE"
           else
-            # Manual full sync of open issues
-            mapfile -t NUMS < <(gh api "repos/$OWNER/$REPO/issues?state=open&per_page=100" --jq '.[].number')
-            echo "syncing ${#NUMS[@]} open issues"
+            # Issues only (REST /issues includes PRs)
+            mapfile -t NUMS < <(gh api "repos/$OWNER/$REPO/issues?state=open&per_page=100" \
+              --jq '.[] | select(.pull_request == null) | .number')
+            echo "syncing ${#NUMS[@]} open issues (PRs excluded)"
             for n in "${NUMS[@]}"; do
               sync_one "$n" "open"
             done
