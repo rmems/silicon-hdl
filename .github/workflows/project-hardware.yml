@@ -1,0 +1,79 @@
+name: Hardware project board
+
+on:
+  issues:
+    types: [opened, reopened, transferred, closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync-project:
+    runs-on: ubuntu-latest
+    # Prefer org/repo PAT with project write; GITHUB_TOKEN cannot write org Projects v2.
+    if: ${{ secrets.PROJECTS_TOKEN != '' }}
+    steps:
+      - name: Add open issues / archive closed on Hardware project
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          PROJECT_ID: PVT_kwDOEEyGS84BfB8y
+          STATUS_FIELD_ID: PVTSSF_lADOEEyGS84BfB8yzhZX2Lc
+          OPT_BACKLOG: f75ad846
+          OPT_READY: 856cdede
+          OPT_DONE: 98236657
+        run: |
+          set -euo pipefail
+          ISSUE_NODE=$(gh api graphql -f query='
+            query($owner:String!,$name:String!,$n:Int!){
+              repository(owner:$owner,name:$name){ issue(number:$n){ id state } }
+            }
+          ' -f owner="${{ github.repository_owner }}" -f name="${{ github.event.repository.name }}" -F n=${{ github.event.issue.number }} --jq .data.repository.issue.id)
+          STATE="${{ github.event.issue.state }}"
+          echo "issue node=$ISSUE_NODE state=$STATE"
+
+          # Ensure item on project
+          ITEM=$(gh api graphql -f query='
+            mutation($projectId:ID!,$contentId:ID!){
+              addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
+                item { id }
+              }
+            }
+          ' -f projectId="$PROJECT_ID" -f contentId="$ISSUE_NODE" --jq .data.addProjectV2ItemById.item.id)
+          echo "item=$ITEM"
+
+          if [ "$STATE" = "open" ]; then
+            # Default new issues to Ready (pullable hardware queue)
+            gh api graphql -f query='
+              mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
+                updateProjectV2ItemFieldValue(input:{
+                  projectId:$projectId
+                  itemId:$itemId
+                  fieldId:$fieldId
+                  value:{ singleSelectOptionId:$optionId }
+                }) { projectV2Item { id } }
+              }
+            ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" -f fieldId="$STATUS_FIELD_ID" -f optionId="$OPT_READY" >/dev/null
+            echo "set Ready"
+          else
+            # Closed → Done then archive
+            gh api graphql -f query='
+              mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
+                updateProjectV2ItemFieldValue(input:{
+                  projectId:$projectId
+                  itemId:$itemId
+                  fieldId:$fieldId
+                  value:{ singleSelectOptionId:$optionId }
+                }) { projectV2Item { id } }
+              }
+            ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" -f fieldId="$STATUS_FIELD_ID" -f optionId="$OPT_DONE" >/dev/null
+            gh api graphql -f query='
+              mutation($projectId:ID!,$itemId:ID!){
+                archiveProjectV2Item(input:{projectId:$projectId, itemId:$itemId}) {
+                  item { id isArchived }
+                }
+              }
+            ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" >/dev/null
+            echo "Done + archived"
+          fi
