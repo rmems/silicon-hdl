@@ -4,6 +4,11 @@ on:
   issues:
     types: [opened, reopened, transferred, closed]
   workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Optional issue number to sync (default: all open issues)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -13,66 +18,96 @@ jobs:
   sync-project:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync issue with org Hardware project
+      - name: Sync issue(s) with org Hardware project
         env:
-          # Org PAT with project scope (preferred). Fall back names used in this org.
           GH_TOKEN: ${{ secrets.PROJECTS_TOKEN || secrets.LIMEN_NEURAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           PROJECT_ID: PVT_kwDOEEyGS84BfB8y
           STATUS_FIELD_ID: PVTSSF_lADOEEyGS84BfB8yzhZX2Lc
           OPT_READY: "856cdede"
           OPT_DONE: "98236657"
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUM_EVENT: ${{ github.event.issue.number }}
+          ISSUE_STATE_EVENT: ${{ github.event.issue.state }}
+          DISPATCH_NUM: ${{ inputs.issue_number }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
-          OWNER="${{ github.repository_owner }}"
-          REPO="${{ github.event.repository.name }}"
-          NUM="${{ github.event.issue.number }}"
-          STATE="${{ github.event.issue.state }}"
 
-          ISSUE_NODE=$(gh api graphql -f query='
-            query($owner:String!,$name:String!,$n:Int!){
-              repository(owner:$owner,name:$name){ issue(number:$n){ id state } }
-            }
-          ' -f owner="$OWNER" -f name="$REPO" -F n="$NUM" --jq .data.repository.issue.id)
-          echo "issue_node=$ISSUE_NODE state=$STATE"
+          sync_one() {
+            local NUM="$1"
+            local STATE="$2"
+            echo "---- sync #$NUM state=$STATE ----"
 
-          ITEM=$(gh api graphql -f query='
-            mutation($projectId:ID!,$contentId:ID!){
-              addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
-                item { id }
+            ISSUE_NODE=$(gh api graphql -f query='
+              query($owner:String!,$name:String!,$n:Int!){
+                repository(owner:$owner,name:$name){ issue(number:$n){ id state } }
               }
-            }
-          ' -f projectId="$PROJECT_ID" -f contentId="$ISSUE_NODE" --jq .data.addProjectV2ItemById.item.id)
-          echo "item=$ITEM"
+            ' -f owner="$OWNER" -f name="$REPO" -F n="$NUM" --jq .data.repository.issue.id)
 
-          if [ "$STATE" = "open" ]; then
-            gh api graphql -f query='
-              mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
-                updateProjectV2ItemFieldValue(input:{
-                  projectId:$projectId
-                  itemId:$itemId
-                  fieldId:$fieldId
-                  value:{ singleSelectOptionId:$optionId }
-                }) { projectV2Item { id } }
-              }
-            ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" -f fieldId="$STATUS_FIELD_ID" -f optionId="$OPT_READY" >/dev/null
-            echo "status=Ready"
-          else
-            gh api graphql -f query='
-              mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
-                updateProjectV2ItemFieldValue(input:{
-                  projectId:$projectId
-                  itemId:$itemId
-                  fieldId:$fieldId
-                  value:{ singleSelectOptionId:$optionId }
-                }) { projectV2Item { id } }
-              }
-            ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" -f fieldId="$STATUS_FIELD_ID" -f optionId="$OPT_DONE" >/dev/null
-            gh api graphql -f query='
-              mutation($projectId:ID!,$itemId:ID!){
-                archiveProjectV2Item(input:{projectId:$projectId, itemId:$itemId}) {
-                  item { id isArchived }
+            if [ -z "$ISSUE_NODE" ] || [ "$ISSUE_NODE" = "null" ]; then
+              echo "Could not resolve issue node for #$NUM" >&2
+              return 1
+            fi
+
+            ITEM=$(gh api graphql -f query='
+              mutation($projectId:ID!,$contentId:ID!){
+                addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
+                  item { id }
                 }
               }
-            ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" >/dev/null
-            echo "status=Done archived=true"
+            ' -f projectId="$PROJECT_ID" -f contentId="$ISSUE_NODE" --jq .data.addProjectV2ItemById.item.id)
+
+            if [ -z "$ITEM" ] || [ "$ITEM" = "null" ]; then
+              echo "addProjectV2ItemById failed for #$NUM" >&2
+              return 1
+            fi
+            echo "item=$ITEM"
+
+            if [ "$STATE" = "open" ]; then
+              gh api graphql -f query='
+                mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
+                  updateProjectV2ItemFieldValue(input:{
+                    projectId:$projectId
+                    itemId:$itemId
+                    fieldId:$fieldId
+                    value:{ singleSelectOptionId:$optionId }
+                  }) { projectV2Item { id } }
+                }
+              ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" -f fieldId="$STATUS_FIELD_ID" -f optionId="$OPT_READY" >/dev/null
+              echo "status=Ready"
+            else
+              gh api graphql -f query='
+                mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
+                  updateProjectV2ItemFieldValue(input:{
+                    projectId:$projectId
+                    itemId:$itemId
+                    fieldId:$fieldId
+                    value:{ singleSelectOptionId:$optionId }
+                  }) { projectV2Item { id } }
+                }
+              ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" -f fieldId="$STATUS_FIELD_ID" -f optionId="$OPT_DONE" >/dev/null
+              gh api graphql -f query='
+                mutation($projectId:ID!,$itemId:ID!){
+                  archiveProjectV2Item(input:{projectId:$projectId, itemId:$itemId}) {
+                    item { id isArchived }
+                  }
+                }
+              ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" >/dev/null
+              echo "status=Done archived=true"
+            fi
+          }
+
+          if [ "$EVENT_NAME" = "issues" ]; then
+            sync_one "$ISSUE_NUM_EVENT" "$ISSUE_STATE_EVENT"
+          elif [ -n "${DISPATCH_NUM:-}" ]; then
+            STATE=$(gh api "repos/$OWNER/$REPO/issues/$DISPATCH_NUM" --jq .state)
+            sync_one "$DISPATCH_NUM" "$STATE"
+          else
+            # Manual full sync of open issues
+            mapfile -t NUMS < <(gh api "repos/$OWNER/$REPO/issues?state=open&per_page=100" --jq '.[].number')
+            echo "syncing ${#NUMS[@]} open issues"
+            for n in "${NUMS[@]}"; do
+              sync_one "$n" "open"
+            done
           fi
