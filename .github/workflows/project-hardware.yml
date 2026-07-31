@@ -12,28 +12,29 @@ permissions:
 jobs:
   sync-project:
     runs-on: ubuntu-latest
-    # Prefer org/repo PAT with project write; GITHUB_TOKEN cannot write org Projects v2.
-    if: ${{ secrets.PROJECTS_TOKEN != '' }}
     steps:
-      - name: Add open issues / archive closed on Hardware project
+      - name: Sync issue with org Hardware project
         env:
-          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          # Org PAT with project scope (preferred). Fall back names used in this org.
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN || secrets.LIMEN_NEURAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           PROJECT_ID: PVT_kwDOEEyGS84BfB8y
           STATUS_FIELD_ID: PVTSSF_lADOEEyGS84BfB8yzhZX2Lc
-          OPT_BACKLOG: f75ad846
-          OPT_READY: 856cdede
-          OPT_DONE: 98236657
+          OPT_READY: "856cdede"
+          OPT_DONE: "98236657"
         run: |
           set -euo pipefail
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          NUM="${{ github.event.issue.number }}"
+          STATE="${{ github.event.issue.state }}"
+
           ISSUE_NODE=$(gh api graphql -f query='
             query($owner:String!,$name:String!,$n:Int!){
               repository(owner:$owner,name:$name){ issue(number:$n){ id state } }
             }
-          ' -f owner="${{ github.repository_owner }}" -f name="${{ github.event.repository.name }}" -F n=${{ github.event.issue.number }} --jq .data.repository.issue.id)
-          STATE="${{ github.event.issue.state }}"
-          echo "issue node=$ISSUE_NODE state=$STATE"
+          ' -f owner="$OWNER" -f name="$REPO" -F n="$NUM" --jq .data.repository.issue.id)
+          echo "issue_node=$ISSUE_NODE state=$STATE"
 
-          # Ensure item on project
           ITEM=$(gh api graphql -f query='
             mutation($projectId:ID!,$contentId:ID!){
               addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
@@ -44,7 +45,6 @@ jobs:
           echo "item=$ITEM"
 
           if [ "$STATE" = "open" ]; then
-            # Default new issues to Ready (pullable hardware queue)
             gh api graphql -f query='
               mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
                 updateProjectV2ItemFieldValue(input:{
@@ -55,9 +55,8 @@ jobs:
                 }) { projectV2Item { id } }
               }
             ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" -f fieldId="$STATUS_FIELD_ID" -f optionId="$OPT_READY" >/dev/null
-            echo "set Ready"
+            echo "status=Ready"
           else
-            # Closed → Done then archive
             gh api graphql -f query='
               mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
                 updateProjectV2ItemFieldValue(input:{
@@ -75,5 +74,5 @@ jobs:
                 }
               }
             ' -f projectId="$PROJECT_ID" -f itemId="$ITEM" >/dev/null
-            echo "Done + archived"
+            echo "status=Done archived=true"
           fi
