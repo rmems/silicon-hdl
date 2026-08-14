@@ -113,6 +113,16 @@ This project uses **bd (beads)** for issue tracking — see the beads section in
 already loaded into your context (run `bd prime` if you need the full command reference). Do not
 use TodoWrite or markdown TODO lists in this repo.
 
-`bd` is the source of truth for issue tracking in this repo; Linear and GitHub Issues are used for
-cross-team visibility — use Linear for Limen-Neural team issues, and GitHub Issues under
-Limen-Neural/silicon-hdl.
+`bd` is the local source of truth for agent work tracking; **GitHub Issues** under
+[`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl) and **Linear** (rmems / RM team)
+are used for cross-session and product visibility. Assign **rmems** on GH PRs and Linear
+twins; never ship tracking without an assignee.
+
+## Releases (tags)
+
+Public versions use **SemVer tags** (`vMAJOR.MINOR.PATCH`) on `main` after free CI is green,
+plus a matching **GitHub Release**. See [`docs/releases.md`](docs/releases.md).
+
+- Cut `CHANGELOG.md` `[Unreleased]` → `[x.y.z] - YYYY-MM-DD` when tagging.
+- Do **not** auto-publish from free-runner CI (manual / `gh release create`).
+- **`v0.1.0`** is reserved for F1 demo-complete ([#69](https://github.com/rmems/silicon-hdl/issues/69)).

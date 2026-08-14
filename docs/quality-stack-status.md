@@ -3,7 +3,7 @@
 # Quality stack status (Epic #23)
 
 In-repo status artifact for the phased quality checkup stack on `silicon-hdl`.
-Canonical tracking remains [Epic #23](https://github.com/Limen-Neural/silicon-hdl/issues/23).
+Canonical tracking remains [Epic #23](https://github.com/rmems/silicon-hdl/issues/23).
 This file records what landed on `main` so the epic body and local docs stay aligned.
 
 ## Goal
@@ -15,24 +15,24 @@ Raise automated quality **without** making Vivado a required free-runner PR gate
 | Phase | Name | Status | Outcome |
 | -- | -- | -- | -- |
 | **A** | Free CI harden | **Complete** | Stronger Verilator + guardian + hygiene on `ubuntu-latest` |
-| **B** | Vivado CI | **Complete** (B1/B2) | Self-hosted optional/label-gated synth+sim+artifacts ([#12](https://github.com/Limen-Neural/silicon-hdl/issues/12), [PR #31](https://github.com/Limen-Neural/silicon-hdl/pull/31)) |
+| **B** | Vivado CI | **Complete** (B1/B2) | Self-hosted optional/label-gated synth+sim+artifacts ([#12](https://github.com/rmems/silicon-hdl/issues/12), [PR #31](https://github.com/rmems/silicon-hdl/pull/31)) |
 | **C** | Board-in-loop | **Next** | Optional smoke on self-hosted only (never free GHA) |
 
 ## Phase A — Free CI harden (done)
 
 | Item | Description | Issue | PR | Notes |
 | -- | -- | -- | -- | -- |
-| **A1** | Artifact hygiene (`.gitignore`) + `sim_core.tcl` Vivado 2026.1 fix | [#27](https://github.com/Limen-Neural/silicon-hdl/issues/27) | [#24](https://github.com/Limen-Neural/silicon-hdl/pull/24) | Merged |
-| **A2** | `sim.yml`: add `tb_StdpController` | [#28](https://github.com/Limen-Neural/silicon-hdl/issues/28) | [#25](https://github.com/Limen-Neural/silicon-hdl/pull/25) | Merged — 4/4 core Verilator TBs in free CI |
-| **A3** | `scripts/quality.sh` local free-stack entrypoint | [#29](https://github.com/Limen-Neural/silicon-hdl/issues/29) | [#26](https://github.com/Limen-Neural/silicon-hdl/pull/26) | Merged |
-| **A4** | Coverage (`pytest-cov` for Deduplication Guardian) | [#21](https://github.com/Limen-Neural/silicon-hdl/issues/21) | [#30](https://github.com/Limen-Neural/silicon-hdl/pull/30) | Merged 2026-07-22 |
+| **A1** | Artifact hygiene (`.gitignore`) + `sim_core.tcl` Vivado 2026.1 fix | [#27](https://github.com/rmems/silicon-hdl/issues/27) | [#24](https://github.com/rmems/silicon-hdl/pull/24) | Merged |
+| **A2** | `sim.yml`: add `tb_StdpController` | [#28](https://github.com/rmems/silicon-hdl/issues/28) | [#25](https://github.com/rmems/silicon-hdl/pull/25) | Merged — 4/4 core Verilator TBs in free CI |
+| **A3** | `scripts/quality.sh` local free-stack entrypoint | [#29](https://github.com/rmems/silicon-hdl/issues/29) | [#26](https://github.com/rmems/silicon-hdl/pull/26) | Merged |
+| **A4** | Coverage (`pytest-cov` for Deduplication Guardian) | [#21](https://github.com/rmems/silicon-hdl/issues/21) | [#30](https://github.com/rmems/silicon-hdl/pull/30) | Merged 2026-07-22 |
 
 ## Phase B — Vivado CI (done for B1/B2)
 
 | Item | Description | Issue | PR | Notes |
 | -- | -- | -- | -- | -- |
-| **B1/B2** | Self-hosted optional Vivado CI workflow | [#12](https://github.com/Limen-Neural/silicon-hdl/issues/12) (CLOSED) | [#31](https://github.com/Limen-Neural/silicon-hdl/pull/31) (MERGED) | Commit `1aeee57` on `main`; workflow `.github/workflows/vivado-ci.yml` |
-| **B3** | Docker Vivado (later) | [#13](https://github.com/Limen-Neural/silicon-hdl/issues/13) | — | Deferred; not required for Phase B closeout |
+| **B1/B2** | Self-hosted optional Vivado CI workflow | [#12](https://github.com/rmems/silicon-hdl/issues/12) (CLOSED) | [#31](https://github.com/rmems/silicon-hdl/pull/31) (MERGED) | Commit `1aeee57` on `main`; workflow `.github/workflows/vivado-ci.yml` |
+| **B3** | Docker Vivado (later) | [#13](https://github.com/rmems/silicon-hdl/issues/13) | — | Deferred; not required for Phase B closeout |
 
 ### How Phase B runs
 
@@ -65,7 +65,7 @@ Raise automated quality **without** making Vivado a required free-runner PR gate
 
 ## Related links
 
-- Epic: [Limen-Neural/silicon-hdl#23](https://github.com/Limen-Neural/silicon-hdl/issues/23)
-- Phase B issue: [Limen-Neural/silicon-hdl#12](https://github.com/Limen-Neural/silicon-hdl/issues/12)
-- Phase B PR: [Limen-Neural/silicon-hdl#31](https://github.com/Limen-Neural/silicon-hdl/pull/31)
+- Epic: [rmems/silicon-hdl#23](https://github.com/rmems/silicon-hdl/issues/23)
+- Phase B issue: [rmems/silicon-hdl#12](https://github.com/rmems/silicon-hdl/issues/12)
+- Phase B PR: [rmems/silicon-hdl#31](https://github.com/rmems/silicon-hdl/pull/31)
 - Agent guidance: [`AGENTS.md`](../AGENTS.md) (build/test + optional Vivado CI notes)

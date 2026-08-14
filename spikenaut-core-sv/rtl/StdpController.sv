@@ -2,6 +2,11 @@
 // StdpController.sv
 // Canonical source: spikenaut-core-sv/rtl
 // Spike-Timing-Dependent Plasticity controller
+//
+// Polarity policy (classical causal STDP / Bi–Poo convention, GH#55):
+//   - Pre-then-post (post_spike while pre_trace active) → LTP (weight + 1)
+//   - Post-then-pre (pre_spike while post_trace active) → LTD (weight - 1)
+// Prior to #55 the LTP/LTD arms were inverted relative to this convention.
 
 module StdpController #(
     parameter int DATA_WIDTH   = 16,
@@ -40,12 +45,12 @@ module StdpController #(
             weight_we       <= (pre_spike && post_trace != '0) ||
                                (post_spike && pre_trace != '0);
             weight_addr_out <= weight_addr;
-            if (pre_spike && post_trace != '0)
-                // Potentiation – saturate at maximum value
+            if (post_spike && pre_trace != '0)
+                // LTP (classical): pre-then-post – saturate at maximum value
                 weight_out <= (weight_in == {DATA_WIDTH{1'b1}}) ?
                               weight_in : (weight_in + 1);
-            else if (post_spike && pre_trace != '0)
-                // Depression – saturate at zero
+            else if (pre_spike && post_trace != '0)
+                // LTD (classical): post-then-pre – saturate at zero
                 weight_out <= (weight_in == '0) ?
                               weight_in : (weight_in - 1);
             else

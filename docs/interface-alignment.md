@@ -4,9 +4,9 @@
 Cross-repo contract between **silicon-hdl** (SystemVerilog RTL) and
 **[silicon-bridge](https://github.com/Limen-Neural/silicon-bridge)** (Rust host
 traits and tools). Tracks GitHub issue
-[#8](https://github.com/Limen-Neural/silicon-hdl/issues/8)
+[#8](https://github.com/rmems/silicon-hdl/issues/8)
 (related closed issue
-[#10](https://github.com/Limen-Neural/silicon-hdl/issues/10)).
+[#10](https://github.com/rmems/silicon-hdl/issues/10)).
 
 This document is the silicon-hdl source of truth for widths, memory encoding,
 and UART layering. Prefer updating this file (and the cited RTL headers) when
@@ -20,10 +20,10 @@ either side of the contract changes.
 | SiliconBridge UART framing vs `FpgaBridge` | **Documented** | RTL is transport-only (8-bit bytes); host multi-byte frame is SoC/protocol layer |
 | Compatibility table (Rust ↔ SV) | **Documented** | See below |
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
-| Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/Limen-Neural/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
+| Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
 
 Foundational RTL correctness that supports this alignment landed earlier via
-PR [#11](https://github.com/Limen-Neural/silicon-hdl/pull/11) (comment on #8).
+PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
 
 Host-side boundary ownership (what silicon-bridge owns vs does not own) is
 described in silicon-bridge
@@ -88,7 +88,7 @@ operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
 | `WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` | `DATA_WIDTH = 16` | `2**ADDR_WIDTH`, `ADDR_WIDTH = 10` → 1024 | Synaptic weights |
 | `NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` | `PARAM_WIDTH = 16` | `2**ADDR_WIDTH`, `ADDR_WIDTH = 8` → 256 | **One** parameter type per instance (threshold **or** leak, not both) |
 | `LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16` | n/a | LIF dynamics; requires `PARAM_WIDTH == DATA_WIDTH` at elaborate time |
-| `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Trace-based ±1 weight update with unsigned saturate |
+| `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; unsigned saturate (#55) |
 
 **LIF semantics vs Q8.8 (unsigned):**
 
@@ -228,7 +228,7 @@ is **already merged** and must not be re-implemented here:
 
 | Deliverable | Location | PR |
 |-------------|----------|-----|
-| Optional self-hosted Vivado workflow | `.github/workflows/vivado-ci.yml` | [#31](https://github.com/Limen-Neural/silicon-hdl/pull/31) |
+| Optional self-hosted Vivado workflow | `.github/workflows/vivado-ci.yml` | [#31](https://github.com/rmems/silicon-hdl/pull/31) |
 | SoC synth / implement / bitstream | `scripts/build_soc.tcl` | used by workflow |
 | Core unit sim under Vivado | `scripts/sim_core.tcl` | used by workflow |
 | WNS / WHS gate | `scripts/check_wns.py` on `timing_summary.rpt` | workflow step |
@@ -275,10 +275,10 @@ and an explicit address map from the flattened weight matrix onto `WeightRam` de
 
 | Resource | Link |
 |----------|------|
-| Issue #8 (open alignment + historical CI ask) | [silicon-hdl#8](https://github.com/Limen-Neural/silicon-hdl/issues/8) |
-| Issue #10 (closed; similar doc/align scope) | [silicon-hdl#10](https://github.com/Limen-Neural/silicon-hdl/issues/10) |
-| PR #11 foundational RTL correctness | [silicon-hdl#11](https://github.com/Limen-Neural/silicon-hdl/pull/11) |
-| PR #31 Vivado CI (util/timing) | [silicon-hdl#31](https://github.com/Limen-Neural/silicon-hdl/pull/31) |
+| Issue #8 (open alignment + historical CI ask) | [silicon-hdl#8](https://github.com/rmems/silicon-hdl/issues/8) |
+| Issue #10 (closed; similar doc/align scope) | [silicon-hdl#10](https://github.com/rmems/silicon-hdl/issues/10) |
+| PR #11 foundational RTL correctness | [silicon-hdl#11](https://github.com/rmems/silicon-hdl/pull/11) |
+| PR #31 Vivado CI (util/timing) | [silicon-hdl#31](https://github.com/rmems/silicon-hdl/pull/31) |
 | silicon-bridge export traits | [`fpga_export.rs`](https://github.com/Limen-Neural/silicon-bridge/blob/main/src/fpga_export.rs) |
 | silicon-bridge UART host | [`fpga_bridge.rs`](https://github.com/Limen-Neural/silicon-bridge/blob/main/src/fpga_bridge.rs) |
 | silicon-bridge boundary matrix | [`docs/boundary-matrix.md`](https://github.com/Limen-Neural/silicon-bridge/blob/main/docs/boundary-matrix.md) |
