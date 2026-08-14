@@ -7,9 +7,9 @@ skeleton only — it does **not** implement hardware CI automation.
 
 | Item | Link |
 | --- | --- |
-| Tracking issue | [Limen-Neural/silicon-hdl#32](https://github.com/Limen-Neural/silicon-hdl/issues/32) |
-| Parent epic | [Limen-Neural/silicon-hdl#23](https://github.com/Limen-Neural/silicon-hdl/issues/23) |
-| Phase B dependency | [Limen-Neural/silicon-hdl#31](https://github.com/Limen-Neural/silicon-hdl/pull/31) (optional self-hosted Vivado CI) |
+| Tracking issue | [rmems/silicon-hdl#32](https://github.com/rmems/silicon-hdl/issues/32) |
+| Parent epic | [rmems/silicon-hdl#23](https://github.com/rmems/silicon-hdl/issues/23) |
+| Phase B dependency | [rmems/silicon-hdl#31](https://github.com/rmems/silicon-hdl/pull/31) (optional self-hosted Vivado CI) |
 
 ## Goals
 

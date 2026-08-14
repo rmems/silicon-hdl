@@ -24,9 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `scripts/dedup_guardian.py` + `.github/workflows/dedup-guardian.yml` enforce the canonical single-source-of-truth on every PR.
   - Strict duplicate detection for all registered modules + near-duplicate "Dupe Radar" with diffs + Purity Score.
   - Fails the check on violations; posts beautiful radar comment on PRs.
+- Release process doc: [`docs/releases.md`](docs/releases.md) — SemVer tags + GitHub Releases under `rmems` (see also #69 for v0.1.0).
 
 ### Changed
 
-- No behavioral or interface changes to RTL or modules.
+- Post-transfer hygiene: live docs and issue links point at
+  [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl) after return from Limen-Neural (#75).
+- `StdpController` LTP/LTD polarity matches classical causal STDP (Bi–Poo): pre-then-post
+  potentiates, post-then-pre depresses (#55). `tb_StdpController` updated to lock the policy.
 
-See also the org master tracker: <https://github.com/Limen-Neural/neuromod/issues/19>
+### Fixed
+
+- STDP polarity inversion vs Bi–Poo / Song–Miller–Abbott convention (#55).

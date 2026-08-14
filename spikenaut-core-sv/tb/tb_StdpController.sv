@@ -88,36 +88,36 @@ module tb_StdpController;
         @(negedge clk);
         check(weight_out == 16'd500, "weight_out should pass through weight_in when no spikes");
 
-        // Potentiation: post then pre while post_trace active -> weight + 1
-        post_spike = 1'b1;
-        @(negedge clk);
-        post_spike = 1'b0;
-        @(negedge clk);
-
-        weight_in   = 16'd100;
-        weight_addr = 10'd5;
-        pre_spike   = 1'b1;
-        @(negedge clk);
-        pre_spike = 1'b0;
-        check(weight_we == 1'b1, "weight_we should assert on potentiation");
-        check(weight_out == 16'd101, "potentiation: weight_out should be 101 (100+1)");
-        check(weight_addr_out == 10'd5, "weight_addr_out should echo weight_addr");
-        @(negedge clk);
-        check(weight_we == 1'b0, "weight_we should deassert after spike cycle");
-
-        // Depression: pre then post while pre_trace active -> weight - 1
+        // LTP (classical): pre then post while pre_trace active -> weight + 1
         pre_spike = 1'b1;
         @(negedge clk);
         pre_spike = 1'b0;
         @(negedge clk);
 
         weight_in   = 16'd100;
-        weight_addr = 10'd7;
+        weight_addr = 10'd5;
         post_spike  = 1'b1;
         @(negedge clk);
         post_spike = 1'b0;
-        check(weight_we == 1'b1, "weight_we should assert on depression");
-        check(weight_out == 16'd99, "depression: weight_out should be 99 (100-1)");
+        check(weight_we == 1'b1, "weight_we should assert on LTP (pre-then-post)");
+        check(weight_out == 16'd101, "LTP: weight_out should be 101 (100+1)");
+        check(weight_addr_out == 10'd5, "weight_addr_out should echo weight_addr");
+        @(negedge clk);
+        check(weight_we == 1'b0, "weight_we should deassert after spike cycle");
+
+        // LTD (classical): post then pre while post_trace active -> weight - 1
+        post_spike = 1'b1;
+        @(negedge clk);
+        post_spike = 1'b0;
+        @(negedge clk);
+
+        weight_in   = 16'd100;
+        weight_addr = 10'd7;
+        pre_spike   = 1'b1;
+        @(negedge clk);
+        pre_spike = 1'b0;
+        check(weight_we == 1'b1, "weight_we should assert on LTD (post-then-pre)");
+        check(weight_out == 16'd99, "LTD: weight_out should be 99 (100-1)");
         check(weight_addr_out == 10'd7, "weight_addr_out should echo weight_addr");
         @(negedge clk);
         check(weight_we == 1'b0, "weight_we should deassert after spike cycle");
@@ -137,29 +137,31 @@ module tb_StdpController;
         @(negedge clk);
         check(weight_we == 1'b0, "weight_we deasserts after spike cycle");
 
-        // Saturation at max: potentiation at max stays at max
-        post_spike = 1'b1;
-        @(negedge clk);
-        post_spike = 1'b0;
-        @(negedge clk);
-
-        weight_in = 16'hFFFF;
-        pre_spike = 1'b1;
-        @(negedge clk);
-        pre_spike = 1'b0;
-        check(weight_out == 16'hFFFF, "saturation: potentiation at max stays at max");
-
-        // Saturation at zero: depression at zero stays at zero
+        // Saturation at max: LTP at max stays at max and must not assert weight_we
         pre_spike = 1'b1;
         @(negedge clk);
         pre_spike = 1'b0;
         @(negedge clk);
 
-        weight_in  = 16'd0;
+        weight_in  = 16'hFFFF;
         post_spike = 1'b1;
         @(negedge clk);
         post_spike = 1'b0;
-        check(weight_out == 16'd0, "saturation: depression at zero stays at zero");
+        check(weight_out == 16'hFFFF, "saturation: LTP at max stays at max");
+        check(weight_we == 1'b0, "saturation: weight_we low when LTP at max (no change)");
+
+        // Saturation at zero: LTD at zero stays at zero and must not assert weight_we
+        post_spike = 1'b1;
+        @(negedge clk);
+        post_spike = 1'b0;
+        @(negedge clk);
+
+        weight_in = 16'd0;
+        pre_spike = 1'b1;
+        @(negedge clk);
+        pre_spike = 1'b0;
+        check(weight_out == 16'd0, "saturation: LTD at zero stays at zero");
+        check(weight_we == 1'b0, "saturation: weight_we low when LTD at zero (no change)");
 
         if (errors == 0) begin
             $display("TB_STDPCONTROLLER: ALL TESTS PASSED");

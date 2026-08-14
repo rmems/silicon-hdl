@@ -2,13 +2,13 @@
 
 # silicon-hdl runtime / deployment boundary matrix
 
-Planning document for GitHub [#3](https://github.com/Limen-Neural/silicon-hdl/issues/3)
+Planning document for GitHub [#3](https://github.com/rmems/silicon-hdl/issues/3)
 and Linear [LIM-9](https://linear.app/rpd-34/issue/LIM-9/plan-rust-runtime-and-deployment-repo-boundary-matrix).
 
 This is **documentation only** — no RTL, CI, runtime, or repo-consolidation changes.
 
 **Canonical path (linkable from LIM-9):** `docs/boundary-matrix.md` in
-[Limen-Neural/silicon-hdl](https://github.com/Limen-Neural/silicon-hdl).
+[rmems/silicon-hdl](https://github.com/rmems/silicon-hdl).
 
 > **Naming:** LIM-9 and several sibling docs still say **Spikenaut-Hardware**. That name
 > referred to the FPGA/HDL layer. The living monorepo for that layer is **`silicon-hdl`**.
@@ -19,9 +19,10 @@ This is **documentation only** — no RTL, CI, runtime, or repo-consolidation ch
 
 ## Purpose
 
-`silicon-hdl` is the **hardware / FPGA layer** of the Limen-Neural stack: a deduplicated,
-Vivado-ready SystemVerilog monorepo of neuromorphic / spiking-neural-network (SNN)
-primitives targeting Basys 3 (Artix-7, `xc7a35tcpg236-1`).
+`silicon-hdl` is the **hardware / FPGA layer** of the neuromorphic stack (owned under
+[`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl); historically Limen-Neural): a
+deduplicated, Vivado-ready SystemVerilog monorepo of neuromorphic / spiking-neural-network
+(SNN) primitives targeting Basys 3 (Artix-7, `xc7a35tcpg236-1`).
 
 It provides:
 
@@ -271,7 +272,7 @@ Clarifications:
 | Tracker | Role |
 |---------|------|
 | [LIM-9](https://linear.app/rpd-34/issue/LIM-9/plan-rust-runtime-and-deployment-repo-boundary-matrix) | Org-wide Rust runtime / deployment boundary matrix |
-| [silicon-hdl #3](https://github.com/Limen-Neural/silicon-hdl/issues/3) | This repo’s Spikenaut-Hardware / silicon-hdl planning issue |
+| [silicon-hdl #3](https://github.com/rmems/silicon-hdl/issues/3) | This repo’s Spikenaut-Hardware / silicon-hdl planning issue |
 | [silicon-bridge #3](https://github.com/Limen-Neural/silicon-bridge/issues/3) | Host bridge boundary matrix (`docs/boundary-matrix.md`) |
 | [neuromod #11](https://github.com/Limen-Neural/neuromod/issues/11) | Core library boundary matrix |
 | [limbic-critic #4](https://github.com/Limen-Neural/limbic-critic/issues/4) | Critic boundary matrix |
