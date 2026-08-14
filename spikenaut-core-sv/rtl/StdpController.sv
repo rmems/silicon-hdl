@@ -37,24 +37,33 @@ module StdpController #(
         end else begin
             pre_trace  <= pre_spike  ? {WINDOW_WIDTH{1'b1}} : (pre_trace  >> 1);
             post_trace <= post_spike ? {WINDOW_WIDTH{1'b1}} : (post_trace >> 1);
-            // weight_we asserts only on actual weight change (potentiation or depression).
-            // Old: pre_spike | post_spike (asserted on every spike, even with no weight change).
-            // New: gated by trace activity — prevents spurious write-backs to weight RAM.
-            // Basys3_Top leaves weight_we unconnected; downstream consumers should treat
-            // this as "weight changed" not "spike occurred".
-            weight_we       <= (pre_spike && post_trace != '0) ||
-                               (post_spike && pre_trace != '0);
+            // weight_we asserts only when the selected LTP/LTD branch changes weight.
+            // LTP has priority if both conditions are true in the same cycle.
+            // Saturation (LTP at max / LTD at zero) holds weight_out and keeps weight_we low.
+            // Basys3_Top leaves weight_we unconnected; consumers treat it as "weight changed".
             weight_addr_out <= weight_addr;
-            if (post_spike && pre_trace != '0)
+            if (post_spike && pre_trace != '0) begin
                 // LTP (classical): pre-then-post – saturate at maximum value
-                weight_out <= (weight_in == {DATA_WIDTH{1'b1}}) ?
-                              weight_in : (weight_in + 1);
-            else if (pre_spike && post_trace != '0)
+                if (weight_in == {DATA_WIDTH{1'b1}}) begin
+                    weight_out <= weight_in;
+                    weight_we  <= 1'b0;
+                end else begin
+                    weight_out <= weight_in + 1;
+                    weight_we  <= 1'b1;
+                end
+            end else if (pre_spike && post_trace != '0) begin
                 // LTD (classical): post-then-pre – saturate at zero
-                weight_out <= (weight_in == '0) ?
-                              weight_in : (weight_in - 1);
-            else
+                if (weight_in == '0) begin
+                    weight_out <= weight_in;
+                    weight_we  <= 1'b0;
+                end else begin
+                    weight_out <= weight_in - 1;
+                    weight_we  <= 1'b1;
+                end
+            end else begin
                 weight_out <= weight_in;
+                weight_we  <= 1'b0;
+            end
         end
     end
 

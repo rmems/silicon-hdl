@@ -137,7 +137,7 @@ module tb_StdpController;
         @(negedge clk);
         check(weight_we == 1'b0, "weight_we deasserts after spike cycle");
 
-        // Saturation at max: LTP at max stays at max
+        // Saturation at max: LTP at max stays at max and must not assert weight_we
         pre_spike = 1'b1;
         @(negedge clk);
         pre_spike = 1'b0;
@@ -148,8 +148,9 @@ module tb_StdpController;
         @(negedge clk);
         post_spike = 1'b0;
         check(weight_out == 16'hFFFF, "saturation: LTP at max stays at max");
+        check(weight_we == 1'b0, "saturation: weight_we low when LTP at max (no change)");
 
-        // Saturation at zero: LTD at zero stays at zero
+        // Saturation at zero: LTD at zero stays at zero and must not assert weight_we
         post_spike = 1'b1;
         @(negedge clk);
         post_spike = 1'b0;
@@ -160,6 +161,7 @@ module tb_StdpController;
         @(negedge clk);
         pre_spike = 1'b0;
         check(weight_out == 16'd0, "saturation: LTD at zero stays at zero");
+        check(weight_we == 1'b0, "saturation: weight_we low when LTD at zero (no change)");
 
         if (errors == 0) begin
             $display("TB_STDPCONTROLLER: ALL TESTS PASSED");

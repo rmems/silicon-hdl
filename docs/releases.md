@@ -14,8 +14,17 @@ How `silicon-hdl` versions are published under **[`rmems/silicon-hdl`](https://g
    from `[Unreleased]` into a dated `## [x.y.z] - YYYY-MM-DD` section in the same
    change that creates the tag (or immediately before).
 4. Tag only from **`main`** after free CI is green (Verilator + Deduplication Guardian).
-5. Free-runner CI does **not** auto-publish tags. Optional later: `workflow_dispatch` or
-   `push: tags: ['v*']` for release notes only — not required for v0.y.z.
+5. Free-runner CI does **not** auto-publish tags. Optional later: a notes-only workflow
+   trigger on tag push (not required for v0.y.z), for example:
+
+   ```yaml
+   on:
+     push:
+       tags:
+         - 'v*'
+   ```
+
+   or `workflow_dispatch` for manual release-note jobs. Do not use free CI to mint tags.
 6. Pre-1.0: use `v0.y.z` for milestones. **`v0.1.0`** is reserved for F1 demo-complete
    ([#69](https://github.com/rmems/silicon-hdl/issues/69) — tag + GitHub Release required,
    not optional).
@@ -36,11 +45,15 @@ See CHANGELOG.md for details.
 EOF
 ```
 
-Or one shot with notes from the changelog section:
+Or one shot with **GitHub-generated** release notes (`--generate-notes` summarizes
+commits/PRs since the previous tag; it does **not** read `CHANGELOG.md`):
 
 ```bash
 gh release create v0.0.1 --target main --generate-notes
 ```
+
+Paste or attach the matching `CHANGELOG.md` section separately when you want that text
+as the release body.
 
 ## What not to do
 
@@ -51,6 +64,6 @@ gh release create v0.0.1 --target main --generate-notes
 
 ## Wiki
 
-GitHub wiki is **enabled** on `rmems/silicon-hdl`. Local incubating clone (if present):
-`~/rmems/limen-return/wiki/silicon-hdl.wiki`. Prefer in-repo `docs/` for durable process
-docs (including this file); use the wiki for optional narrative only.
+GitHub wiki is **enabled** on `rmems/silicon-hdl`. Prefer in-repo `docs/` (including this
+file) for durable process documentation; treat the wiki as optional narrative only.
+Local personal shelf clones of the wiki are not part of the published process.

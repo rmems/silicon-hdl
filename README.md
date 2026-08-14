@@ -102,7 +102,7 @@ grep -R "module synapse_demo_basys3_top"   . --include="*.sv"  # expect 1 hit
 ## Releases
 
 Versions use SemVer git tags (`vX.Y.Z`) plus GitHub Releases under
-[`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl). Process:
+[`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl/releases). Process:
 [`docs/releases.md`](docs/releases.md). Changelog: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
