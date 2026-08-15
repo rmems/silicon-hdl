@@ -25,9 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Strict duplicate detection for all registered modules + near-duplicate "Dupe Radar" with diffs + Purity Score.
   - Fails the check on violations; posts beautiful radar comment on PRs.
 - Release process doc: [`docs/releases.md`](docs/releases.md) — SemVer tags + GitHub Releases under `rmems` (see also #69 for v0.1.0).
+- Logical timestep ADR: [`docs/timestep-contract.md`](docs/timestep-contract.md) — 1 ms SoC `step_en` (#57).
 
 ### Changed
 
+- `LifNeuron` and `StdpController` update only when `step_en` is high; SoC pulses it at 1 kHz (#60).
+- Vivado CI runs on `push` to `main` (self-hosted) as well as PRs / dispatch.
 - Post-transfer hygiene: live docs and issue links point at
   [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl) after return from Limen-Neural (#75).
 - `StdpController` LTP/LTD polarity matches classical causal STDP (Bi–Poo): pre-then-post
