@@ -16,6 +16,7 @@ module tb_StdpController;
 
     logic                    clk;
     logic                    rst_n;
+    logic                    step_en;
     logic                    pre_spike;
     logic                    post_spike;
     logic [ADDR_WIDTH-1:0]   weight_addr;
@@ -33,6 +34,7 @@ module tb_StdpController;
     ) dut (
         .clk            (clk),
         .rst_n          (rst_n),
+        .step_en        (step_en),
         .pre_spike      (pre_spike),
         .post_spike     (post_spike),
         .weight_addr    (weight_addr),
@@ -73,6 +75,7 @@ module tb_StdpController;
     initial begin
         // Reset
         rst_n       = 1'b0;
+        step_en     = 1'b1;
         pre_spike   = 1'b0;
         post_spike  = 1'b0;
         weight_addr = '0;
@@ -162,6 +165,44 @@ module tb_StdpController;
         pre_spike = 1'b0;
         check(weight_out == 16'd0, "saturation: LTD at zero stays at zero");
         check(weight_we == 1'b0, "saturation: weight_we low when LTD at zero (no change)");
+
+        // step_en=0: pre_spike must not load pre_trace (no LTP on later post)
+        rst_n      = 1'b0;
+        step_en    = 1'b0;
+        pre_spike  = 1'b0;
+        post_spike = 1'b0;
+        weight_in  = 16'd100;
+        repeat (2) @(negedge clk);
+        rst_n = 1'b1;
+        @(negedge clk);
+
+        pre_spike = 1'b1;
+        @(negedge clk);
+        pre_spike = 1'b0;
+        repeat (3) @(negedge clk);
+
+        step_en    = 1'b1;
+        post_spike = 1'b1;
+        @(negedge clk);
+        post_spike = 1'b0;
+        check(weight_we == 1'b0, "pre while step_en=0 must not arm LTP");
+        check(weight_out == 16'd100, "weight unchanged when pre was gated off");
+
+        // Contrast: pre on a tick, then hold step_en=0 longer than WINDOW_WIDTH,
+        // then post on a tick — traces must still be live (decay is per tick)
+        step_en   = 1'b1;
+        pre_spike = 1'b1;
+        @(negedge clk);
+        pre_spike = 1'b0;
+        step_en   = 1'b0;
+        repeat (WINDOW_WIDTH + 2) @(negedge clk);
+        weight_in  = 16'd100;
+        step_en    = 1'b1;
+        post_spike = 1'b1;
+        @(negedge clk);
+        post_spike = 1'b0;
+        check(weight_we == 1'b1, "trace must hold across fabric cycles without step_en");
+        check(weight_out == 16'd101, "LTP after held pre_trace");
 
         if (errors == 0) begin
             $display("TB_STDPCONTROLLER: ALL TESTS PASSED");
