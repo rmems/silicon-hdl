@@ -7,6 +7,9 @@
 //   - Pre-then-post (post_spike while pre_trace active) → LTP (weight + 1)
 //   - Post-then-pre (pre_spike while post_trace active) → LTD (weight - 1)
 // Prior to #55 the LTP/LTD arms were inverted relative to this convention.
+//
+// Traces and LTP/LTD update only when step_en is 1. WINDOW_WIDTH is in
+// logical ticks, not fabric clocks (docs/timestep-contract.md).
 
 module StdpController #(
     parameter int DATA_WIDTH   = 16,
@@ -15,6 +18,7 @@ module StdpController #(
 )(
     input  logic                   clk,
     input  logic                   rst_n,
+    input  logic                   step_en,
     input  logic                   pre_spike,
     input  logic                   post_spike,
     input  logic [ADDR_WIDTH-1:0]  weight_addr,
@@ -34,7 +38,7 @@ module StdpController #(
             weight_we       <= 1'b0;
             weight_addr_out <= '0;
             weight_out      <= '0;
-        end else begin
+        end else if (step_en) begin
             pre_trace  <= pre_spike  ? {WINDOW_WIDTH{1'b1}} : (pre_trace  >> 1);
             post_trace <= post_spike ? {WINDOW_WIDTH{1'b1}} : (post_trace >> 1);
             // weight_we asserts only when the selected LTP/LTD branch changes weight.
@@ -64,6 +68,9 @@ module StdpController #(
                 weight_out <= weight_in;
                 weight_we  <= 1'b0;
             end
+        end else begin
+            weight_we <= 1'b0;
+            // hold traces, weight_addr_out, weight_out
         end
     end
 
