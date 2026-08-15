@@ -16,6 +16,7 @@ module tb_LifNeuron;
     logic                    clk;
     logic                    rst_n;
     logic                    spike_in;
+    logic                    step_en;
     logic [DATA_WIDTH-1:0]   weight;
     logic [PARAM_WIDTH-1:0]  threshold;
     logic [PARAM_WIDTH-1:0]  leak;
@@ -30,6 +31,7 @@ module tb_LifNeuron;
         .clk       (clk),
         .rst_n     (rst_n),
         .spike_in  (spike_in),
+        .step_en   (step_en),
         .weight    (weight),
         .threshold (threshold),
         .leak      (leak),
@@ -70,6 +72,7 @@ module tb_LifNeuron;
         // ------------------------------------------------------------
         rst_n     = 1'b0;
         spike_in  = 1'b0;
+        step_en   = 1'b1;
         weight    = '0;
         threshold = 16'd100;
         leak      = 16'd1;
@@ -139,6 +142,37 @@ module tb_LifNeuron;
         @(negedge clk);  // refractory reset after the saturation spike
         check(spike_out == 1'b0, "spike_out should deassert after saturation spike (refractory)");
         spike_in = 1'b0;
+
+        // step_en=0: must not leak or integrate (would fire in a few cycles if ungated)
+        rst_n     = 1'b0;
+        step_en   = 1'b0;
+        spike_in  = 1'b0;
+        leak      = 16'd1;
+        threshold = 16'd100;
+        weight    = 16'd40;
+        repeat (2) @(negedge clk);
+        rst_n = 1'b1;
+        @(negedge clk);
+
+        spike_in = 1'b1;
+        repeat (8) @(negedge clk);
+        check(spike_out == 1'b0, "step_en=0: spike_out must stay 0 (no integrate)");
+
+        // One tick: one integrate (0 + 40), still below threshold
+        step_en = 1'b1;
+        @(negedge clk);
+        step_en = 1'b0;
+        check(spike_out == 1'b0, "one step_en pulse: 40 < 100, no spike");
+
+        // Two more ticks with spike_in: 40-1+40=79, then 79-1+40=118 -> fire
+        step_en = 1'b1;
+        @(negedge clk);
+        step_en = 1'b0;
+        @(negedge clk);
+        step_en = 1'b1;
+        @(negedge clk);
+        step_en = 1'b0;
+        check(spike_out == 1'b1, "third step_en pulse: membrane crosses 100");
 
         if (errors == 0) begin
             $display("TB_LIFNEURON: ALL TESTS PASSED");
