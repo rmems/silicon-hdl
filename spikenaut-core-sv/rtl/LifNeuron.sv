@@ -2,6 +2,8 @@
 // LifNeuron.sv
 // Canonical source: spikenaut-core-sv/rtl
 // Leaky Integrate-and-Fire neuron model
+// Updates (leak, integrate, fire) occur only when step_en is 1.
+// See docs/timestep-contract.md. Unit TBs drive step_en=1 every cycle.
 
 module LifNeuron #(
     parameter int DATA_WIDTH  = 16,
@@ -9,6 +11,7 @@ module LifNeuron #(
 )(
     input  logic                   clk, 
     input  logic                   rst_n,
+    input  logic                   step_en,
     input  logic                   spike_in,
     input  logic [DATA_WIDTH-1:0]  weight,
     input  logic [PARAM_WIDTH-1:0] threshold,
@@ -32,7 +35,7 @@ module LifNeuron #(
         if (!rst_n) begin
             membrane_potential <= '0;
             spike_out          <= 1'b0;
-        end else begin
+        end else if (step_en) begin
             // Reset membrane in the same cycle as the spike to ensure a
             // single-cycle pulse on spike_out.
             automatic logic [DATA_WIDTH-1:0] next_mem;
