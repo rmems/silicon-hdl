@@ -51,6 +51,24 @@ module spikenaut_soc_basys3_top #(
     logic rst;
     assign rst = ~rst_n;
 
+    localparam int TICK_HZ   = 1000;
+    localparam int STEP_DIV  = CLK_FREQ / TICK_HZ; // 100_000
+    logic [$clog2(STEP_DIV)-1:0] step_cnt;
+    logic                        step_en;
+
+    always_ff @(posedge clk) begin
+        if (!rst) begin
+            step_cnt <= '0;
+            step_en  <= 1'b0;
+        end else if (step_cnt == STEP_DIV - 1) begin
+            step_cnt <= '0;
+            step_en  <= 1'b1;
+        end else begin
+            step_cnt <= step_cnt + 1'b1;
+            step_en  <= 1'b0;
+        end
+    end
+
     // ----------------------------------------------------------------
     // Bridge
     // ----------------------------------------------------------------
@@ -83,10 +101,8 @@ module spikenaut_soc_basys3_top #(
     // Multiple param types (threshold/leak) require separate RAM instances.
     // E2: $readmemh from merged_v2; host UART rewrite remains a later path.
     // we=0, addr=0 => dout settles to image word 0 after first post-reset read.
-    // Note (E3 board smoke): LifNeuron applies leak every 100 MHz cycle while
-    // UART rx_valid is 1 cycle/byte — continuous UART traffic alone will not
-    // integrate to threshold with these Q8.8 values. E3 should gate updates to
-    // protocol timesteps or use a demo stim path, not rely on raw UART bytes.
+    // Timestep: LifNeuron / StdpController update only on step_en (1 ms).
+    // See docs/timestep-contract.md (#57 / #60).
     logic [PARAM_WIDTH-1:0] threshold_param;
     logic [PARAM_WIDTH-1:0] leak_param;
 
@@ -151,6 +167,7 @@ module spikenaut_soc_basys3_top #(
     ) u_neuron (
         .clk       (clk),
         .rst_n     (rst),
+        .step_en   (step_en),
         .spike_in  (bridge_rx_valid),
         .weight    (weight_dout),
         .threshold (threshold_param),
@@ -169,6 +186,7 @@ module spikenaut_soc_basys3_top #(
     ) u_stdp (
         .clk            (clk),
         .rst_n          (rst),
+        .step_en        (step_en),
         .pre_spike      (bridge_rx_valid),
         .post_spike     (spike_out),
         .weight_addr    ('0),
