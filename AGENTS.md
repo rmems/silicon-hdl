@@ -89,6 +89,8 @@ python scripts/dedup_guardian.py --radar radar.md --threshold 0.85   # near-dup 
 
 - **Compile order matters** and is fixed by dependency direction: `lib_bridge` → `lib_core` →
   `lib_soc` / `lib_synapse`.
+- Logical SNN timestep vs fabric clock: [`docs/timestep-contract.md`](docs/timestep-contract.md)
+  (1 ms `step_en` from the SoC; LIF/STDP do not update every 100 MHz edge).
 - `spikenaut-soc-sv/rtl` and `synapse-link-hdl/examples/basys3` should only *instantiate*
   core/bridge modules and should not contain their own copies.
 - If a SoC- or demo-only wrapper needs new logic, give it a distinct module name rather than
