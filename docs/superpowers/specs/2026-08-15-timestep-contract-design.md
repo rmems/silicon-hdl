@@ -23,7 +23,7 @@ No breadboard. The on-board oscillator is the only clock.
 | Fabric clock | 100 MHz (`sys_clk_pin`, 10 ns) — unchanged |
 | Logical tick | **1 ms** (1 kHz) = **100_000** fabric cycles |
 | Enable | One-cycle `step_en` from a SoC divider in `spikenaut_soc_basys3_top` |
-| Core API | `LifNeuron` and `StdpController` grow `step_en`; default **1** so existing unit TBs stay “tick every clock” |
+| Core API | `LifNeuron` and `StdpController` grow an explicit `step_en` input — no default; every instance must connect it. Existing unit TBs stay “tick every clock” by driving `1'b1` |
 | STDP window | `WINDOW_WIDTH` counts **ticks**, not fabric clocks |
 | Packaging | **One PR** (ADR + RTL + CI). Board program is **#68**, later, optional |
 | Host step | **#62** may AND/replace the divider later. Not this PR |
@@ -31,7 +31,7 @@ No breadboard. The on-board oscillator is the only clock.
 
 ## Architecture
 
-```
+```text
 100 MHz clk ──► step divider (100_000) ──► step_en (1 cycle / 1 ms)
                       │
                       ├──► LifNeuron.step_en     (leak / integrate / fire)

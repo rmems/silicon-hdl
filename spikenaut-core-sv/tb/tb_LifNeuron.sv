@@ -174,6 +174,17 @@ module tb_LifNeuron;
         step_en = 1'b0;
         check(spike_out == 1'b1, "third step_en pulse: membrane crosses 100");
 
+        // spike_out is a one-*tick* pulse, not a one-fabric-cycle pulse: it must
+        // hold high across disabled cycles and only clear on the next enabled
+        // tick (refractory). See docs/timestep-contract.md.
+        repeat (6) @(negedge clk);
+        check(spike_out == 1'b1, "step_en=0: spike_out must hold high between ticks");
+
+        step_en = 1'b1;
+        @(negedge clk);
+        step_en = 1'b0;
+        check(spike_out == 1'b0, "next step_en pulse: refractory clears spike_out");
+
         if (errors == 0) begin
             $display("TB_LIFNEURON: ALL TESTS PASSED");
             $finish;

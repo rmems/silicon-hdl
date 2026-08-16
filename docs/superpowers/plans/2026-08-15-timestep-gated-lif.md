@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # Timestep-gated LIF + Vivado on main Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -483,7 +485,7 @@ bash scripts/quality.sh
 
 Expected:
 
-```
+```text
   PASS  dedup_guardian
   PASS  verilator/tb_LifNeuron
   PASS  verilator/tb_WeightRam

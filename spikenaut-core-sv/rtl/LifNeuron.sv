@@ -2,8 +2,11 @@
 // LifNeuron.sv
 // Canonical source: spikenaut-core-sv/rtl
 // Leaky Integrate-and-Fire neuron model
-// Updates (leak, integrate, fire) occur only when step_en is 1.
-// See docs/timestep-contract.md. Unit TBs drive step_en=1 every cycle.
+// Updates (leak, integrate, fire) occur only when step_en is 1. spike_out is
+// therefore high for one *enabled tick*, not one fabric cycle: while step_en is
+// 0 it holds its last value until the next enabled edge clears it.
+// See docs/timestep-contract.md. Unit TBs drive step_en=1 every cycle, where a
+// tick and a fabric cycle coincide.
 
 module LifNeuron #(
     parameter int DATA_WIDTH  = 16,
@@ -36,8 +39,8 @@ module LifNeuron #(
             membrane_potential <= '0;
             spike_out          <= 1'b0;
         end else if (step_en) begin
-            // Reset membrane in the same cycle as the spike to ensure a
-            // single-cycle pulse on spike_out.
+            // Reset membrane on the tick following the spike to ensure a
+            // single-tick pulse on spike_out.
             automatic logic [DATA_WIDTH-1:0] next_mem;
             automatic logic [DATA_WIDTH-1:0] decayed_mem;
             automatic logic [DATA_WIDTH-1:0] leak_val;
@@ -52,10 +55,10 @@ module LifNeuron #(
 
             if (spike_out) begin
                 // Refractory period: after a spike the membrane is reset to
-                // zero and incoming spikes during this single reset cycle are
+                // zero and incoming spikes during this single reset tick are
                 // intentionally ignored. This mirrors biological LIF neuron
                 // behavior (absolute refractory period) and guarantees a clean
-                // single-cycle pulse on spike_out.
+                // single-tick pulse on spike_out.
                 next_mem   = '0;
                 next_spike = 1'b0;
             end else begin
