@@ -21,6 +21,7 @@ either side of the contract changes.
 | Compatibility table (Rust ↔ SV) | **Documented** | See below |
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
 | Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
+| Logical timestep / `step_en` | **Documented** | [`docs/timestep-contract.md`](timestep-contract.md); SoC 1 ms divider (#57 / #60) |
 
 Foundational RTL correctness that supports this alignment landed earlier via
 PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
@@ -88,17 +89,22 @@ operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
 | `WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` | `DATA_WIDTH = 16` | `2**ADDR_WIDTH`, `ADDR_WIDTH = 10` → 1024 | Synaptic weights |
 | `NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` | `PARAM_WIDTH = 16` | `2**ADDR_WIDTH`, `ADDR_WIDTH = 8` → 256 | **One** parameter type per instance (threshold **or** leak, not both) |
 | `LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16` | n/a | LIF dynamics; requires `PARAM_WIDTH == DATA_WIDTH` at elaborate time |
-| `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; unsigned saturate (#55) |
+| `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; unsigned saturate (#55). `WINDOW_WIDTH` is in logical ticks; traces update only on `step_en`. |
 
 **LIF semantics vs Q8.8 (unsigned):**
 
 - `membrane -= leak` (floor at 0), then on `spike_in` add `weight` with saturate to all-ones.
-- Spike when integrated membrane `>= threshold`: on that clock edge `spike_out` goes high
-  while `membrane_potential` still holds the **threshold-crossing** value (`next_mem`).
-- **Refractory (next cycle):** when the previous `spike_out` is observed, the FSM forces
-  `next_mem = 0` and clears `spike_out` on the following edge — so membrane reset is
-  **one cycle after** the spike pulse is generated, not simultaneous with it. A future
-  UART potential-readback FSM must sample carefully on spike cycles.
+- Spike when integrated membrane `>= threshold`: on that **enabled** clock edge (`step_en = 1`)
+  `spike_out` goes high while `membrane_potential` still holds the **threshold-crossing**
+  value (`next_mem`).
+- **Refractory (next tick):** when the previous `spike_out` is observed, the FSM forces
+  `next_mem = 0` and clears `spike_out` on the following **enabled** edge — so membrane reset
+  is **one tick after** the spike pulse is generated, not simultaneous with it. A future
+  UART potential-readback FSM must sample carefully on spike ticks.
+- **Pulse width is one logical tick, not one fabric cycle.** While `step_en` is 0 the neuron
+  holds `spike_out`, so in the SoC (1 kHz tick) a spike stays asserted for up to 100_000
+  fabric cycles until the next enabled edge. Only in the unit TBs — which drive `step_en = 1`
+  every cycle — do a tick and a fabric cycle coincide.
 - These ops are consistent with **non-negative** Q8.8 words from
   `FixedPointEncode`. Negative host values must not be written into these RAMs
   via the export path.

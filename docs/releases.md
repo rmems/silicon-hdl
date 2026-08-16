@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-08-14 -->
+<!-- Last updated: 2026-08-15 -->
 
 # Releases and GitHub tags
 
@@ -14,6 +14,8 @@ How `silicon-hdl` versions are published under **[`rmems/silicon-hdl`](https://g
    from `[Unreleased]` into a dated `## [x.y.z] - YYYY-MM-DD` section in the same
    change that creates the tag (or immediately before).
 4. Tag only from **`main`** after free CI is green (Verilator + Deduplication Guardian).
+   Self-hosted **Vivado CI** also runs on `push` to `main` and publishes
+   `vivado-ci-reports` (synth/sim/WNS only; no board flash).
 5. Free-runner CI does **not** auto-publish tags. Optional later: a notes-only workflow
    trigger on tag push (not required for v0.y.z), for example:
 

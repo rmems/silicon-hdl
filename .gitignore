@@ -23,6 +23,7 @@
 # AI skills
 .swarm/
 .worktrees/
+.superpowers/
 
 # Ignore pr review docs
 docs/pr-responses/
