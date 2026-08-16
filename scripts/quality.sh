@@ -76,6 +76,30 @@ for entry in "${TBS[@]}"; do
   fi
 done
 
+echo ""
+echo "=== Verilator tb_spikenaut_soc_basys3_top ==="
+# SoC-level TB: the only sim that exercises the 1 ms step_en divider and the
+# UART-event -> tick-domain handoff (#57 / #60). Needs lib_bridge + lib_core +
+# lib_soc in dependency order, and repo-root CWD for the $readmemh INIT paths.
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_spikenaut_soc_basys3_top \
+    -Ispikenaut-core-sv/rtl -Ispikenaut-bridge-sv/rtl \
+    spikenaut-bridge-sv/rtl/UartRx.sv \
+    spikenaut-bridge-sv/rtl/UartTx.sv \
+    spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+    spikenaut-core-sv/rtl/LifNeuron.sv \
+    spikenaut-core-sv/rtl/WeightRam.sv \
+    spikenaut-core-sv/rtl/NeuronParamRam.sv \
+    spikenaut-core-sv/rtl/StdpController.sv \
+    spikenaut-soc-sv/rtl/Basys3_Top.sv \
+    spikenaut-soc-sv/tb/tb_Basys3_Top.sv \
+  && ./obj_dir/Vtb_spikenaut_soc_basys3_top; then
+  record "verilator/tb_spikenaut_soc_basys3_top" "PASS"
+else
+  record "verilator/tb_spikenaut_soc_basys3_top" "FAIL"
+fi
+
 if [[ "$RUN_VIVADO" -eq 1 ]]; then
   echo ""
   if ! command -v vivado >/dev/null 2>&1; then

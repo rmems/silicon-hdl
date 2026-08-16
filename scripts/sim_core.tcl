@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # sim_core.tcl
-# Vivado simulation script for spikenaut-core-sv unit testbenches
+# Vivado simulation script for the core unit testbenches plus the SoC-level
+# testbench (#57 / #60).
 #
 # Library ownership:
 #   lib_bridge  <- spikenaut-bridge-sv/rtl
 #   lib_core    <- spikenaut-core-sv/rtl
-#   lib_tb_core <- spikenaut-core-sv/tb
+#   lib_soc     <- spikenaut-soc-sv/rtl
+#   lib_tb_core <- spikenaut-core-sv/tb + spikenaut-soc-sv/tb
 #
 # Usage (Vivado Tcl console or batch mode):
 #   vivado -mode batch -source scripts/sim_core.tcl
@@ -48,13 +50,27 @@ read_verilog -sv [list \
 ]
 
 # ---------------------------------------------------------------------------
-# 3. lib_tb_core  –  spikenaut-core-sv/tb (testbenches)
+# 2b. lib_soc  –  spikenaut-soc-sv/rtl (top-level wrapper; #57 / #60)
+# ---------------------------------------------------------------------------
+# Needed by the SoC-level testbench, which is the only sim that exercises the
+# 1 ms step_en divider and the UART-event -> tick-domain handoff.
+set soc_rtl [file join $repo_root spikenaut-soc-sv rtl]
+
+read_verilog -sv [list \
+    [file join $soc_rtl Basys3_Top.sv] \
+]
+
+# ---------------------------------------------------------------------------
+# 3. lib_tb_core  –  spikenaut-core-sv/tb + spikenaut-soc-sv/tb (testbenches)
 # ---------------------------------------------------------------------------
 set core_tb [file join $repo_root spikenaut-core-sv tb]
+set soc_tb  [file join $repo_root spikenaut-soc-sv tb]
 
 # Add all testbench files in tb/ if any exist
-if {[llength [glob -nocomplain [file join $core_tb *.sv]]] > 0} {
-    read_verilog -sv [glob [file join $core_tb *.sv]]
+foreach tb_dir [list $core_tb $soc_tb] {
+    if {[llength [glob -nocomplain [file join $tb_dir *.sv]]] > 0} {
+        read_verilog -sv [glob [file join $tb_dir *.sv]]
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -62,20 +78,31 @@ if {[llength [glob -nocomplain [file join $core_tb *.sv]]] > 0} {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController}
+set core_tb_tops {tb_LifNeuron tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_spikenaut_soc_basys3_top}
+
+set mem_dir [file join $repo_root spikenaut-core-sv mem]
 
 foreach tb_top $core_tb_tops {
     set_property top $tb_top [get_filesets sim_1]
     set_property top_lib xil_defaultlib [get_filesets sim_1]
 
+    # Unit TBs finish well inside 10us. The SoC TB spans several 1 ms ticks,
+    # so it needs a longer window; it calls $finish, so this is only a cap.
+    set run_time 10us
+
     # INIT TBs: XSim CWD is the sim run directory, so pass absolute INIT paths
     # (repo-root-relative defaults work for Verilator only).
     if {$tb_top eq "tb_WeightRam_init"} {
-        set mem_abs [file normalize [file join $repo_root spikenaut-core-sv mem merged_v2_weights.mem]]
-        set_property generic "INIT=$mem_abs" [get_filesets sim_1]
+        set_property generic "INIT=[file normalize [file join $mem_dir merged_v2_weights.mem]]" [get_filesets sim_1]
     } elseif {$tb_top eq "tb_NeuronParamRam_init"} {
-        set mem_abs [file normalize [file join $repo_root spikenaut-core-sv mem merged_v2_thresholds.mem]]
-        set_property generic "INIT=$mem_abs" [get_filesets sim_1]
+        set_property generic "INIT=[file normalize [file join $mem_dir merged_v2_thresholds.mem]]" [get_filesets sim_1]
+    } elseif {$tb_top eq "tb_spikenaut_soc_basys3_top"} {
+        set_property generic [list \
+            "WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_weights.mem]]" \
+            "THRESH_INIT=[file normalize [file join $mem_dir merged_v2_thresholds.mem]]" \
+            "LEAK_INIT=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
+        ] [get_filesets sim_1]
+        set run_time 10ms
     } else {
         # Clear any leftover generic from a prior top in this loop.
         catch {set_property generic {} [get_filesets sim_1]}
@@ -86,7 +113,7 @@ foreach tb_top $core_tb_tops {
     # catch() guards the first iteration where the run may not exist yet.
     catch {reset_run sim_1}
     launch_simulation
-    run 10us
+    run $run_time
     close_sim
 }
 

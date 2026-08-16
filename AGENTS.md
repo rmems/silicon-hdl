@@ -23,7 +23,12 @@ synthesis and bitstream generation.
 
 - Workflow: `.github/workflows/vivado-ci.yml` (issue #12 / epic #23 Phase B)
 - Triggers: **same-repo** pull_request (`opened` / `synchronize` / `reopened` /
-  `ready_for_review`), plus **Actions → Vivado CI → Run workflow**
+  `ready_for_review`), **`push` to `main`** (intentional — reports on every
+  default-branch update), plus **Actions → Vivado CI → Run workflow**
+- Because `push` to `main` runs repo-controlled scripts on the self-hosted
+  runner unconditionally, **branch protection on `main` is what keeps that
+  path trusted** — require reviewed PRs (and/or restrict the `vivado` runner
+  group) rather than relying on the workflow file alone
 - **Fork PRs are skipped** when they leave this workflow file alone
   (`head.repo.full_name == github.repository` job `if:`). Residual risk: GitHub
   runs the workflow from the PR *head*, so a fork that edits `vivado-ci.yml` can
@@ -60,6 +65,38 @@ symbols or tops conflict.
 
 Testbenches call `$fatal` on failure and are self-checking (look for an `errors` counter and
 `$display` summary at the end).
+
+### SoC-level testbench
+
+`tb_spikenaut_soc_basys3_top` (`spikenaut-soc-sv/tb/tb_Basys3_Top.sv`) is the only simulation
+that covers the 1 ms `step_en` divider and the UART-event → tick-domain handoff — the core unit
+TBs drive `step_en` themselves, so they cannot reach either. It needs the full
+`lib_bridge` → `lib_core` → `lib_soc` source list and must run from the repo root
+(`$readmemh` `INIT_FILE` paths are repo-root relative):
+
+```bash
+rm -rf obj_dir
+verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+  --top-module tb_spikenaut_soc_basys3_top \
+  -Ispikenaut-core-sv/rtl -Ispikenaut-bridge-sv/rtl \
+  spikenaut-bridge-sv/rtl/UartRx.sv spikenaut-bridge-sv/rtl/UartTx.sv \
+  spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+  spikenaut-core-sv/rtl/LifNeuron.sv spikenaut-core-sv/rtl/WeightRam.sv \
+  spikenaut-core-sv/rtl/NeuronParamRam.sv spikenaut-core-sv/rtl/StdpController.sv \
+  spikenaut-soc-sv/rtl/Basys3_Top.sv spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+./obj_dir/Vtb_spikenaut_soc_basys3_top
+```
+
+Notes for editing it:
+
+- It observes `step_en`, `step_cnt`, `spike_pending`, and `membrane_potential` by hierarchical
+  reference, so the synthesized top needs no debug ports. Renaming those nets breaks the TB.
+- `step_en` is a **register**: it is set at posedge P and the cores consume it at posedge P+1.
+  Sample post-tick state via `wait_tick_applied()`, not `wait_for_tick()`.
+- Tick period and pulse width are checked by a free-running monitor on every tick; absolute
+  first-tick latency is measured in the main sequence to keep it free of process-ordering races.
+- Reset polarity is inverted at this level: the `rst_n` **port** is the active-high BTNC button,
+  so the TB asserts reset with `btn_rst = 1`.
 
 ### Vivado (when available)
 
