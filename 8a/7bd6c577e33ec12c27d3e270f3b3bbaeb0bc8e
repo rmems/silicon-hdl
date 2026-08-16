@@ -1,0 +1,40 @@
+scripts/sim_core.tcl
+  s_551221ce404261::t_626a52350f98a8 53-64,67,70-73
+  s_551221ce404261::t_0c07637284721c 3-4,9-10
+  s_551221ce404261::t_59e0347d93b013 81-83,89-92,96,98-105,116
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_551221ce404261::t_f325cc39acff43 40-48
+  s_551221ce404261::t_d1f0ce7fe35f6a 234,243
+  s_551221ce404261::t_8c1a34023e1bf8 70
+  s_551221ce404261::t_3b0cb960ce18ad 191-197,199-206,209,211-212
+  s_551221ce404261::t_152b32f96bdd88 108-113,115,127,132
+  s_551221ce404261::t_92a3d4d9f39af3 1-13,16-21,25-39,49,51-56,62-63,65-69,71,77-105,141-156,161-165,175-190,207-208,210,216-221,226-227,229-233,236-240,242,244-250,257-259,261-268
+  s_551221ce404261::t_f313548f3ebca6 157-159,166-174
+  s_551221ce404261::t_7138ede24ef3d6 72-76
+  s_551221ce404261::t_0734fb3c4eb48c 14-15,22-24,50,57-61,64,106-107,114,116-126,128-131,133-140,160,198,213-215,222-225,228,235,241,251-256,260
+AGENTS.md
+  s_551221ce404261::t_442f82fb76754f 26-31
+  s_551221ce404261::t_0ee85c397ce636 69-100
+CHANGELOG.md
+  s_551221ce404261::t_3fd74dde7edd60 29-32
+scripts/quality.sh
+  s_551221ce404261::t_21acbfc7aa65dd 79-102
+.github/workflows/sim.yml
+  s_551221ce404261::t_f77eef995f12df 92-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8a7bd6c577e33ec12c27d3e270f3b3bbaeb0bc8e",
+  "prompts": {},
+  "sessions": {
+    "s_551221ce404261": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0f29b748-dbc8-4edf-beff-5eb2321c290b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
