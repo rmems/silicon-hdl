@@ -10,6 +10,12 @@
 //
 // Traces and LTP/LTD update only when step_en is 1. WINDOW_WIDTH is in
 // logical ticks, not fabric clocks (docs/timestep-contract.md).
+//
+// Output contract under gating: weight_out and weight_addr_out hold their
+// last enabled-tick value while step_en is 0 (they are NOT a per-fabric-cycle
+// passthrough of weight_in/weight_addr). weight_we is forced low on every
+// disabled cycle, so the "weight changed" strobe stays one tick wide.
+// Consumers must sample these outputs on the tick, not on arbitrary cycles.
 
 module StdpController #(
     parameter int DATA_WIDTH   = 16,

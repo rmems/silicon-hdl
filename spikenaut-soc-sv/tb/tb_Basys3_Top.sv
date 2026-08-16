@@ -54,6 +54,22 @@ module tb_spikenaut_soc_basys3_top #(
     localparam int TICK_HZ      = 1000;
     localparam int STEP_DIV     = CLK_FREQ / TICK_HZ;     // 100_000
 
+    // Test 5 timing budget: the UART byte is sent right after a tick, and its
+    // frame plus the spike_pending hold window must complete before the NEXT
+    // tick, or the hold assertion would race the tick that consumes the event.
+    // Guarded at elaboration (same idiom as LifNeuron's width guard) so a
+    // future change to BAUD_RATE, TICK_HZ, or HOLD_CYCLES fails loudly here
+    // instead of surfacing as a confusing assertion failure mid-run.
+    // SEQ_SLACK covers the handful of sequencing negedges around the checks.
+    localparam int UART_FRAME_CYCLES = 10 * CLKS_PER_BIT; // 8N1: start+8+stop
+    localparam int HOLD_CYCLES       = 2000;
+    localparam int SEQ_SLACK         = 16;
+    generate
+        if (UART_FRAME_CYCLES + HOLD_CYCLES + SEQ_SLACK >= STEP_DIV)
+            $error("tb_spikenaut_soc_basys3_top: test 5 budget blown: frame (%0d) + hold (%0d) + slack (%0d) must be < STEP_DIV (%0d)",
+                   UART_FRAME_CYCLES, HOLD_CYCLES, SEQ_SLACK, STEP_DIV);
+    endgenerate
+
     // merged_v2 word 0 — the only entry the demo can currently address
     // (every RAM port is tied off at addr 0, we = 0).
     localparam int unsigned W0_WEIGHT    = 16'h00C0;      // 192
@@ -227,7 +243,7 @@ module tb_spikenaut_soc_basys3_top #(
         uart_send_byte(8'hA5);
         check(dut.spike_pending === 1'b1, "UART byte must set spike_pending");
 
-        repeat (2000) @(negedge clk);
+        repeat (HOLD_CYCLES) @(negedge clk);
         check(dut.spike_pending === 1'b1,
               "spike_pending must hold until a tick consumes it");
 
