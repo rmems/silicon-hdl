@@ -11,11 +11,15 @@
 // Traces and LTP/LTD update only when step_en is 1. WINDOW_WIDTH is in
 // logical ticks, not fabric clocks (docs/timestep-contract.md).
 //
-// Output contract under gating: weight_out and weight_addr_out hold their
-// last enabled-tick value while step_en is 0 (they are NOT a per-fabric-cycle
-// passthrough of weight_in/weight_addr). weight_we is forced low on every
-// disabled cycle, so the "weight changed" strobe stays one tick wide.
-// Consumers must sample these outputs on the tick, not on arbitrary cycles.
+// Output contract under gating (registered handoff): outputs register at the
+// enabled edge, so they are valid during the fabric cycle AFTER the tick.
+// weight_we is a one-fabric-cycle strobe in that handoff cycle — the only
+// cycle it can be high while step_en is low — and weight_out /
+// weight_addr_out are aligned with it, then hold their values until the next
+// tick's update (they are NOT a per-fabric-cycle passthrough of
+// weight_in / weight_addr). A fabric-clocked RAM write port therefore latches
+// each change exactly once. Consumers must not assume weight_we overlaps
+// step_en itself. Timing locked by the handoff checks in tb_StdpController.
 
 module StdpController #(
     parameter int DATA_WIDTH   = 16,

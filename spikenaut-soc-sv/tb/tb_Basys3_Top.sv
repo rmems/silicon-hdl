@@ -64,6 +64,11 @@ module tb_spikenaut_soc_basys3_top #(
     localparam int UART_FRAME_CYCLES = 10 * CLKS_PER_BIT; // 8N1: start+8+stop
     localparam int HOLD_CYCLES       = 2000;
     localparam int SEQ_SLACK         = 16;
+
+    // Ticks are at most STEP_DIV cycles apart, so any wait that exceeds this
+    // bound means the divider is broken. Fail loudly with a cycle count
+    // instead of hanging until an external job timeout with no diagnostic.
+    localparam int TICK_WAIT_BOUND   = STEP_DIV + SEQ_SLACK;
     generate
         if (UART_FRAME_CYCLES + HOLD_CYCLES + SEQ_SLACK >= STEP_DIV)
             $error("tb_spikenaut_soc_basys3_top: test 5 budget blown: frame (%0d) + hold (%0d) + slack (%0d) must be < STEP_DIV (%0d)",
@@ -172,12 +177,19 @@ module tb_spikenaut_soc_basys3_top #(
 
     // Advance to the negedge at which step_en reads high. step_en is a
     // register set at posedge P, so at this point the tick is still "in
-    // flight" — the cores consume it at posedge P+1.
+    // flight" — the cores consume it at posedge P+1. Bounded: $fatal if no
+    // tick arrives within TICK_WAIT_BOUND cycles (broken divider).
     task automatic wait_for_tick();
+        int unsigned waited;
         begin
+            waited = 0;
             forever begin
                 @(negedge clk);
+                waited++;
                 if (dut.step_en === 1'b1) break;
+                if (waited >= TICK_WAIT_BOUND)
+                    $fatal(1, "wait_for_tick: no step_en within %0d cycles (bound %0d)",
+                           waited, TICK_WAIT_BOUND);
             end
         end
     endtask
@@ -217,6 +229,9 @@ module tb_spikenaut_soc_basys3_top #(
             @(negedge clk);
             first_tick_cycles++;
             if (dut.step_en === 1'b1) break;
+            if (first_tick_cycles >= TICK_WAIT_BOUND)
+                $fatal(1, "first tick: no step_en within %0d cycles of reset release (bound %0d)",
+                       first_tick_cycles, TICK_WAIT_BOUND);
         end
         check_int(first_tick_cycles, STEP_DIV,
                   "first step_en must be STEP_DIV cycles after reset release");

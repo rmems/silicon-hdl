@@ -204,6 +204,44 @@ module tb_StdpController;
         check(weight_we == 1'b1, "trace must hold across fabric cycles without step_en");
         check(weight_out == 16'd101, "LTP after held pre_trace");
 
+        // Registered handoff: with a pulsed one-cycle step_en, the write
+        // strobe registers at the enabled edge and is therefore visible during
+        // the fabric cycle AFTER the tick — exactly one cycle wide, aligned
+        // with weight_out (see the output contract in StdpController.sv).
+        rst_n      = 1'b0;
+        step_en    = 1'b0;
+        pre_spike  = 1'b0;
+        post_spike = 1'b0;
+        weight_in  = 16'd100;
+        repeat (2) @(negedge clk);
+        rst_n = 1'b1;
+        @(negedge clk);
+
+        // Tick 1: load pre_trace only — no weight change, no strobe.
+        step_en   = 1'b1;
+        pre_spike = 1'b1;
+        @(negedge clk);
+        step_en   = 1'b0;
+        pre_spike = 1'b0;
+        check(weight_we == 1'b0, "handoff: trace-load tick must not strobe weight_we");
+        repeat (3) @(negedge clk);
+        check(weight_we == 1'b0, "handoff: no strobe on disabled cycles before LTP");
+
+        // Tick 2: LTP fires. The strobe appears in the handoff cycle (the one
+        // fabric cycle after the tick), then clears — never wider.
+        step_en    = 1'b1;
+        post_spike = 1'b1;
+        @(negedge clk);
+        step_en    = 1'b0;
+        post_spike = 1'b0;
+        check(weight_we == 1'b1, "handoff: weight_we strobes in the cycle after the LTP tick");
+        check(weight_out == 16'd101, "handoff: weight_out aligned with the strobe");
+        @(negedge clk);
+        check(weight_we == 1'b0, "handoff: weight_we is exactly one fabric cycle wide");
+        repeat (3) @(negedge clk);
+        check(weight_we == 1'b0, "handoff: weight_we stays low on later disabled cycles");
+        check(weight_out == 16'd101, "handoff: weight_out holds until the next tick");
+
         if (errors == 0) begin
             $display("TB_STDPCONTROLLER: ALL TESTS PASSED");
             $finish;
