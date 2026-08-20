@@ -1,9 +1,12 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Last updated: 2026-08-19 -->
 
 # silicon-hdl runtime / deployment boundary matrix
 
 Planning document for GitHub [#3](https://github.com/rmems/silicon-hdl/issues/3)
 and Linear [LIM-9](https://linear.app/rpd-34/issue/LIM-9/plan-rust-runtime-and-deployment-repo-boundary-matrix).
+F0 honesty refresh: GitHub [#56](https://github.com/rmems/silicon-hdl/issues/56)
+under finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 
 This is **documentation only** — no RTL, CI, runtime, or repo-consolidation changes.
 
@@ -78,6 +81,22 @@ Single-source-of-truth rule: no module is defined in more than one place (enforc
 Deduplication Guardian). SoC and demo wrappers **instantiate** core/bridge modules; they
 do not redefine them.
 
+### Maturity on `main` (F0 honesty)
+
+This is the demo product as wired in `spikenaut_soc_basys3_top` today — not the
+host `silicon-bridge` v3.0 16-neuron frame. Remaining product work lives under
+finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
+
+| Capability | On `main` | Tracker |
+|------------|-----------|---------|
+| Elaboration / bitstream `.mem` init | **Wired** — `INIT_FILE` `$readmemh` on `WeightRam` / `NeuronParamRam`; SoC defaults to `spikenaut-core-sv/mem/merged_v2_{weights,thresholds,decay}.mem`; `scripts/build_soc.tcl` overrides with absolute paths | [#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52) (E1/E2) |
+| Runtime RAM write (UART / host rewrite) | **Off** — `we` tied low on all three SoC RAM instances | [#63](https://github.com/rmems/silicon-hdl/issues/63) |
+| RAM address used by the neuron | **`addr = 0`** — after the first post-reset read, `dout` is image **word 0** only | [#61](https://github.com/rmems/silicon-hdl/issues/61) |
+| Neuron count | **One** `LifNeuron` (`led[0]`); not a 16-neuron array | [#61](https://github.com/rmems/silicon-hdl/issues/61) |
+| STDP | `StdpController` is instantiated (classical Bi–Poo, [#55](https://github.com/rmems/silicon-hdl/issues/55)) and gated by `step_en`, but **writeback is open**: `weight_we` / `weight_addr_out` / `weight_out` are unconnected; `weight_addr` is `'0` | [#70](https://github.com/rmems/silicon-hdl/issues/70) |
+| Host UART protocol | **Not** SiliconBridge v3.0. RX byte strobe is latched to `spike_pending` and consumed on the 1 ms tick; payload bits are ignored. `tx_send = 0` (no potential / spike-bitmap readback) | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#64](https://github.com/rmems/silicon-hdl/issues/64) |
+| Logical timestep | **1 ms** `step_en` (100_000 fabric cycles @ 100 MHz) | [#57](https://github.com/rmems/silicon-hdl/issues/57) / [#60](https://github.com/rmems/silicon-hdl/issues/60); [`docs/timestep-contract.md`](timestep-contract.md) |
+
 ---
 
 ## Owns
@@ -121,8 +140,8 @@ do not redefine them.
 
 | Dependency / input | Why | Status today |
 |--------------------|-----|--------------|
-| Parameter `.mem` / hex images from `silicon-bridge` | **Future / planned** host init: `$readmemh` or UART/write-port load of weight and neuron-parameter RAMs | **Not wired yet** — `WeightRam` / `NeuronParamRam` have no `$readmemh`; Basys 3 SoC top ties `we` low and leaves contents uninitialized |
-| UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge` | **Raw RX-valid stimulus only** on current SoC demo (`bridge_rx_valid` → spike; payload ignored; `tx_send` tied off). Multi-byte configuration / spike readout is **future work**, not an existing protocol |
+| Parameter `.mem` / hex images from `silicon-bridge` (in-tree copies under `spikenaut-core-sv/mem/`) | Elaboration / bitstream init via `$readmemh`; runtime UART rewrite later | **INIT_FILE wired** (E1/E2). RAMs load when `INIT_FILE` is non-empty and not `"NONE"`. SoC demo still ties `we` low and holds `addr` at 0 — contents are initialized, but only word 0 is visible to the single neuron. UART/write-port load is **not** on `main` ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
+| UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge` | **Raw RX-valid stimulus only** on the current SoC demo (`rx_valid` latched to `spike_pending`, consumed on `step_en`; payload ignored; `tx_send` tied off). Multi-byte configuration / spike readout is **future work** ([#62](https://github.com/rmems/silicon-hdl/issues/62)), not an existing on-chip protocol |
 | Xilinx Vivado (optional) | Synthesis, implementation, bitstream for Basys 3 | Available on self-hosted path |
 | Verilator | Free-stack unit simulation of core testbenches | Required free CI path |
 | Board constraints (`constraints/*.xdc`) | Pinout and timing for target FPGAs | Present |
@@ -207,9 +226,11 @@ Clarifications:
   gate into silicon-bridge.
 - Widths, RAM layouts, reset polarity, and UART **byte** framing are **coordinated** across both
   repos; RTL changes land only here; host format changes land only in `silicon-bridge`.
-- Today’s Basys 3 SoC demo is **not** an end-to-end `.mem` load + multi-byte host protocol
-  implementation (RAM `we` tied off; TX disabled). Treat load/config/readout as sequenced
-  future work, not current ownership of a working path.
+- Today’s Basys 3 SoC demo **does** load Q8.8 `.mem` images at elaboration / bitstream
+  init (`INIT_FILE` / `$readmemh`). It is **not** an end-to-end host protocol: RAM `we`
+  tied off, `addr` stuck at 0, TX disabled, one neuron, STDP writeback unconnected.
+  Treat UART load/config/readout and 16-neuron E2E as sequenced work under
+  [#54](https://github.com/rmems/silicon-hdl/issues/54), not as a working path on `main`.
 
 ### vs legacy `Spikenaut-Hardware`
 
@@ -258,9 +279,14 @@ Clarifications:
 
 **Suggested sequence (planning only):**
 
-1. Land this boundary matrix and link it from LIM-9 / sibling matrices.
-2. Publish or refresh a short **host↔FPGA interface** note (widths, `.mem` map, UART frames)
-   coordinated with `silicon-bridge`.
+1. Landed: this boundary matrix, [`docs/interface-alignment.md`](interface-alignment.md),
+   and SoC `INIT_FILE` `$readmemh` (E1/E2).
+2. Remaining under [#54](https://github.com/rmems/silicon-hdl/issues/54): protocol FSM + TX
+   ([#62](https://github.com/rmems/silicon-hdl/issues/62)), runtime RAM write
+   ([#63](https://github.com/rmems/silicon-hdl/issues/63)), 16-neuron array
+   ([#61](https://github.com/rmems/silicon-hdl/issues/61)), host E2E
+   ([#64](https://github.com/rmems/silicon-hdl/issues/64)), STDP writeback
+   ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
 3. Add or extend cross-repo golden vectors (float → Q8.8 → `.mem` → RTL readback) without
    merging repositories.
 4. Only then consider new board tops or extra on-chip features.
@@ -273,6 +299,8 @@ Clarifications:
 |---------|------|
 | [LIM-9](https://linear.app/rpd-34/issue/LIM-9/plan-rust-runtime-and-deployment-repo-boundary-matrix) | Org-wide Rust runtime / deployment boundary matrix |
 | [silicon-hdl #3](https://github.com/rmems/silicon-hdl/issues/3) | This repo’s Spikenaut-Hardware / silicon-hdl planning issue |
+| [silicon-hdl #54](https://github.com/rmems/silicon-hdl/issues/54) | Finishing epic: 16-neuron host E2E on Basys 3 |
+| [silicon-hdl #56](https://github.com/rmems/silicon-hdl/issues/56) | F0 docs honesty: this file + interface-alignment vs `main` |
 | [silicon-bridge #3](https://github.com/Limen-Neural/silicon-bridge/issues/3) | Host bridge boundary matrix (`docs/boundary-matrix.md`) |
 | [neuromod #11](https://github.com/Limen-Neural/neuromod/issues/11) | Core library boundary matrix |
 | [limbic-critic #4](https://github.com/Limen-Neural/limbic-critic/issues/4) | Critic boundary matrix |
@@ -297,7 +325,7 @@ Covered here in prose:
 
 1. **Purpose** — Spikenaut-Hardware / silicon-hdl FPGA SNN RTL role is stated above.
 2. **Owns / does-not-own** — tables under those headings.
-3. **Allowed and forbidden dependencies** — including honest “status today” for `.mem` and UART.
+3. **Allowed and forbidden dependencies** — including honest “status today” for `.mem` (`INIT_FILE` wired; runtime write still off) and UART (RX event only; TX off).
 4. **Layer boundaries** — core software vs supervisor/app vs deployment host vs hardware RTL.
 5. **Domain leaks, migration risks, sequencing** — dedicated sections above.
 6. **LIM-9 linkability** — this file path (`docs/boundary-matrix.md`) plus the Related tracking table.
