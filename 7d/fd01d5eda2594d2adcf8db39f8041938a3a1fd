@@ -1,0 +1,24 @@
+spikenaut-bridge-sv/tb/tb_UartTx.sv
+  s_5ca93e6ba38b4b::t_196176d68f4c13 107-118
+  s_5ca93e6ba38b4b::t_152cc5013640a8 76-78,80-86
+spikenaut-bridge-sv/tb/tb_SiliconBridge.sv
+  s_5ca93e6ba38b4b::t_ab622d6988914e 92-94,100-111
+AGENTS.md
+  s_5ca93e6ba38b4b::t_a554b3ed4b8697 67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7dfd01d5eda2594d2adcf8db39f8041938a3a1fd",
+  "prompts": {},
+  "sessions": {
+    "s_5ca93e6ba38b4b": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e6a34e26-20a3-49b2-a0f6-85e9518923ff",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
