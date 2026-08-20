@@ -1,0 +1,19 @@
+spikenaut-bridge-sv/tb/tb_UartRx.sv
+  s_5ca93e6ba38b4b::t_c8db7afd5ed2a8 116-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a1de55180d8bbe7897226d9b7a9bb45e4b445a2a",
+  "prompts": {},
+  "sessions": {
+    "s_5ca93e6ba38b4b": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e6a34e26-20a3-49b2-a0f6-85e9518923ff",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
