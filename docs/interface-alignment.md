@@ -1,4 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Last updated: 2026-08-19 -->
 # HDL ↔ silicon-bridge interface alignment
 
 Cross-repo contract between **silicon-hdl** (SystemVerilog RTL) and
@@ -7,6 +8,10 @@ traits and tools). Tracks GitHub issue
 [#8](https://github.com/rmems/silicon-hdl/issues/8)
 (related closed issue
 [#10](https://github.com/rmems/silicon-hdl/issues/10)).
+F0 honesty refresh:
+[#56](https://github.com/rmems/silicon-hdl/issues/56)
+under finishing epic
+[#54](https://github.com/rmems/silicon-hdl/issues/54).
 
 This document is the silicon-hdl source of truth for widths, memory encoding,
 and UART layering. Prefer updating this file (and the cited RTL headers) when
@@ -16,12 +21,13 @@ either side of the contract changes.
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented** | Widths match; `$readmemh` load path not yet wired in SoC demo |
-| SiliconBridge UART framing vs `FpgaBridge` | **Documented** | RTL is transport-only (8-bit bytes); host multi-byte frame is SoC/protocol layer |
+| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Widths match. SoC demo loads `merged_v2_*.mem` via `INIT_FILE` `$readmemh` ([#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52)). Runtime UART rewrite is still off (`we = 0`) |
+| SiliconBridge UART framing vs `FpgaBridge` | **Documented** | RTL is transport-only (8-bit bytes); host multi-byte frame is SoC/protocol layer — **not** on `main` |
 | Compatibility table (Rust ↔ SV) | **Documented** | See below |
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
 | Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
 | Logical timestep / `step_en` | **Documented** | [`docs/timestep-contract.md`](timestep-contract.md); SoC 1 ms divider (#57 / #60) |
+| SoC demo maturity (F0 honesty) | **Partial** | `INIT_FILE` yes; 1 neuron; `addr = 0`; STDP writeback open; `tx_send = 0`. See [#54](https://github.com/rmems/silicon-hdl/issues/54) |
 
 Foundational RTL correctness that supports this alignment landed earlier via
 PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
@@ -109,10 +115,14 @@ operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
   `FixedPointEncode`. Negative host values must not be written into these RAMs
   via the export path.
 
-**SoC demo note (`spikenaut_soc_basys3_top`):** RAM ports are currently tied off
-(`we = 0`, `addr = 0`). Content is undefined until a host load path (e.g.
-`$readmemh` at elaboration or a future UART/config loader) initializes them.
-That is a **pipeline completeness** gap, not a width mismatch.
+**SoC demo note (`spikenaut_soc_basys3_top`):** `INIT_FILE` is wired. Weight,
+threshold, and leak RAMs load `merged_v2_*.mem` at elaboration (Vivado:
+`build_soc.tcl` `-generic` absolute paths so `$readmemh` resolves). Ports remain
+`we = 0`, `addr = 0`, so after the first post-reset read `dout` is **image word
+0** — not a walked array. UART/config loader
+([#63](https://github.com/rmems/silicon-hdl/issues/63)) and multi-neuron
+addressing ([#61](https://github.com/rmems/silicon-hdl/issues/61)) are still
+open. That is a **scale / protocol** gap, not a missing `$readmemh` path.
 
 ### 1.4 Width alignment summary
 
@@ -175,8 +185,15 @@ FPGA → Host (36 bytes):
 Current SoC demo wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
 
 - Instantiates `SiliconBridge` at 100 MHz / 115200 baud (default `DATA_WIDTH=8`).
-- Uses `bridge_rx_valid` as a binary `spike_in` to a single `LifNeuron` (any
-  received byte is treated as an event; payload bits are not decoded).
+- Latches `bridge_rx_valid` into `spike_pending` until the next 1 ms `step_en`
+  (a one-cycle UART strobe would otherwise miss the gated neuron). Any received
+  byte is a binary event; payload bits are not decoded. Multiple bytes inside
+  one tick collapse to a single spike.
+- One `LifNeuron`; RAMs sit at `addr = 0` after `$readmemh` init (word 0 of each
+  merged_v2 image).
+- `StdpController` is instantiated (classical Bi–Poo, `step_en`-gated) but
+  writeback is **open**: `weight_we` / `weight_addr_out` / `weight_out` are left
+  unconnected ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
 - TX path is disabled (`tx_send = 0`); no spike/potential readback frame.
 
 Until a protocol FSM is added above the bridge, end-to-end
@@ -204,7 +221,7 @@ module that:
 | `FpgaParameters.thresholds` | `NeuronParamRam` (threshold instance) `.din`/`.dout` | 16-bit; separate RAM from leak |
 | `FpgaParameters.decay_rates` | `NeuronParamRam` (leak instance) | Mapped as **leak** in LIF (`membrane -= leak`) |
 | `FpgaParameters.weights` | `WeightRam` `.din`/`.dout` | Flattened matrix → linear addresses (SoC policy) |
-| `MemFileWriter` `.mem` lines | Intended `$readmemh` into RAM arrays | Not yet hooked in demo top |
+| `MemFileWriter` `.mem` lines | SoC `INIT_FILE` `$readmemh` into RAM arrays | **Wired** in demo top (`merged_v2` defaults); host rewrite later (#63) |
 | `EXPORT_FORMAT_VERSION` | Metadata only | No RTL parse |
 | `FpgaBridge` open @ 115200 | `SiliconBridge` `BAUD_RATE=115_200` | Match |
 | UART 8 data bits | `DATA_WIDTH=8` on bridge/UART | Match |
@@ -269,11 +286,17 @@ acceptance. Clarifying comments only may be added on `SiliconBridge.sv`.
 
 ### Follow-ups (out of scope for this doc PR)
 
-Future implementation work (track in GitHub issues or `bd`, not here) includes a SoC
-protocol FSM for SiliconBridge v3.0 frames above `SiliconBridge` with TX enabled and
-`tx_busy` respected; `$readmemh` or UART load of `parameters*.mem` into weight, threshold,
-and leak RAMs; multi-neuron array plus spike-bitmap packing for the 16-neuron host frame;
-and an explicit address map from the flattened weight matrix onto `WeightRam` depth.
+`$readmemh` / `INIT_FILE` is **already on `main`** (E1/E2). Remaining product work is
+tracked under finishing epic
+[#54](https://github.com/rmems/silicon-hdl/issues/54), not as a missing mem-init path:
+
+- SoC protocol FSM for SiliconBridge v3.0 frames above `SiliconBridge`, TX enabled,
+  `tx_busy` respected ([#62](https://github.com/rmems/silicon-hdl/issues/62))
+- UART / write-port load of RAMs at runtime ([#63](https://github.com/rmems/silicon-hdl/issues/63))
+- Multi-neuron array plus spike-bitmap packing for the 16-neuron host frame
+  ([#61](https://github.com/rmems/silicon-hdl/issues/61) / [#64](https://github.com/rmems/silicon-hdl/issues/64))
+- Explicit address map from the flattened weight matrix onto `WeightRam` (today: `addr = 0`)
+- STDP writeback into `WeightRam` ([#70](https://github.com/rmems/silicon-hdl/issues/70))
 
 ---
 
@@ -283,8 +306,11 @@ and an explicit address map from the flattened weight matrix onto `WeightRam` de
 |----------|------|
 | Issue #8 (open alignment + historical CI ask) | [silicon-hdl#8](https://github.com/rmems/silicon-hdl/issues/8) |
 | Issue #10 (closed; similar doc/align scope) | [silicon-hdl#10](https://github.com/rmems/silicon-hdl/issues/10) |
+| Issue #54 finishing epic (16-neuron host E2E) | [silicon-hdl#54](https://github.com/rmems/silicon-hdl/issues/54) |
+| Issue #56 F0 docs honesty (this refresh) | [silicon-hdl#56](https://github.com/rmems/silicon-hdl/issues/56) |
 | PR #11 foundational RTL correctness | [silicon-hdl#11](https://github.com/rmems/silicon-hdl/pull/11) |
 | PR #31 Vivado CI (util/timing) | [silicon-hdl#31](https://github.com/rmems/silicon-hdl/pull/31) |
+| Issues #51 / #52 `INIT_FILE` `$readmemh` (E1/E2) | [silicon-hdl#51](https://github.com/rmems/silicon-hdl/issues/51), [#52](https://github.com/rmems/silicon-hdl/issues/52) |
 | silicon-bridge export traits | [`fpga_export.rs`](https://github.com/Limen-Neural/silicon-bridge/blob/main/src/fpga_export.rs) |
 | silicon-bridge UART host | [`fpga_bridge.rs`](https://github.com/Limen-Neural/silicon-bridge/blob/main/src/fpga_bridge.rs) |
 | silicon-bridge boundary matrix | [`docs/boundary-matrix.md`](https://github.com/Limen-Neural/silicon-bridge/blob/main/docs/boundary-matrix.md) |
