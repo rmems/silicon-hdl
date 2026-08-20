@@ -73,8 +73,17 @@ module tb_UartTx;
     // Reconstruct an 8N1 byte from the tx pin (sample mid-bit).
     task automatic capture_uart_byte(output logic [DATA_WIDTH-1:0] b);
         int i;
-        while (tx !== 1'b0)
+        int waited;
+        waited = 0;
+        while (tx !== 1'b0) begin
             @(negedge clk);
+            waited++;
+            if (waited > (CLKS_PER_BIT * 4)) begin
+                check(1'b0, "timed out waiting for start bit");
+                b = '0;
+                return;
+            end
+        end
         check(busy == 1'b1, "busy should stay high through the start bit");
         repeat (CLKS_PER_BIT / 2) @(negedge clk);
         check(tx == 1'b0, "start bit should be 0 at mid-bit");
@@ -95,8 +104,18 @@ module tb_UartTx;
         check(busy == 1'b1, {msg, ": busy should assert on the send handshake"});
         capture_uart_byte(got);
         check_data(got, expected, msg);
-        while (busy !== 1'b0)
-            @(negedge clk);
+        begin
+            int waited;
+            waited = 0;
+            while (busy !== 1'b0) begin
+                @(negedge clk);
+                waited++;
+                if (waited > (CLKS_PER_BIT * 16)) begin
+                    check(1'b0, {msg, ": timed out waiting for busy deassert"});
+                    return;
+                end
+            end
+        end
         check(tx == 1'b1, {msg, ": tx returns idle-high after the stop bit"});
         check(busy == 1'b0, {msg, ": busy should deassert after the stop bit"});
     endtask

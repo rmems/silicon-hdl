@@ -89,13 +89,26 @@ module tb_SiliconBridge;
             @(negedge clk);
             if (rx_valid === 1'b1) begin
                 check_data(rx_data, expected, msg);
+                @(negedge clk);
+                check(rx_valid == 1'b0,
+                      {msg, ": rx_valid should pulse for exactly one clock"});
                 seen = 1'b1;
                 break;
             end
         end
         check(seen, {msg, ": timed out waiting for rx_valid"});
-        while (tx_busy !== 1'b0)
-            @(negedge clk);
+        begin
+            int waited;
+            waited = 0;
+            while (tx_busy !== 1'b0) begin
+                @(negedge clk);
+                waited++;
+                if (waited >= (CLKS_PER_BIT * 16)) begin
+                    check(1'b0, {msg, ": timed out waiting for tx_busy deassert"});
+                    return;
+                end
+            end
+        end
     endtask
 
     initial begin
