@@ -1,0 +1,48 @@
+scripts/quality.sh
+  s_5ca93e6ba38b4b::t_73a3207dc94046 79-105
+  s_5ca93e6ba38b4b::t_1d424986c4b425 6
+.github/workflows/sim.yml
+  s_5ca93e6ba38b4b::t_edb94ee11b0bbe 14-16
+  s_5ca93e6ba38b4b::t_8baa5d35596a58 3
+  s_5ca93e6ba38b4b::t_1fbc517a248250 96-127
+spikenaut-bridge-sv/tb/tb_UartRx.sv
+  s_5ca93e6ba38b4b::t_c14df097bd8c91 80
+  s_5ca93e6ba38b4b::t_dc5070d3c575e3 64-65,82,113,116,118-123
+  s_5ca93e6ba38b4b::t_2abba53fd41806 111-112
+  s_5ca93e6ba38b4b::t_90407e3c589cd9 78-79,83-87,89-102
+  s_5ca93e6ba38b4b::t_5e37d4a97f9445 115,117
+  s_5ca93e6ba38b4b::t_5ae29faa8ba5a6 1-63,66-77,81,88,103-110,114,124-134
+spikenaut-bridge-sv/tb/tb_UartTx.sv
+  s_5ca93e6ba38b4b::t_6cabcaea9ba12a 1-52,65-77,79-80,82-84,86-88,102-112,114-115,120-130
+  s_5ca93e6ba38b4b::t_304e9a86f3354a 53-64,78,81,85,89-101,113,116-119
+scripts/sim_core.tcl
+  s_5ca93e6ba38b4b::t_423516ca8199b5 64,66-68,71
+  s_5ca93e6ba38b4b::t_a65724687f4cd2 10
+  s_5ca93e6ba38b4b::t_03da774191591a 82
+AGENTS.md
+  s_5ca93e6ba38b4b::t_df2c169a1756cd 65-67,70-71
+  s_5ca93e6ba38b4b::t_f2a003a43a8cba 115-118
+CHANGELOG.md
+  s_5ca93e6ba38b4b::t_dc0186d284a6e4 33-35
+spikenaut-bridge-sv/tb/tb_SiliconBridge.sv
+  s_5ca93e6ba38b4b::t_7897e2d8d8e3b0 82,86-87,97-98
+  s_5ca93e6ba38b4b::t_17f4f0e4620ab2 83,85,88,90-91,113-114
+  s_5ca93e6ba38b4b::t_c9d72bfbe1c89e 1-81,84,89,92-96,99-110,115-128
+  s_5ca93e6ba38b4b::t_2812d046bb3979 111-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f6295e1097584c165c53eed64292069c5ba01324",
+  "prompts": {},
+  "sessions": {
+    "s_5ca93e6ba38b4b": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e6a34e26-20a3-49b2-a0f6-85e9518923ff",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
