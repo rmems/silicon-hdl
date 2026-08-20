@@ -113,6 +113,20 @@ module tb_UartRx;
         repeat (2) @(negedge clk);
         check(valid == 1'b0, "valid should stay 0 after reset on idle-high rx");
 
+        // 2FF: pin change appears on rx_sync_1 one cycle later. Reset afterward
+        // so the probe start bit does not leak into the baud-timed frames.
+        rx = 1'b0;
+        @(negedge clk);
+        check(dut.rx_sync_0 == 1'b0, "rx_sync_0 should track pin after first posedge");
+        check(dut.rx_sync_1 == 1'b1, "rx_sync_1 should still hold the previous idle-high");
+        @(negedge clk);
+        check(dut.rx_sync_1 == 1'b0, "rx_sync_1 should follow one cycle later (2FF)");
+        rx    = 1'b1;
+        rst_n = 1'b0;
+        repeat (2) @(negedge clk);
+        rst_n = 1'b1;
+        repeat (2) @(negedge clk);
+
         send_and_check(8'h00, "byte 0x00");
         check(valid == 1'b0, "valid should stay low between frames");
         send_and_check(8'hFF, "byte 0xFF");
