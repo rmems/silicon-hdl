@@ -21,7 +21,7 @@ either side of the contract changes.
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Widths match. SoC demo loads `merged_v2_*.mem` via `INIT_FILE` `$readmemh` ([#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52)). Runtime UART rewrite is still off (`we = 0`) |
+| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Widths match. SoC demo loads `merged_v2_weights.mem`, `merged_v2_thresholds.mem`, and `merged_v2_decay.mem` via `INIT_FILE` `$readmemh` ([#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52)); `merged_v2_output_weights.mem` is vendored, not wired. Runtime UART rewrite is still off (`we = 0`) |
 | SiliconBridge UART framing vs `FpgaBridge` | **Documented** | RTL is transport-only (8-bit bytes); host multi-byte frame is SoC/protocol layer — **not** on `main` |
 | Compatibility table (Rust ↔ SV) | **Documented** | See below |
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
@@ -116,10 +116,11 @@ operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
   via the export path.
 
 **SoC demo note (`spikenaut_soc_basys3_top`):** `INIT_FILE` is wired. Weight,
-threshold, and leak RAMs load `merged_v2_*.mem` at elaboration (Vivado:
-`build_soc.tcl` `-generic` absolute paths so `$readmemh` resolves). Ports remain
-`we = 0`, `addr = 0`, so after the first post-reset read `dout` is **image word
-0** — not a walked array. UART/config loader
+threshold, and leak RAMs load `merged_v2_weights.mem`, `merged_v2_thresholds.mem`,
+and `merged_v2_decay.mem` at elaboration (`merged_v2_output_weights.mem` is
+vendored only). Vivado: `build_soc.tcl` `-generic` absolute paths so `$readmemh`
+resolves. Ports remain `we = 0`, `addr = 0`, so after the first post-reset read
+`dout` is **image word 0** — not a walked array. UART/config loader
 ([#63](https://github.com/rmems/silicon-hdl/issues/63)) and multi-neuron
 addressing ([#61](https://github.com/rmems/silicon-hdl/issues/61)) are still
 open. That is a **scale / protocol** gap, not a missing `$readmemh` path.
@@ -190,7 +191,7 @@ Current SoC demo wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   byte is a binary event; payload bits are not decoded. Multiple bytes inside
   one tick collapse to a single spike.
 - One `LifNeuron`; RAMs sit at `addr = 0` after `$readmemh` init (word 0 of each
-  merged_v2 image).
+  wired merged_v2 image).
 - `StdpController` is instantiated (classical Bi–Poo, `step_en`-gated) but
   writeback is **open**: `weight_we` / `weight_addr_out` / `weight_out` are left
   unconnected ([#70](https://github.com/rmems/silicon-hdl/issues/70)).

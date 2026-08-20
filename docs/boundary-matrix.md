@@ -140,7 +140,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 
 | Dependency / input | Why | Status today |
 |--------------------|-----|--------------|
-| Parameter `.mem` / hex images from `silicon-bridge` (in-tree copies under `spikenaut-core-sv/mem/`) | Elaboration / bitstream init via `$readmemh`; runtime UART rewrite later | **INIT_FILE wired** (E1/E2). RAMs load when `INIT_FILE` is not `"NONE"`. SoC demo still ties `we` low and holds `addr` at 0 — contents are initialized, but only word 0 is visible to the single neuron. UART/write-port load is **not** on `main` ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
+| Parameter `.mem` / hex images from `silicon-bridge` (in-tree copies under `spikenaut-core-sv/mem/`) | Elaboration / bitstream init via `$readmemh`; runtime UART rewrite later | **INIT_FILE wired** (E1/E2). RAMs load when `INIT_FILE` is non-empty and not `"NONE"`. SoC demo still ties `we` low and holds `addr` at 0 — contents are initialized, but only word 0 is visible to the single neuron. UART/write-port load is **not** on `main` ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
 | UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge` | **Raw RX-valid stimulus only** on the current SoC demo (`rx_valid` latched to `spike_pending`, consumed on `step_en`; payload ignored; `tx_send` tied off). Multi-byte configuration / spike readout is **future work** ([#62](https://github.com/rmems/silicon-hdl/issues/62)), not an existing on-chip protocol |
 | Xilinx Vivado (optional) | Synthesis, implementation, bitstream for Basys 3 | Available on self-hosted path |
 | Verilator | Free-stack unit simulation of core testbenches | Required free CI path |
