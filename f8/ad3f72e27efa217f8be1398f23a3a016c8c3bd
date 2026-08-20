@@ -1,0 +1,34 @@
+docs/interface-alignment.md
+  s_5ca93e6ba38b4b::t_f7e84d168098c0 309-310,313
+  s_5ca93e6ba38b4b::t_a54cd4ccb98927 2
+  s_5ca93e6ba38b4b::t_f6c38d2dfef2aa 11-14
+  s_5ca93e6ba38b4b::t_f04a904a009933 224
+  s_5ca93e6ba38b4b::t_b739e8075acbcf 118-125
+  s_5ca93e6ba38b4b::t_74f5982aa41330 289-299
+  s_5ca93e6ba38b4b::t_8a97cdeef05fa0 24-25,30
+  s_5ca93e6ba38b4b::t_299cf5db905a13 188-196
+docs/boundary-matrix.md
+  s_5ca93e6ba38b4b::t_e2a2d1baa0ec92 2,8-9
+  s_5ca93e6ba38b4b::t_64916ab91e4b74 84-99
+  s_5ca93e6ba38b4b::t_ddf9d657da6b30 328
+  s_5ca93e6ba38b4b::t_2c05c6f9113e07 143-144
+  s_5ca93e6ba38b4b::t_b3267e2f9a2340 229-233
+  s_5ca93e6ba38b4b::t_032f3c7e10dfff 282-289
+  s_5ca93e6ba38b4b::t_09ba1a6c22e9e5 302-303
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f8ad3f72e27efa217f8be1398f23a3a016c8c3bd",
+  "prompts": {},
+  "sessions": {
+    "s_5ca93e6ba38b4b": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e6a34e26-20a3-49b2-a0f6-85e9518923ff",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
