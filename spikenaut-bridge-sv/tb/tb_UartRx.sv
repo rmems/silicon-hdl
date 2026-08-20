@@ -22,6 +22,9 @@ module tb_UartRx;
     logic                  valid;
 
     int errors = 0;
+    int rx_count = 0;
+    int valid_hold = 0;
+    logic [DATA_WIDTH-1:0] last_rx;
 
     UartRx #(
         .CLK_FREQ   (CLK_FREQ),
@@ -37,6 +40,22 @@ module tb_UartRx;
 
     initial clk = 1'b0;
     always #(CLK_PERIOD/2) clk = ~clk;
+
+    // valid is a one-cycle strobe at the end of STOP, overlapping the
+    // stop-bit hold in send_uart_byte. Capture it on posedge.
+    always @(posedge clk) begin
+        if (valid === 1'b1) begin
+            last_rx     <= data;
+            rx_count    <= rx_count + 1;
+            valid_hold  <= valid_hold + 1;
+        end else begin
+            if (valid_hold > 1) begin
+                errors++;
+                $display("FAIL: valid held more than one clock");
+            end
+            valid_hold <= 0;
+        end
+    end
 
     task automatic check(input logic cond, input string msg);
         if ($isunknown(cond)) begin
@@ -75,32 +94,14 @@ module tb_UartRx;
         repeat (CLKS_PER_BIT) @(negedge clk);
     endtask
 
-    // valid is a one-cycle strobe at the end of STOP, which overlaps the
-    // stop-bit hold in send_uart_byte. Watch during the frame.
     task automatic send_and_check(input logic [DATA_WIDTH-1:0] expected, input string msg);
-        bit seen;
-        seen = 1'b0;
-        fork
-            begin
-                send_uart_byte(expected);
-                repeat (CLKS_PER_BIT * 4) @(negedge clk);
-                disable wait_valid_pulse;
-            end
-            begin : wait_valid_pulse
-                forever begin
-                    @(negedge clk);
-                    if (valid === 1'b1) begin
-                        check_data(data, expected, msg);
-                        @(negedge clk);
-                        check(valid == 1'b0,
-                              {msg, ": valid should pulse for exactly one clock"});
-                        seen = 1'b1;
-                        disable wait_valid_pulse;
-                    end
-                end
-            end
-        join
-        check(seen, {msg, ": timed out waiting for valid"});
+        int prev_count;
+        prev_count = rx_count;
+        send_uart_byte(expected);
+        repeat (CLKS_PER_BIT * 4) @(negedge clk);
+        check(rx_count == prev_count + 1, {msg, ": valid should pulse once per frame"});
+        check_data(last_rx, expected, msg);
+        check(valid == 1'b0, {msg, ": valid should return low after the pulse"});
     endtask
 
     initial begin
