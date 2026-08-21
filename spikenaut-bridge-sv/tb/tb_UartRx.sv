@@ -43,7 +43,7 @@ module tb_UartRx;
 
     // valid is a one-cycle strobe at the end of STOP, overlapping the
     // stop-bit hold in send_uart_byte. Capture it on posedge.
-    always @(posedge clk) begin
+    always @(negedge clk) begin
         if (valid === 1'b1) begin
             last_rx     <= data;
             rx_count    <= rx_count + 1;
