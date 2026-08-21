@@ -1,0 +1,27 @@
+spikenaut-core-sv/rtl/LifNeuronArray.sv
+  s_48604fbbf97057::t_0465264e391b85 34,81-84,89,91-99,116-117,133,136,155-157,185-195,197-201
+  s_48604fbbf97057::t_1820648ea14d51 40,112-114,123,153,178,214-216
+  s_48604fbbf97057::t_82e82b57056e34 56-58,127-128,158,179,217
+  s_48604fbbf97057::t_6abcba0a59346d 181
+  s_48604fbbf97057::t_48810109643ac9 6-7
+  s_48604fbbf97057::t_ead604107af333 49-55
+  s_48604fbbf97057::t_312fefe1d011fa 174-177
+docs/resource-budget-n16.md
+  s_48604fbbf97057::t_5e6af15159a83f 15-16,25-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d2e46f3dec74f684a9543a6f697e66af5edde339",
+  "prompts": {},
+  "sessions": {
+    "s_48604fbbf97057": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0225f-d042-7c50-b094-47666fb3cdc3",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
