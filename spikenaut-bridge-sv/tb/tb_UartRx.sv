@@ -113,14 +113,20 @@ module tb_UartRx;
         repeat (2) @(negedge clk);
         check(valid == 1'b0, "valid should stay 0 after reset on idle-high rx");
 
-        // 2FF: pin change appears on rx_sync_1 one cycle later. Reset afterward
-        // so the probe start bit does not leak into the baud-timed frames.
+        // 2FF: pin change appears on rx_sync_1 one cycle later. The FSM must
+        // still be IDLE until that delayed edge; sampling raw rx would leave
+        // IDLE on the first posedge. Reset afterward so the probe start bit
+        // does not leak into the baud-timed frames.
         rx = 1'b0;
         @(negedge clk);
         check(dut.rx_sync_0 == 1'b0, "rx_sync_0 should track pin after first posedge");
         check(dut.rx_sync_1 == 1'b1, "rx_sync_1 should still hold the previous idle-high");
+        check(dut.state == 2'b00, "FSM must stay IDLE until rx_sync_1 falls");
         @(negedge clk);
         check(dut.rx_sync_1 == 1'b0, "rx_sync_1 should follow one cycle later (2FF)");
+        check(dut.state == 2'b00, "FSM uses registered rx_sync_1, so START lags the flop update");
+        @(negedge clk);
+        check(dut.state == 2'b01, "FSM should enter START on the delayed rx_sync_1 edge");
         rx    = 1'b1;
         rst_n = 1'b0;
         repeat (2) @(negedge clk);
