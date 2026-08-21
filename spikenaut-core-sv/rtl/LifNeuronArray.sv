@@ -3,8 +3,8 @@
 // Canonical source: spikenaut-core-sv/rtl
 // Time-multiplexed leaky integrate-and-fire processing element for one
 // NUM_NEURONS-neuron logical tick.  One shared datapath handles one neuron
-// slot per fabric cycle; parameter/weight RAM reads are prefetched one cycle
-// before the slot consumes their registered dout values.
+// slot per fabric cycle after fill; parameter/weight RAM reads and the
+// selected membrane state are prefetched before the slot consumes them.
 
 module LifNeuronArray #(
     parameter int DATA_WIDTH        = 16,
@@ -31,12 +31,13 @@ module LifNeuronArray #(
     output logic                         tick_done
 );
 
-    typedef enum logic {IDLE, SWEEP} sweep_state_t;
+    typedef enum logic [1:0] {IDLE, PREFETCH, SWEEP} sweep_state_t;
 
     sweep_state_t sweep_state;
     logic [INDEX_WIDTH-1:0] neuron_index;
     logic [INDEX_WIDTH-1:0] sweep_input_index;
     logic                   sweep_spike_in;
+    logic                   sweep_refractory;
     logic [NUM_NEURONS-1:0] sweep_spikes;
 
     // One state word per neuron.  This is intentionally a register file, not
@@ -45,6 +46,16 @@ module LifNeuronArray #(
 
     logic [INDEX_WIDTH-1:0] address_neuron;
     logic [INDEX_WIDTH-1:0] address_input;
+    // Keep this explicit retiming boundary: the BRAM outputs must settle in
+    // these registers before the shared arithmetic consumes a neuron slot.
+    // Without it, synthesis can absorb the stage into the RAM output path and
+    // recreate a BRAM -> subtract -> add -> compare critical path.
+    (* keep = "true", dont_touch = "true" *) logic [DATA_WIDTH-1:0]  weight_q;
+    (* keep = "true", dont_touch = "true" *) logic [PARAM_WIDTH-1:0] threshold_q;
+    (* keep = "true", dont_touch = "true" *) logic [PARAM_WIDTH-1:0] leak_q;
+    // This state-word prefetch similarly removes the variable-index register
+    // file mux from the shared leak/integrate/compare stage.
+    (* keep = "true", dont_touch = "true" *) logic [DATA_WIDTH-1:0]  membrane_q;
     logic [DATA_WIDTH-1:0]  next_membrane;
     logic [DATA_WIDTH-1:0]  decayed_membrane;
     logic [DATA_WIDTH-1:0]  leak_value;
@@ -67,18 +78,25 @@ module LifNeuronArray #(
     endgenerate
 
     // The RAMs have synchronous, one-cycle registered reads.  On the tick
-    // edge while IDLE, address 0 is sampled.  During the sweep, the address
-    // advances to slot N+1 while the shared datapath consumes slot N's dout.
+    // edge while IDLE, address 0 is sampled.  PREFETCH captures that dout
+    // into the PE's timing register while requesting row 1.  Once SWEEP is
+    // full, one row is processed every fabric cycle while the next row is
+    // captured and the address advances another slot ahead.
     always_comb begin
         address_neuron = '0;
         address_input  = input_index;
 
-        if (sweep_state == SWEEP) begin
+        if (sweep_state != IDLE) begin
             address_input = sweep_input_index;
-            if (neuron_index != NUM_NEURONS - 1)
-                address_neuron = neuron_index + 1'b1;
-            else
-                address_neuron = neuron_index;
+            if (NUM_NEURONS > 1) begin
+                if (sweep_state == PREFETCH) begin
+                    address_neuron = INDEX_WIDTH'(1);
+                end else if (neuron_index < NUM_NEURONS - 2) begin
+                    address_neuron = neuron_index + INDEX_WIDTH'(2);
+                end else begin
+                    address_neuron = INDEX_WIDTH'(NUM_NEURONS - 1);
+                end
+            end
         end
 
         threshold_addr = '0;
@@ -91,30 +109,31 @@ module LifNeuronArray #(
         weight_addr = WEIGHT_ADDR_WIDTH'((address_neuron * NUM_NEURONS) + address_input);
     end
 
-    // Shared leak -> integrate -> compare datapath.  The visible spike bitmap
-    // is also the per-neuron prior-tick spike state for the refractory reset.
+    // Shared leak -> integrate -> compare datapath.  sweep_refractory is
+    // prefetched with each slot, so the shared arithmetic has no same-cycle
+    // variable-index lookup into the prior-tick spike bitmap.
     always_comb begin
-        leak_value      = leak_dout;
-        threshold_value = threshold_dout;
+        leak_value      = leak_q;
+        threshold_value = threshold_q;
         decayed_membrane = '0;
         next_membrane    = '0;
         next_spike       = 1'b0;
         sweep_spikes_next = sweep_spikes;
 
-        if (spike_bitmap[neuron_index]) begin
+        if (sweep_refractory) begin
             next_membrane = '0;
             next_spike    = 1'b0;
         end else begin
-            if (membrane_potential[neuron_index] > leak_value)
-                decayed_membrane = membrane_potential[neuron_index] - leak_value;
+            if (membrane_q > leak_value)
+                decayed_membrane = membrane_q - leak_value;
             else
                 decayed_membrane = '0;
 
             if (sweep_spike_in) begin
-                if (decayed_membrane > ({DATA_WIDTH{1'b1}} - weight_dout))
+                if (decayed_membrane > ({DATA_WIDTH{1'b1}} - weight_q))
                     next_membrane = {DATA_WIDTH{1'b1}};
                 else
-                    next_membrane = decayed_membrane + weight_dout;
+                    next_membrane = decayed_membrane + weight_q;
             end else begin
                 next_membrane = decayed_membrane;
             end
@@ -131,7 +150,12 @@ module LifNeuronArray #(
             neuron_index     <= '0;
             sweep_input_index <= '0;
             sweep_spike_in   <= 1'b0;
+            sweep_refractory <= 1'b0;
             sweep_spikes     <= '0;
+            weight_q         <= '0;
+            threshold_q      <= '0;
+            leak_q           <= '0;
+            membrane_q       <= '0;
             spike_bitmap     <= '0;
             tick_done        <= 1'b0;
             for (int i = 0; i < NUM_NEURONS; i++)
@@ -147,12 +171,34 @@ module LifNeuronArray #(
                         neuron_index      <= '0;
                         sweep_input_index <= input_index;
                         sweep_spike_in    <= spike_in;
+                        // RAM row 0 is sampled on this edge, captured in the
+                        // PREFETCH state, then processed in the first SWEEP
+                        // cycle. Prefetch its prior-tick spike state now for
+                        // that refractory decision.
+                        sweep_refractory  <= spike_bitmap[0];
+                        membrane_q        <= membrane_potential[0];
                         sweep_spikes      <= '0;
-                        sweep_state       <= SWEEP;
+                        sweep_state       <= PREFETCH;
                     end
                 end
 
+                PREFETCH: begin
+                    // The row-0 RAM read sampled on the tick edge is now
+                    // available.  Retiming it here breaks the BRAM-to-LIF
+                    // arithmetic path without reducing one-slot-per-cycle
+                    // steady-state throughput.
+                    weight_q    <= weight_dout;
+                    threshold_q <= threshold_dout;
+                    leak_q      <= leak_dout;
+                    sweep_state <= SWEEP;
+                end
+
                 SWEEP: begin
+                    // Capture the prefetch requested by the previous cycle
+                    // while the shared datapath consumes the current row.
+                    weight_q    <= weight_dout;
+                    threshold_q <= threshold_dout;
+                    leak_q      <= leak_dout;
                     membrane_potential[neuron_index] <= next_membrane;
                     sweep_spikes <= sweep_spikes_next;
 
@@ -165,6 +211,10 @@ module LifNeuronArray #(
                         sweep_state  <= IDLE;
                     end else begin
                         neuron_index <= neuron_index + 1'b1;
+                        // Prefetch the next slot's refractory state while
+                        // the shared datapath processes this one.
+                        sweep_refractory <= spike_bitmap[neuron_index + 1'b1];
+                        membrane_q <= membrane_potential[neuron_index + 1'b1];
                     end
                 end
 
