@@ -62,9 +62,13 @@ symbols or tops conflict.
 | `tb_WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/tb/tb_WeightRam.sv` |
 | `tb_NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam.sv` |
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
+| `tb_UartRx` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/tb/tb_UartRx.sv` |
+| `tb_UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/tb/tb_UartTx.sv` |
+| `tb_SiliconBridge` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/rtl/SiliconBridge.sv` + `spikenaut-bridge-sv/tb/tb_SiliconBridge.sv` |
 
 Testbenches call `$fatal` on failure and are self-checking (look for an `errors` counter and
-`$display` summary at the end).
+`$display` summary at the end). Bridge TBs use a fast integer baud (`CLK_FREQ=1_000_000`,
+`BAUD_RATE=100_000`) so a byte is tens of clocks, not a 100 MHz / 115200 bit time.
 
 ### SoC-level testbench
 
@@ -108,10 +112,10 @@ vivado -mode batch -source scripts/sim_core.tcl     # all core unit testbenches
 `scripts/build_soc.tcl` hardcodes its register-transfer-level (RTL) source-file lists. When you
 add a new RTL module under `spikenaut-core-sv/rtl`, `spikenaut-bridge-sv/rtl`, or
 `spikenaut-soc-sv/rtl`, append that path to the matching `read_verilog -sv` block in
-`scripts/build_soc.tcl`. `scripts/sim_core.tcl` hardcodes the same RTL lists and discovers
-testbench files under `spikenaut-core-sv/tb` via glob; new testbenches are picked up
-automatically, but you must append the top module name to the `core_tb_tops` list before it
-will run.
+`scripts/build_soc.tcl`. `scripts/sim_core.tcl` hardcodes the same RTL lists and discovers testbench files under
+`spikenaut-core-sv/tb`, `spikenaut-bridge-sv/tb`, and `spikenaut-soc-sv/tb` via glob; new
+testbenches are picked up automatically, but you must append the top module name to the
+`core_tb_tops` list before it will run.
 
 ### Deduplication check
 

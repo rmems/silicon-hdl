@@ -3,7 +3,7 @@
 # quality.sh — local free-stack quality entrypoint (epic #23 Phase A3)
 #
 # Usage:
-#   ./scripts/quality.sh              # guardian + all core Verilator TBs
+#   ./scripts/quality.sh              # guardian + core/bridge/SoC Verilator TBs
 #   ./scripts/quality.sh --vivado     # also run sim_core.tcl + build_soc.tcl
 #
 # Vivado requires: source ~/Xilinx/env.sh  (or settings64.sh + license env)
@@ -69,6 +69,39 @@ for entry in "${TBS[@]}"; do
       -Ispikenaut-core-sv/rtl \
       "spikenaut-core-sv/rtl/${dut}.sv" \
       "spikenaut-core-sv/tb/tb_${tb}.sv" \
+    && "./obj_dir/Vtb_${tb}"; then
+    record "verilator/tb_${tb}" "PASS"
+  else
+    record "verilator/tb_${tb}" "FAIL"
+  fi
+done
+
+BRIDGE_TBS=(UartRx UartTx SiliconBridge)
+for tb in "${BRIDGE_TBS[@]}"; do
+  echo ""
+  echo "=== Verilator tb_${tb} ==="
+  rm -rf obj_dir
+  sources=(
+    --top-module "tb_${tb}"
+    -Ispikenaut-bridge-sv/rtl
+  )
+  case "$tb" in
+    UartRx)
+      sources+=(spikenaut-bridge-sv/rtl/UartRx.sv)
+      ;;
+    UartTx)
+      sources+=(spikenaut-bridge-sv/rtl/UartTx.sv)
+      ;;
+    SiliconBridge)
+      sources+=(
+        spikenaut-bridge-sv/rtl/UartRx.sv
+        spikenaut-bridge-sv/rtl/UartTx.sv
+        spikenaut-bridge-sv/rtl/SiliconBridge.sv
+      )
+      ;;
+  esac
+  sources+=("spikenaut-bridge-sv/tb/tb_${tb}.sv")
+  if verilator "${VERILATOR_FLAGS[@]}" "${sources[@]}" \
     && "./obj_dir/Vtb_${tb}"; then
     record "verilator/tb_${tb}" "PASS"
   else

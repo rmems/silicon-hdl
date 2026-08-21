@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # .github/workflows/sim.yml
-# Verilator simulation for spikenaut-core-sv unit testbenches.
+# Verilator simulation for core, bridge, and SoC unit testbenches.
 # Addresses issue #9: runs on push/PR using free GitHub-hosted runners.
 # See also: scripts/sim_core.tcl (Vivado equivalent), PR #11 (testbench $fatal hardening).
 
@@ -10,6 +10,9 @@ on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   verilator:
@@ -89,6 +92,38 @@ jobs:
             spikenaut-core-sv/rtl/StdpController.sv \
             spikenaut-core-sv/tb/tb_StdpController.sv
           ./obj_dir/Vtb_StdpController
+
+      - name: Run tb_UartRx
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_UartRx \
+            -Ispikenaut-bridge-sv/rtl \
+            spikenaut-bridge-sv/rtl/UartRx.sv \
+            spikenaut-bridge-sv/tb/tb_UartRx.sv
+          ./obj_dir/Vtb_UartRx
+
+      - name: Run tb_UartTx
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_UartTx \
+            -Ispikenaut-bridge-sv/rtl \
+            spikenaut-bridge-sv/rtl/UartTx.sv \
+            spikenaut-bridge-sv/tb/tb_UartTx.sv
+          ./obj_dir/Vtb_UartTx
+
+      - name: Run tb_SiliconBridge
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_SiliconBridge \
+            -Ispikenaut-bridge-sv/rtl \
+            spikenaut-bridge-sv/rtl/UartRx.sv \
+            spikenaut-bridge-sv/rtl/UartTx.sv \
+            spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+            spikenaut-bridge-sv/tb/tb_SiliconBridge.sv
+          ./obj_dir/Vtb_SiliconBridge
 
       - name: Run tb_spikenaut_soc_basys3_top
         run: |

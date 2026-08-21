@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   direct simulation of the 1 ms `step_en` divider (reset phase, one-cycle pulse width, exact
   100_000-cycle period on every tick) and of the UART-event → tick-domain handoff (#60).
   Wired into `scripts/quality.sh`, `.github/workflows/sim.yml`, and `scripts/sim_core.tcl`.
+- Bridge unit testbenches `tb_UartRx`, `tb_UartTx`, and `tb_SiliconBridge` (#58) — 2FF
+  sync, baud-timed 8N1, and `tx_busy` handshake. Wired into `scripts/quality.sh`,
+  `.github/workflows/sim.yml`, and `scripts/sim_core.tcl`.
 
 ### Changed
 

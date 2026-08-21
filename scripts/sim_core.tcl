@@ -7,7 +7,7 @@
 #   lib_bridge  <- spikenaut-bridge-sv/rtl
 #   lib_core    <- spikenaut-core-sv/rtl
 #   lib_soc     <- spikenaut-soc-sv/rtl
-#   lib_tb_core <- spikenaut-core-sv/tb + spikenaut-soc-sv/tb
+#   lib_tb_core <- spikenaut-core-sv/tb + spikenaut-bridge-sv/tb + spikenaut-soc-sv/tb
 #
 # Usage (Vivado Tcl console or batch mode):
 #   vivado -mode batch -source scripts/sim_core.tcl
@@ -61,13 +61,14 @@ read_verilog -sv [list \
 ]
 
 # ---------------------------------------------------------------------------
-# 3. lib_tb_core  –  spikenaut-core-sv/tb + spikenaut-soc-sv/tb (testbenches)
+# 3. lib_tb_core  –  unit + SoC testbenches (#58 adds bridge TBs)
 # ---------------------------------------------------------------------------
-set core_tb [file join $repo_root spikenaut-core-sv tb]
-set soc_tb  [file join $repo_root spikenaut-soc-sv tb]
+set core_tb   [file join $repo_root spikenaut-core-sv tb]
+set bridge_tb [file join $repo_root spikenaut-bridge-sv tb]
+set soc_tb    [file join $repo_root spikenaut-soc-sv tb]
 
 # Add all testbench files in tb/ if any exist
-foreach tb_dir [list $core_tb $soc_tb] {
+foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
     if {[llength [glob -nocomplain [file join $tb_dir *.sv]]] > 0} {
         read_verilog -sv [glob [file join $tb_dir *.sv]]
     }
@@ -78,7 +79,7 @@ foreach tb_dir [list $core_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_UartRx tb_UartTx tb_SiliconBridge tb_spikenaut_soc_basys3_top}
 
 set mem_dir [file join $repo_root spikenaut-core-sv mem]
 
