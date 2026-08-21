@@ -40,7 +40,6 @@ module tb_LifNeuronArray;
     logic [NUM_NEURONS-1:0] seen_threshold_addr;
     logic [NUM_NEURONS-1:0] seen_leak_addr;
     logic [NUM_NEURONS-1:0] seen_weight_row;
-    logic                   track_addresses;
     int errors = 0;
 
     LifNeuronArray #(
@@ -81,22 +80,6 @@ module tb_LifNeuronArray;
         end
     end
 
-    // Capture the addresses sampled by the RAM models, not merely the PE's
-    // post-edge outputs.  Each sweep must reach all 16 parameter entries and
-    // every output-neuron row at the selected input column.
-    always @(posedge clk) begin
-        if (track_addresses && rst_n) begin
-            if (threshold_addr < NUM_NEURONS)
-                seen_threshold_addr[threshold_addr[INDEX_WIDTH-1:0]] = 1'b1;
-            if (leak_addr < NUM_NEURONS)
-                seen_leak_addr[leak_addr[INDEX_WIDTH-1:0]] = 1'b1;
-            for (int i = 0; i < NUM_NEURONS; i++) begin
-                if (weight_addr == WEIGHT_ADDR_WIDTH'((i * NUM_NEURONS) + SELECTED_INPUT))
-                    seen_weight_row[i] = 1'b1;
-            end
-        end
-    end
-
     task automatic check(input logic cond, input string msg);
         if ($isunknown(cond)) begin
             errors++;
@@ -119,6 +102,24 @@ module tb_LifNeuronArray;
         end
     endtask
 
+    // Record the address presented for the next registered RAM read.  This is
+    // deliberately called from run_tick's single control process at negedge,
+    // after the preceding posedge has settled the PE's prefetched address.
+    // Keeping ownership of these coverage maps in one process avoids a
+    // simulator-dependent multi-process scheduling race in the testbench.
+    task automatic record_sweep_addresses();
+        begin
+            if (threshold_addr < NUM_NEURONS)
+                seen_threshold_addr[threshold_addr[INDEX_WIDTH-1:0]] = 1'b1;
+            if (leak_addr < NUM_NEURONS)
+                seen_leak_addr[leak_addr[INDEX_WIDTH-1:0]] = 1'b1;
+            for (int i = 0; i < NUM_NEURONS; i++) begin
+                if (weight_addr == WEIGHT_ADDR_WIDTH'((i * NUM_NEURONS) + SELECTED_INPUT))
+                    seen_weight_row[i] = 1'b1;
+            end
+        end
+    endtask
+
     task automatic run_tick(
         input logic event_present,
         input logic [INDEX_WIDTH-1:0] selected_channel,
@@ -129,12 +130,17 @@ module tb_LifNeuronArray;
             spike_in   = event_present;
             input_index = selected_channel;
             step_en    = 1'b1;
+            // In IDLE the PE presents row 0.  The upcoming posedge samples
+            // this address into the external registered RAMs.
+            record_sweep_addresses();
             @(negedge clk);
             step_en = 1'b0;
+            record_sweep_addresses();
 
             sweep_cycles = 0;
             while (tick_done !== 1'b1 && sweep_cycles < NUM_NEURONS + 2) begin
                 @(negedge clk);
+                record_sweep_addresses();
                 sweep_cycles++;
             end
             check(tick_done === 1'b1,
@@ -168,7 +174,6 @@ module tb_LifNeuronArray;
         step_en         = 1'b0;
         spike_in        = 1'b0;
         input_index     = SELECTED_INPUT;
-        track_addresses = 1'b0;
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
         seen_weight_row     = '0;
@@ -180,12 +185,10 @@ module tb_LifNeuronArray;
         // rows cross their own threshold; the output stays uncommitted until
         // tick_done despite per-slot processing.
         @(negedge clk);
-        track_addresses     = 1'b1;
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
         seen_weight_row     = '0;
         run_tick(1'b1, SELECTED_INPUT, sweep_cycles);
-        track_addresses = 1'b0;
 
         check(sweep_cycles <= NUM_NEURONS + 1,
               "N=16 sweep must complete far inside the 100,000-cycle SoC tick budget");

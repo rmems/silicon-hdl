@@ -89,7 +89,6 @@ module tb_spikenaut_soc_basys3_top #(
     logic [NUM_NEURONS-1:0] seen_threshold_addr;
     logic [NUM_NEURONS-1:0] seen_leak_addr;
     logic [NUM_NEURONS-1:0] seen_weight_row;
-    logic                    track_sweep_addresses;
 
     spikenaut_soc_basys3_top #(
         .WEIGHT_INIT_FILE (WEIGHT_INIT),
@@ -161,22 +160,6 @@ module tb_spikenaut_soc_basys3_top #(
         end
     end
 
-    // Observe the RAM addresses sampled at posedge.  During an N=16 PE sweep
-    // all parameter entries and all output-neuron rows (input column 0 in the
-    // current binary-event demo) must be reached.
-    always @(posedge clk) begin
-        if (track_sweep_addresses && dut.rst) begin
-            if (dut.threshold_addr < NUM_NEURONS)
-                seen_threshold_addr[dut.threshold_addr[3:0]] = 1'b1;
-            if (dut.leak_addr < NUM_NEURONS)
-                seen_leak_addr[dut.leak_addr[3:0]] = 1'b1;
-            for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
-                if (dut.weight_addr == neuron * NUM_NEURONS)
-                    seen_weight_row[neuron] = 1'b1;
-            end
-        end
-    end
-
     // Send one 8N1 byte, LSB first, at BAUD_RATE. Idle line is high.
     task automatic uart_send_byte(input logic [7:0] b);
         int i;
@@ -211,6 +194,22 @@ module tb_spikenaut_soc_basys3_top #(
         end
     endtask
 
+    // Record the address presented for the next registered RAM read.  The
+    // calling test sequence owns these maps, so coverage collection does not
+    // depend on ordering between a separate monitor and the main process.
+    task automatic record_sweep_addresses();
+        begin
+            if (dut.threshold_addr < NUM_NEURONS)
+                seen_threshold_addr[dut.threshold_addr[3:0]] = 1'b1;
+            if (dut.leak_addr < NUM_NEURONS)
+                seen_leak_addr[dut.leak_addr[3:0]] = 1'b1;
+            for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
+                if (dut.weight_addr == neuron * NUM_NEURONS)
+                    seen_weight_row[neuron] = 1'b1;
+            end
+        end
+    endtask
+
     // Advance past the posedge that actually applies the tick, so the cores'
     // post-tick state (membrane_potential, spike_pending) is observable.
     task automatic wait_tick_applied();
@@ -230,6 +229,7 @@ module tb_spikenaut_soc_basys3_top #(
             forever begin
                 @(negedge clk);
                 waited++;
+                record_sweep_addresses();
                 if (dut.u_lif_array.tick_done === 1'b1) break;
                 if (waited > NUM_NEURONS + 2)
                     $fatal(1, "wait_lif_sweep_done: no tick_done within %0d cycles", waited);
@@ -243,7 +243,6 @@ module tb_spikenaut_soc_basys3_top #(
         // ------------------------------------------------------------
         btn_rst      = 1'b1;    // active-high button pressed => DUT in reset
         uart_rx_line = 1'b1;    // UART idle
-        track_sweep_addresses = 1'b0;
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
         seen_weight_row     = '0;
@@ -301,14 +300,18 @@ module tb_spikenaut_soc_basys3_top #(
         check(dut.spike_pending === 1'b1,
               "spike_pending must hold until a tick consumes it");
 
-        track_sweep_addresses = 1'b1;
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
         seen_weight_row     = '0;
-        wait_tick_applied();
+        // At this negedge step_en is high and the PE is still idle, so it
+        // presents row 0 for the first registered RAM read.  The next
+        // negedge observes the prefetched row 1 after the tick is applied.
+        wait_for_tick();
+        record_sweep_addresses();
+        @(negedge clk);
+        record_sweep_addresses();
         check(dut.spike_pending === 1'b0, "step_en must consume spike_pending");
         wait_lif_sweep_done();
-        track_sweep_addresses = 1'b0;
 
         expected_first_spikes = '0;
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
