@@ -14,7 +14,7 @@
 //   3. Pulse width       — step_en high for exactly one fabric cycle.
 //   4. Period            — exactly STEP_DIV cycles between every tick.
 //   5. Event delivery    — a UART byte arriving between ticks still reaches
-//                          LifNeuron on the next tick (regression test: with
+//                          the N=16 LIF PE on the next tick (regression test: with
 //                          rx_valid wired straight to spike_in, the one-cycle
 //                          strobe missed the tick and the byte was dropped).
 //   6. Decay             — with no event, the membrane leaks back to 0.
@@ -22,7 +22,8 @@
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
 //
-// Internal nodes (step_en, step_cnt, spike_pending, membrane_potential) are
+// Internal nodes (step_en, step_cnt, spike_pending, PE membrane register file,
+// and RAM address outputs) are
 // observed by hierarchical reference rather than by adding debug ports to the
 // synthesized top level.
 //
@@ -53,6 +54,7 @@ module tb_spikenaut_soc_basys3_top #(
     localparam int CLKS_PER_BIT = CLK_FREQ / BAUD_RATE;   // 868
     localparam int TICK_HZ      = 1000;
     localparam int STEP_DIV     = CLK_FREQ / TICK_HZ;     // 100_000
+    localparam int NUM_NEURONS  = 16;
 
     // Test 5 timing budget: the UART byte is sent right after a tick, and its
     // frame plus the spike_pending hold window must complete before the NEXT
@@ -75,12 +77,6 @@ module tb_spikenaut_soc_basys3_top #(
                    UART_FRAME_CYCLES, HOLD_CYCLES, SEQ_SLACK, STEP_DIV);
     endgenerate
 
-    // merged_v2 word 0 — the only entry the demo can currently address
-    // (every RAM port is tied off at addr 0, we = 0).
-    localparam int unsigned W0_WEIGHT    = 16'h00C0;      // 192
-    localparam int unsigned W0_THRESHOLD = 16'h0120;      // 288
-    localparam int unsigned W0_LEAK      = 16'h00CC;      // 204
-
     logic        clk;
     logic        btn_rst;        // drives the active-high rst_n port
     logic        uart_rx_line;
@@ -89,6 +85,11 @@ module tb_spikenaut_soc_basys3_top #(
 
     int errors = 0;
     int unsigned first_tick_cycles;
+    logic [NUM_NEURONS-1:0] expected_first_spikes;
+    logic [NUM_NEURONS-1:0] seen_threshold_addr;
+    logic [NUM_NEURONS-1:0] seen_leak_addr;
+    logic [NUM_NEURONS-1:0] seen_weight_row;
+    logic                    track_sweep_addresses;
 
     spikenaut_soc_basys3_top #(
         .WEIGHT_INIT_FILE (WEIGHT_INIT),
@@ -160,6 +161,22 @@ module tb_spikenaut_soc_basys3_top #(
         end
     end
 
+    // Observe the RAM addresses sampled at posedge.  During an N=16 PE sweep
+    // all parameter entries and all output-neuron rows (input column 0 in the
+    // current binary-event demo) must be reached.
+    always @(posedge clk) begin
+        if (track_sweep_addresses && dut.rst) begin
+            if (dut.threshold_addr < NUM_NEURONS)
+                seen_threshold_addr[dut.threshold_addr[3:0]] <= 1'b1;
+            if (dut.leak_addr < NUM_NEURONS)
+                seen_leak_addr[dut.leak_addr[3:0]] <= 1'b1;
+            for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
+                if (dut.weight_addr == neuron * NUM_NEURONS)
+                    seen_weight_row[neuron] <= 1'b1;
+            end
+        end
+    end
+
     // Send one 8N1 byte, LSB first, at BAUD_RATE. Idle line is high.
     task automatic uart_send_byte(input logic [7:0] b);
         int i;
@@ -203,12 +220,33 @@ module tb_spikenaut_soc_basys3_top #(
         end
     endtask
 
+    // `step_en` starts the PE; its registered RAM read and 16 slots complete
+    // shortly afterward.  Bound this wait so a bad sub-cycle FSM does not
+    // turn the free CI test into a silent timeout.
+    task automatic wait_lif_sweep_done();
+        int unsigned waited;
+        begin
+            waited = 0;
+            forever begin
+                @(negedge clk);
+                waited++;
+                if (dut.u_lif_array.tick_done === 1'b1) break;
+                if (waited > NUM_NEURONS + 2)
+                    $fatal(1, "wait_lif_sweep_done: no tick_done within %0d cycles", waited);
+            end
+        end
+    endtask
+
     initial begin
         // ------------------------------------------------------------
         // Test 1: reset phase
         // ------------------------------------------------------------
         btn_rst      = 1'b1;    // active-high button pressed => DUT in reset
         uart_rx_line = 1'b1;    // UART idle
+        track_sweep_addresses = 1'b0;
+        seen_threshold_addr = '0;
+        seen_leak_addr      = '0;
+        seen_weight_row     = '0;
         repeat (5) @(negedge clk);
 
         check(dut.step_en === 1'b0,       "reset: step_en must be low");
@@ -243,17 +281,18 @@ module tb_spikenaut_soc_basys3_top #(
         wait_tick_applied();
         check_int(tick_count, 3, "monitor must have observed three ticks");
 
-        // No UART event has been delivered yet, so the neuron must be idle.
-        check_int(dut.u_neuron.membrane_potential, 0,
-                  "membrane must stay 0 while no spike event arrives");
+        // No UART event has been delivered yet, so every PE slot must be idle.
+        for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
+            check_int(dut.u_lif_array.membrane_potential[neuron], 0,
+                      "membrane must stay 0 while no spike event arrives");
+        end
 
         // ------------------------------------------------------------
         // Test 5: a UART byte between ticks survives to the next tick
         //
         // Regression test for the dropped-event bug: rx_valid is one fabric
-        // cycle wide and the cores only sample on step_en, so without the
-        // spike_pending latch this byte never reaches the neuron and the
-        // membrane stays 0.
+        // cycle wide and the PE starts only on step_en, so without the
+        // spike_pending latch this byte never reaches the sweep.
         // ------------------------------------------------------------
         uart_send_byte(8'hA5);
         check(dut.spike_pending === 1'b1, "UART byte must set spike_pending");
@@ -262,30 +301,58 @@ module tb_spikenaut_soc_basys3_top #(
         check(dut.spike_pending === 1'b1,
               "spike_pending must hold until a tick consumes it");
 
+        track_sweep_addresses = 1'b1;
+        seen_threshold_addr = '0;
+        seen_leak_addr      = '0;
+        seen_weight_row     = '0;
         wait_tick_applied();
         check(dut.spike_pending === 1'b0, "step_en must consume spike_pending");
-        check_int(dut.u_neuron.membrane_potential, W0_WEIGHT,
-                  "UART event must reach LifNeuron on the next tick");
+        wait_lif_sweep_done();
+        track_sweep_addresses = 1'b0;
+
+        expected_first_spikes = '0;
+        for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
+            expected_first_spikes[neuron] =
+                (dut.u_wram.mem[neuron * NUM_NEURONS] >= dut.u_npram_threshold.mem[neuron]);
+            check(dut.u_lif_array.membrane_potential[neuron] ==
+                  dut.u_wram.mem[neuron * NUM_NEURONS],
+                  "broadcast event must integrate each neuron row's input-column-0 weight");
+        end
+        check(led === expected_first_spikes,
+              "LED bitmap must equal the merged_v2 per-neuron threshold outcomes");
+        check(expected_first_spikes === 16'h0000,
+              "merged_v2 input-column-0 weights are below every per-neuron threshold");
+        check(seen_threshold_addr == {NUM_NEURONS{1'b1}},
+              "PE sweep must request all 16 threshold RAM entries");
+        check(seen_leak_addr == {NUM_NEURONS{1'b1}},
+              "PE sweep must request all 16 leak RAM entries");
+        check(seen_weight_row == {NUM_NEURONS{1'b1}},
+              "PE sweep must request all 16 input-column-0 weight rows");
 
         // ------------------------------------------------------------
-        // Test 6: with no further event the membrane leaks back to 0
-        // (word 0 leak 204 > weight 192, so it cannot accumulate)
+        // Test 6: with no further event, every neuron applies its own leak.
         // ------------------------------------------------------------
         wait_tick_applied();
-        check_int(dut.u_neuron.membrane_potential, 0,
-                  "membrane must leak back to 0 with no spike event");
+        wait_lif_sweep_done();
+        for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
+            if (expected_first_spikes[neuron])
+                check_int(dut.u_lif_array.membrane_potential[neuron], 0,
+                          "a prior spike must reset that row on the next tick");
+            else if (dut.u_wram.mem[neuron * NUM_NEURONS] > dut.u_npram_leak.mem[neuron])
+                check(dut.u_lif_array.membrane_potential[neuron] ==
+                      (dut.u_wram.mem[neuron * NUM_NEURONS] - dut.u_npram_leak.mem[neuron]),
+                      "each non-spiking row must use its own leak value");
+            else
+                check_int(dut.u_lif_array.membrane_potential[neuron], 0,
+                          "leak must floor each row's membrane at zero");
+        end
 
         // ------------------------------------------------------------
-        // Test 7: LED bus is tied to the single demo neuron
+        // Test 7: LED bus exposes the full committed N=16 bitmap.
         // ------------------------------------------------------------
-        check(led[15:1] === 15'h0000, "led[15:1] must be tied low");
-
-        // Documented demo limitation, not a testbench failure: with merged_v2
-        // word 0 the neuron can never fire (leak 204 >= weight 192, so the
-        // membrane saturates at 192 against a threshold of 288). Every RAM
-        // port is tied off at addr 0, so no other entry is reachable.
-        $display("TB_BASYS3_TOP: note: word 0 (w=%0d leak=%0d thr=%0d) cannot fire",
-                 W0_WEIGHT, W0_LEAK, W0_THRESHOLD);
+        check(led === 16'h0000,
+              "merged_v2 no-input follow-up must clear the complete LED bitmap");
+        $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");
 
         if (errors == 0) begin
             $display("TB_BASYS3_TOP: ALL TESTS PASSED (%0d ticks checked)", tick_count);

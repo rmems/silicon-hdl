@@ -30,7 +30,7 @@ create_project -force $project_name $project_dir -part $part
 # sourced ONLY from their lib dirs, never copied into soc-sv/rtl or examples).
 # Full list (traced from build order + insts in Basys3_Top + XDC):
 #   bridge: UartRx.sv UartTx.sv SiliconBridge.sv (spikenaut-bridge-sv/rtl)
-#   core:   LifNeuron.sv WeightRam.sv NeuronParamRam.sv StdpController.sv (spikenaut-core-sv/rtl)
+#   core:   LifNeuron.sv LifNeuronArray.sv WeightRam.sv NeuronParamRam.sv StdpController.sv (spikenaut-core-sv/rtl)
 #   mem:    merged_v2_{weights,thresholds,decay}.mem (spikenaut-core-sv/mem) — E2 INIT
 #   soc:    Basys3_Top.sv (spikenaut-soc-sv/rtl)  -- top=spikenaut_soc_basys3_top
 #   xdc:    constraints/basys3.xdc (used by both tops)
@@ -58,6 +58,7 @@ set core_rtl [file join $repo_root spikenaut-core-sv rtl]
 
 read_verilog -sv [list \
     [file join $core_rtl LifNeuron.sv]       \
+    [file join $core_rtl LifNeuronArray.sv]  \
     [file join $core_rtl WeightRam.sv]       \
     [file join $core_rtl NeuronParamRam.sv]  \
     [file join $core_rtl StdpController.sv]  \

@@ -53,6 +53,7 @@ fi
 VERILATOR_FLAGS=(--binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD)
 TBS=(
   "LifNeuron:LifNeuron"
+  "LifNeuronArray:LifNeuronArray"
   "WeightRam:WeightRam"
   "NeuronParamRam:NeuronParamRam"
   "StdpController:StdpController"
@@ -122,6 +123,7 @@ if verilator "${VERILATOR_FLAGS[@]}" \
     spikenaut-bridge-sv/rtl/UartTx.sv \
     spikenaut-bridge-sv/rtl/SiliconBridge.sv \
     spikenaut-core-sv/rtl/LifNeuron.sv \
+    spikenaut-core-sv/rtl/LifNeuronArray.sv \
     spikenaut-core-sv/rtl/WeightRam.sv \
     spikenaut-core-sv/rtl/NeuronParamRam.sv \
     spikenaut-core-sv/rtl/StdpController.sv \
