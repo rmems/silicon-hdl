@@ -1,0 +1,47 @@
+docs/interface-alignment.md
+  s_48604fbbf97057::t_47a715f41b0eeb 301-302
+  s_48604fbbf97057::t_b3cefe53bc54b3 30,98,123-131,140,198-201,227,231,238,303-305
+scripts/sim_core.tcl
+  s_48604fbbf97057::t_534bbe2204e224 47,83
+scripts/quality.sh
+  s_48604fbbf97057::t_534bbe2204e224 56
+  s_48604fbbf97057::t_7833a6dffc6619 126
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_48604fbbf97057::t_ebdd67da5e7fd3 17,25-26,57,88-92,164-179,223-239,246-249,284-288,294-295,304-307,310-330,333,336-348,351,353-355
+spikenaut-core-sv/tb/tb_LifNeuronArray.sv
+  s_48604fbbf97057::t_2b9c7b47ceceed 123,129
+  s_48604fbbf97057::t_977879713731a9 154
+  s_48604fbbf97057::t_b746d8bb5c1b6b 78-79,90,92,94,152-153,155-156,162-163,218
+  s_48604fbbf97057::t_534bbe2204e224 1-77,80-89,91,93,95-122,124-128,130-151,157-161,164-217,219-231
+docs/resource-budget-n16.md
+  s_48604fbbf97057::t_00e1ddbf486dce 1-24
+scripts/build_soc.tcl
+  s_48604fbbf97057::t_534bbe2204e224 33,61,132
+spikenaut-soc-sv/rtl/Basys3_Top.sv
+  s_48604fbbf97057::t_33694c9c0018ed 15,48,128-131,135-136,146,159,168,178,184,188-213,219-221,230,241
+.github/workflows/sim.yml
+  s_48604fbbf97057::t_534bbe2204e224 44-53
+  s_48604fbbf97057::t_7833a6dffc6619 153
+docs/boundary-matrix.md
+  s_48604fbbf97057::t_7833a6dffc6619 32,75,94-95
+  s_48604fbbf97057::t_47a715f41b0eeb 143,284-287
+spikenaut-core-sv/rtl/LifNeuronArray.sv
+  s_48604fbbf97057::t_b746d8bb5c1b6b 91,99-102
+  s_48604fbbf97057::t_534bbe2204e224 1-90,92-98,103-176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2fa52c94818d08ebf8af07dc690fb19076c1403c",
+  "prompts": {},
+  "sessions": {
+    "s_48604fbbf97057": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0225f-d042-7c50-b094-47666fb3cdc3",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
