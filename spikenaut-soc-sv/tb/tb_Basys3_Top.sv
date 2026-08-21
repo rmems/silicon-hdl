@@ -167,12 +167,12 @@ module tb_spikenaut_soc_basys3_top #(
     always @(posedge clk) begin
         if (track_sweep_addresses && dut.rst) begin
             if (dut.threshold_addr < NUM_NEURONS)
-                seen_threshold_addr[dut.threshold_addr[3:0]] <= 1'b1;
+                seen_threshold_addr[dut.threshold_addr[3:0]] = 1'b1;
             if (dut.leak_addr < NUM_NEURONS)
-                seen_leak_addr[dut.leak_addr[3:0]] <= 1'b1;
+                seen_leak_addr[dut.leak_addr[3:0]] = 1'b1;
             for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
                 if (dut.weight_addr == neuron * NUM_NEURONS)
-                    seen_weight_row[neuron] <= 1'b1;
+                    seen_weight_row[neuron] = 1'b1;
             end
         end
     end

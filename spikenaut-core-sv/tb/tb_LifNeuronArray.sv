@@ -87,12 +87,12 @@ module tb_LifNeuronArray;
     always @(posedge clk) begin
         if (track_addresses && rst_n) begin
             if (threshold_addr < NUM_NEURONS)
-                seen_threshold_addr[threshold_addr[INDEX_WIDTH-1:0]] <= 1'b1;
+                seen_threshold_addr[threshold_addr[INDEX_WIDTH-1:0]] = 1'b1;
             if (leak_addr < NUM_NEURONS)
-                seen_leak_addr[leak_addr[INDEX_WIDTH-1:0]] <= 1'b1;
+                seen_leak_addr[leak_addr[INDEX_WIDTH-1:0]] = 1'b1;
             for (int i = 0; i < NUM_NEURONS; i++) begin
                 if (weight_addr == WEIGHT_ADDR_WIDTH'((i * NUM_NEURONS) + SELECTED_INPUT))
-                    seen_weight_row[i] <= 1'b1;
+                    seen_weight_row[i] = 1'b1;
             end
         end
     end
