@@ -51,18 +51,20 @@ silicon-hdl/
 | Module | Canonical location |
 |---|---|
 | `LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` |
+| `LifNeuronArray` | `spikenaut-core-sv/rtl/LifNeuronArray.sv` |
 | `WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` |
 | `NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` |
 | `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` |
 | `UartRx` | `spikenaut-bridge-sv/rtl/UartRx.sv` |
 | `UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` |
 | `SiliconBridge` | `spikenaut-bridge-sv/rtl/SiliconBridge.sv` |
+| `SocProtocolFsm` | `spikenaut-soc-sv/rtl/SocProtocolFsm.sv` |
 | `SynapseRouter` | `synapse-link-hdl/src/SynapseRouter.sv` |
 | `spikenaut_soc_basys3_top` | `spikenaut-soc-sv/rtl/Basys3_Top.sv` |
 | `synapse_demo_basys3_top` | `synapse-link-hdl/examples/basys3/Basys3_Top.sv` |
 
 > **Note:** `spikenaut-soc-sv/rtl` does **not** contain copies of core or bridge modules.
-> All build scripts source `LifNeuron`, `WeightRam`, `NeuronParamRam`, and `StdpController`
+> All build scripts source `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, and `StdpController`
 > exclusively from `spikenaut-core-sv/rtl`.
 
 ## Vivado build

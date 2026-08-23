@@ -5,25 +5,23 @@
 //
 // Covers what the core unit testbenches structurally cannot: they drive
 // step_en themselves, so nothing else in the repo exercises the SoC's own
-// 1 ms divider or the UART-event -> tick-domain handoff. See #57 / #60 and
+// 1 ms divider or the UART-frame -> tick-domain handoff. See #57 / #60 / #62 and
 // docs/timestep-contract.md.
 //
 // What this locks down:
-//   1. Reset phase       — step_cnt / step_en / spike_pending clear.
+//   1. Reset phase       — step_cnt / step_en / protocol pending state clear.
 //   2. First-tick delay  — exactly STEP_DIV cycles after reset release.
 //   3. Pulse width       — step_en high for exactly one fabric cycle.
 //   4. Period            — exactly STEP_DIV cycles between every tick.
-//   5. Event delivery    — a UART byte arriving between ticks still reaches
-//                          the N=16 LIF PE on the next tick (regression test: with
-//                          rx_valid wired straight to spike_in, the one-cycle
-//                          strobe missed the tick and the byte was dropped).
+//   5. Frame delivery    — a complete 0xAA / 16-word UART frame is latched
+//                          and reaches the N=16 LIF PE on the next tick.
 //   6. Decay             — with no event, the membrane leaks back to 0.
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
 //
-// Internal nodes (step_en, step_cnt, spike_pending, PE membrane register file,
-// and RAM address outputs) are
+// Internal nodes (step_en, step_cnt, protocol pending state, PE membrane
+// register file, and RAM address outputs) are
 // observed by hierarchical reference rather than by adding debug ports to the
 // synthesized top level.
 //
@@ -57,27 +55,15 @@ module tb_spikenaut_soc_basys3_top #(
     localparam int NUM_NEURONS  = 16;
     localparam int SPIKE_TEST_NEURON = 5;
 
-    // Test 5 timing budget: the UART byte is sent right after a tick, and its
-    // frame plus the spike_pending hold window must complete before the NEXT
-    // tick, or the hold assertion would race the tick that consumes the event.
-    // Guarded at elaboration (same idiom as LifNeuron's width guard) so a
-    // future change to BAUD_RATE, TICK_HZ, or HOLD_CYCLES fails loudly here
-    // instead of surfacing as a confusing assertion failure mid-run.
-    // SEQ_SLACK covers the handful of sequencing negedges around the checks.
-    localparam int UART_FRAME_CYCLES = 10 * CLKS_PER_BIT; // 8N1: start+8+stop
-    localparam int HOLD_CYCLES       = 2000;
+    // A full host frame is 33 UART bytes.  It intentionally spans multiple
+    // 1 ms ticks at 115200 baud; the protocol FSM must wait for all payload
+    // bytes rather than turning early bytes into raw spikes.
     localparam int SEQ_SLACK         = 16;
 
     // Ticks are at most STEP_DIV cycles apart, so any wait that exceeds this
     // bound means the divider is broken. Fail loudly with a cycle count
     // instead of hanging until an external job timeout with no diagnostic.
     localparam int TICK_WAIT_BOUND   = STEP_DIV + SEQ_SLACK;
-    generate
-        if (UART_FRAME_CYCLES + HOLD_CYCLES + SEQ_SLACK >= STEP_DIV)
-            $error("tb_spikenaut_soc_basys3_top: test 5 budget blown: frame (%0d) + hold (%0d) + slack (%0d) must be < STEP_DIV (%0d)",
-                   UART_FRAME_CYCLES, HOLD_CYCLES, SEQ_SLACK, STEP_DIV);
-    endgenerate
-
     logic        clk;
     logic        btn_rst;        // drives the active-high rst_n port
     logic        uart_rx_line;
@@ -90,6 +76,7 @@ module tb_spikenaut_soc_basys3_top #(
     logic [NUM_NEURONS-1:0] seen_threshold_addr;
     logic [NUM_NEURONS-1:0] seen_leak_addr;
     logic [NUM_NEURONS-1:0] seen_weight_row;
+    logic [$clog2(NUM_NEURONS)-1:0] expected_input_index;
 
     spikenaut_soc_basys3_top #(
         .WEIGHT_INIT_FILE (WEIGHT_INIT),
@@ -176,6 +163,38 @@ module tb_spikenaut_soc_basys3_top #(
         end
     endtask
 
+    // Host contract: 0xAA followed by 16 Q8.8 big-endian words.  One selected
+    // lane carries 0x0001 and all others zero, making the SoC's binary-event
+    // / input-column selection policy observable without a raw rx_valid hook.
+    task automatic uart_send_stimulus_frame(input int active_lane);
+        begin
+            uart_send_byte(8'hAA);
+            for (int lane = 0; lane < NUM_NEURONS; lane++) begin
+                if (lane == active_lane) begin
+                    uart_send_byte(8'h00);
+                    uart_send_byte(8'h01);
+                end else begin
+                    uart_send_byte(8'h00);
+                    uart_send_byte(8'h00);
+                end
+            end
+        end
+    endtask
+
+    task automatic wait_for_stimuli_pending();
+        int unsigned waited;
+        begin
+            waited = 0;
+            forever begin
+                @(negedge clk);
+                waited++;
+                if (dut.stimuli_pending === 1'b1) break;
+                if (waited > (2 * CLKS_PER_BIT + SEQ_SLACK))
+                    $fatal(1, "wait_for_stimuli_pending: completed frame was not latched within %0d cycles", waited);
+            end
+        end
+    endtask
+
     // Advance to the negedge at which step_en reads high. step_en is a
     // register set at posedge P, so at this point the tick is still "in
     // flight" — the cores consume it at posedge P+1. Bounded: $fatal if no
@@ -205,14 +224,14 @@ module tb_spikenaut_soc_basys3_top #(
             if (dut.leak_addr < NUM_NEURONS)
                 seen_leak_addr[dut.leak_addr[3:0]] = 1'b1;
             for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
-                if (dut.weight_addr == neuron * NUM_NEURONS)
+                if (dut.weight_addr == neuron * NUM_NEURONS + expected_input_index)
                     seen_weight_row[neuron] = 1'b1;
             end
         end
     endtask
 
     // Advance past the posedge that actually applies the tick, so the cores'
-    // post-tick state (membrane_potential, spike_pending) is observable.
+    // post-tick state (membrane_potential, protocol pending state) is observable.
     task automatic wait_tick_applied();
         begin
             wait_for_tick();
@@ -251,7 +270,8 @@ module tb_spikenaut_soc_basys3_top #(
 
         check(dut.step_en === 1'b0,       "reset: step_en must be low");
         check(dut.step_cnt === '0,        "reset: step_cnt must be cleared");
-        check(dut.spike_pending === 1'b0, "reset: spike_pending must be cleared");
+        check(dut.stimuli_pending === 1'b0,
+              "reset: completed-frame pending state must be cleared");
         check(led === 16'h0000,           "reset: led must be cleared");
 
         // ------------------------------------------------------------
@@ -288,18 +308,33 @@ module tb_spikenaut_soc_basys3_top #(
         end
 
         // ------------------------------------------------------------
-        // Test 5: a UART byte between ticks survives to the next tick
+        // Test 5: a complete UART frame reaches the next logical tick
         //
-        // Regression test for the dropped-event bug: rx_valid is one fabric
-        // cycle wide and the PE starts only on step_en, so without the
-        // spike_pending latch this byte never reaches the sweep.
+        // The 33-byte frame lasts longer than one tick at 115200 baud.  Its
+        // early bytes must not produce a spike; only the completed frame may
+        // arm one selected input column for the following step_en.
         // ------------------------------------------------------------
-        uart_send_byte(8'hA5);
-        check(dut.spike_pending === 1'b1, "UART byte must set spike_pending");
-
-        repeat (HOLD_CYCLES) @(negedge clk);
-        check(dut.spike_pending === 1'b1,
-              "spike_pending must hold until a tick consumes it");
+        expected_input_index = '0;
+        uart_send_byte(8'hAA);
+        uart_send_byte(8'h00);
+        uart_send_byte(8'h01);
+        check(dut.stimuli_pending === 1'b0,
+              "partial UART frame must not have been consumed as a raw spike");
+        for (int lane = 1; lane < NUM_NEURONS; lane++) begin
+            uart_send_byte(8'h00);
+            uart_send_byte(8'h00);
+        end
+        wait_for_stimuli_pending();
+        check(dut.protocol_stimuli[0 +: 16] === 16'h0001,
+              "protocol frame lane 0 must decode as big-endian Q8.8");
+        for (int lane = 1; lane < NUM_NEURONS; lane++) begin
+            check(dut.protocol_stimuli[lane*16 +: 16] === '0,
+                  "inactive protocol lanes must retain their decoded zero words");
+        end
+        check(dut.stimulus_input_index === 4'd0,
+              "lowest active protocol lane must select input column zero");
+        check(dut.stimulus_event === 1'b1,
+              "a completed non-zero stimulus frame must arm a binary PE event");
 
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
@@ -311,7 +346,8 @@ module tb_spikenaut_soc_basys3_top #(
         record_sweep_addresses();
         @(negedge clk);
         record_sweep_addresses();
-        check(dut.spike_pending === 1'b0, "step_en must consume spike_pending");
+        check(dut.stimuli_pending === 1'b0,
+              "step_en must consume exactly one completed stimulus frame");
         wait_lif_sweep_done();
 
         expected_first_spikes = '0;
@@ -352,19 +388,23 @@ module tb_spikenaut_soc_basys3_top #(
         end
 
         // ------------------------------------------------------------
-        // Test 7: a controlled model row creates a real PE spike and
-        // verifies the one-tick refractory reset.
+        // Test 7: a controlled model row selects a non-zero host frame lane,
+        // creates a real PE spike, and verifies the one-tick refractory reset.
         // ------------------------------------------------------------
         // Test 5 above keeps its merged_v2 image assertions.  This controlled
         // row is deliberately configured only after those checks, so it
         // proves the PE's commit/refractory behavior without changing the
         // shipped-image coverage.
-        dut.u_wram.mem[SPIKE_TEST_NEURON * NUM_NEURONS] = 16'h0001;
+        dut.u_wram.mem[SPIKE_TEST_NEURON * NUM_NEURONS + SPIKE_TEST_NEURON] = 16'h0001;
         dut.u_npram_threshold.mem[SPIKE_TEST_NEURON]    = 16'h0001;
         dut.u_npram_leak.mem[SPIKE_TEST_NEURON]         = 16'h0000;
-        uart_send_byte(8'h3C);
-        check(dut.spike_pending === 1'b1,
-              "controlled UART event must set spike_pending");
+        expected_input_index = $clog2(NUM_NEURONS)'(SPIKE_TEST_NEURON);
+        uart_send_stimulus_frame(SPIKE_TEST_NEURON);
+        wait_for_stimuli_pending();
+        check(dut.stimulus_input_index === SPIKE_TEST_NEURON,
+              "non-zero protocol lane must select its matching matrix input column");
+        check(dut.stimulus_event === 1'b1,
+              "selected non-zero protocol lane must create the PE event");
         wait_tick_applied();
         wait_lif_sweep_done();
         check(dut.u_lif_array.spike_bitmap[SPIKE_TEST_NEURON] === 1'b1,

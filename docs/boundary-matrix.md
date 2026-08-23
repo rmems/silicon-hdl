@@ -74,7 +74,7 @@ lib_bridge  →  lib_core  →  lib_soc / lib_synapse
 |---------|------|----------|
 | `lib_core` | `spikenaut-core-sv/rtl` | `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, `StdpController` |
 | `lib_bridge` | `spikenaut-bridge-sv/rtl` | `UartRx`, `UartTx`, `SiliconBridge` |
-| `lib_soc` | `spikenaut-soc-sv/rtl` | Basys 3 SoC top only (`spikenaut_soc_basys3_top`) |
+| `lib_soc` | `spikenaut-soc-sv/rtl` | `SocProtocolFsm` application codec and Basys 3 SoC top (`spikenaut_soc_basys3_top`) |
 | `lib_synapse` | `synapse-link-hdl/src` | `SynapseRouter`; demo top `synapse_demo_basys3_top` |
 
 Single-source-of-truth rule: no module is defined in more than one place (enforced by the
@@ -91,10 +91,10 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 |------------|-----------|---------|
 | Elaboration / bitstream `.mem` init | **Wired** — `INIT_FILE` `$readmemh` on `WeightRam` / `NeuronParamRam`; SoC defaults to `spikenaut-core-sv/mem/merged_v2_{weights,thresholds,decay}.mem`; `scripts/build_soc.tcl` overrides with absolute paths | [#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52) (E1/E2) |
 | Runtime RAM write (UART / host rewrite) | **Off** — `we` tied low on all three SoC RAM instances | [#63](https://github.com/rmems/silicon-hdl/issues/63) |
-| RAM address used by the PE | **Swept** — threshold/leak addresses walk `0..15`; the flattened weight address is `neuron_row * 16 + input_index`, so the present binary-event demo walks rows `0, 16, …, 240` at input column 0 | [#61](https://github.com/rmems/silicon-hdl/issues/61) |
+| RAM address used by the PE | **Swept** — threshold/leak addresses walk `0..15`; the flattened weight address is `neuron_row * 16 + input_index`. #62 selects the lowest active decoded host lane, so the binary-event SoC path can walk any one input column across all 16 rows | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#62](https://github.com/rmems/silicon-hdl/issues/62) |
 | Neuron count | **N=16** `LifNeuronArray` time-multiplexes one shared datapath across 16 neuron slots and commits a board-agnostic 16-bit `spike_bitmap`; `spikenaut_soc_basys3_top` maps that bitmap to `led[15:0]` | [#61](https://github.com/rmems/silicon-hdl/issues/61) |
 | STDP | `StdpController` is instantiated (classical Bi–Poo, [#55](https://github.com/rmems/silicon-hdl/issues/55)) and gated by `step_en`, but **writeback is open**: `weight_we` / `weight_addr_out` / `weight_out` are unconnected; `weight_addr` is `'0` | [#70](https://github.com/rmems/silicon-hdl/issues/70) |
-| Host UART protocol | **Not** SiliconBridge v3.0. RX byte strobe is latched to `spike_pending` and consumed on the 1 ms tick; payload bits are ignored. `tx_send = 0` (no potential / spike-bitmap readback) | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#64](https://github.com/rmems/silicon-hdl/issues/64) |
+| Host UART protocol | **Implemented #62** — `SocProtocolFsm` consumes `0xAA` + 32 payload bytes, commits a 16-word big-endian stimulus frame, and holds it until `step_en`; it serializes 16 membrane words, spike flags, and aux state while respecting `tx_busy`. The present PE selects the lowest active binary stimulus lane; it does not yet accumulate multi-active vectors | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#64](https://github.com/rmems/silicon-hdl/issues/64) |
 | Logical timestep | **1 ms** `step_en` (100_000 fabric cycles @ 100 MHz) | [#57](https://github.com/rmems/silicon-hdl/issues/57) / [#60](https://github.com/rmems/silicon-hdl/issues/60); [`docs/timestep-contract.md`](timestep-contract.md) |
 
 ---
@@ -110,7 +110,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 | Vivado/Verilator flows | Scripts and CI hooks that build/sim **this** RTL tree |
 | Vivado report **gate** in this repo | `scripts/check_wns.py` + `.github/workflows/vivado-ci.yml` fail the optional self-hosted job when WNS/WHS &lt; 0 |
 | Module ownership map | README table + guardian; renames stay unique across the monorepo |
-| Hardware interface contracts | Bit widths, reset polarity, RAM layouts, UART **byte** stream as implemented in RTL (not a full host multi-byte protocol) |
+| Hardware interface contracts | Bit widths, reset polarity, RAM layouts, UART byte stream, and the SoC-owned `0xAA` / response-frame codec as implemented in RTL |
 
 ---
 
@@ -141,7 +141,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 | Dependency / input | Why | Status today |
 |--------------------|-----|--------------|
 | Parameter `.mem` / hex images from `silicon-bridge` (in-tree copies under `spikenaut-core-sv/mem/`) | Elaboration / bitstream init via `$readmemh`; runtime UART rewrite later | **INIT_FILE wired** (E1/E2). RAMs load when `INIT_FILE` is non-empty and not `"NONE"`; `LifNeuronArray` sweeps threshold/leak `0..15` and weight rows `0, 16, …, 240` for the current input column. SoC `we` remains low: UART/write-port load is **not** on `main` ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
-| UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge` | **Raw RX-valid stimulus only** on the current SoC demo (`rx_valid` latched to `spike_pending`, consumed on `step_en`; payload ignored; `tx_send` tied off). Multi-byte configuration / spike readout is **future work** ([#62](https://github.com/rmems/silicon-hdl/issues/62)), not an existing on-chip protocol |
+| UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge`; `SocProtocolFsm` application codec | **0xAA protocol implemented**: 16 Q8.8 words decode atomically and a 36-byte potential/spike/aux response is serialized with `tx_busy` back-pressure safety. Runtime parameter/weight writes remain #63; host-board E2E remains #64 |
 | Xilinx Vivado (optional) | Synthesis, implementation, bitstream for Basys 3 | Available on self-hosted path |
 | Verilator | Free-stack unit simulation of core testbenches | Required free CI path |
 | Board constraints (`constraints/*.xdc`) | Pinout and timing for target FPGAs | Present |
@@ -227,10 +227,11 @@ Clarifications:
 - Widths, RAM layouts, reset polarity, and UART **byte** framing are **coordinated** across both
   repos; RTL changes land only here; host format changes land only in `silicon-bridge`.
 - Today’s Basys 3 SoC demo **does** load Q8.8 `.mem` images at elaboration / bitstream
-  init (`INIT_FILE` / `$readmemh`). It is **not** an end-to-end host protocol: RAM `we`
-  tied off, `addr` stuck at 0, TX disabled, one neuron, STDP writeback unconnected.
-  Treat UART load/config/readout and 16-neuron E2E as sequenced work under
-  [#54](https://github.com/rmems/silicon-hdl/issues/54), not as a working path on `main`.
+  init (`INIT_FILE` / `$readmemh`) and implements the #62 host frame/readback codec.
+  RAM `we` remains tied off, the N=16 PE performs its swept read addresses, and STDP
+  writeback remains unconnected. Treat runtime UART configuration and host-board E2E
+  as sequenced work under [#54](https://github.com/rmems/silicon-hdl/issues/54), not as
+  a claim that writes or multi-active-lane accumulation are complete.
 
 ### vs legacy `Spikenaut-Hardware`
 
@@ -281,9 +282,9 @@ Clarifications:
 
 1. Landed: this boundary matrix, [`docs/interface-alignment.md`](interface-alignment.md),
    and SoC `INIT_FILE` `$readmemh` (E1/E2).
-2. Remaining under [#54](https://github.com/rmems/silicon-hdl/issues/54): 16-channel
-   protocol parser / input-column selector + TX ([#62](https://github.com/rmems/silicon-hdl/issues/62)), runtime
-   RAM write ([#63](https://github.com/rmems/silicon-hdl/issues/63)), host E2E
+2. Implemented under [#54](https://github.com/rmems/silicon-hdl/issues/54): #62's
+   16-word protocol parser, deterministic single input-column selector, and TX response.
+   Remaining work is runtime RAM write ([#63](https://github.com/rmems/silicon-hdl/issues/63)), host E2E
    ([#64](https://github.com/rmems/silicon-hdl/issues/64)), and STDP time-mux/writeback
    ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
 3. Add or extend cross-repo golden vectors (float → Q8.8 → `.mem` → RTL readback) without

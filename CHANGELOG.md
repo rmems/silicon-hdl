@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bridge unit testbenches `tb_UartRx`, `tb_UartTx`, and `tb_SiliconBridge` (#58) — 2FF
   sync, baud-timed 8N1, and `tx_busy` handshake. Wired into `scripts/quality.sh`,
   `.github/workflows/sim.yml`, and `scripts/sim_core.tcl`.
+- SoC application protocol FSM (#62) — canonical `SocProtocolFsm` decodes the
+  `0xAA` + 16-word big-endian host frame, holds a completed stimulus frame for
+  the next logical tick, and emits the 36-byte potential/spike/aux response
+  with `tx_busy`-safe serialization. `tb_SocProtocolFsm` covers decode, byte
+  order, and busy stalls; the N=16 PE now exposes packed membrane readback.
 
 ### Changed
 

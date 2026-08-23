@@ -135,6 +135,16 @@ jobs:
             spikenaut-bridge-sv/tb/tb_SiliconBridge.sv
           ./obj_dir/Vtb_SiliconBridge
 
+      - name: Run tb_SocProtocolFsm
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_SocProtocolFsm \
+            -Ispikenaut-soc-sv/rtl \
+            spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+            spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv
+          ./obj_dir/Vtb_SocProtocolFsm
+
       - name: Run tb_spikenaut_soc_basys3_top
         run: |
           rm -rf obj_dir
@@ -154,6 +164,7 @@ jobs:
             spikenaut-core-sv/rtl/WeightRam.sv \
             spikenaut-core-sv/rtl/NeuronParamRam.sv \
             spikenaut-core-sv/rtl/StdpController.sv \
+            spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
             spikenaut-soc-sv/rtl/Basys3_Top.sv \
             spikenaut-soc-sv/tb/tb_Basys3_Top.sv
           ./obj_dir/Vtb_spikenaut_soc_basys3_top
