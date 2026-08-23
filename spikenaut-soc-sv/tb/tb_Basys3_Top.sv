@@ -55,6 +55,7 @@ module tb_spikenaut_soc_basys3_top #(
     localparam int TICK_HZ      = 1000;
     localparam int STEP_DIV     = CLK_FREQ / TICK_HZ;     // 100_000
     localparam int NUM_NEURONS  = 16;
+    localparam int SPIKE_TEST_NEURON = 5;
 
     // Test 5 timing budget: the UART byte is sent right after a tick, and its
     // frame plus the spike_pending hold window must complete before the NEXT
@@ -282,8 +283,8 @@ module tb_spikenaut_soc_basys3_top #(
 
         // No UART event has been delivered yet, so every PE slot must be idle.
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
-            check_int(dut.u_lif_array.membrane_potential[neuron], 0,
-                      "membrane must stay 0 while no spike event arrives");
+            check(dut.u_lif_array.membrane_potential[neuron] === '0,
+                  "membrane must stay 0 while no spike event arrives");
         end
 
         // ------------------------------------------------------------
@@ -339,22 +340,48 @@ module tb_spikenaut_soc_basys3_top #(
         wait_lif_sweep_done();
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
             if (expected_first_spikes[neuron])
-                check_int(dut.u_lif_array.membrane_potential[neuron], 0,
-                          "a prior spike must reset that row on the next tick");
+                check(dut.u_lif_array.membrane_potential[neuron] === '0,
+                      "a prior spike must reset that row on the next tick");
             else if (dut.u_wram.mem[neuron * NUM_NEURONS] > dut.u_npram_leak.mem[neuron])
                 check(dut.u_lif_array.membrane_potential[neuron] ==
                       (dut.u_wram.mem[neuron * NUM_NEURONS] - dut.u_npram_leak.mem[neuron]),
                       "each non-spiking row must use its own leak value");
             else
-                check_int(dut.u_lif_array.membrane_potential[neuron], 0,
-                          "leak must floor each row's membrane at zero");
+                check(dut.u_lif_array.membrane_potential[neuron] === '0,
+                      "leak must floor each row's membrane at zero");
         end
 
         // ------------------------------------------------------------
-        // Test 7: LED bus exposes the full committed N=16 bitmap.
+        // Test 7: a controlled model row creates a real PE spike and
+        // verifies the one-tick refractory reset.
+        // ------------------------------------------------------------
+        // Test 5 above keeps its merged_v2 image assertions.  This controlled
+        // row is deliberately configured only after those checks, so it
+        // proves the PE's commit/refractory behavior without changing the
+        // shipped-image coverage.
+        dut.u_wram.mem[SPIKE_TEST_NEURON * NUM_NEURONS] = 16'h0001;
+        dut.u_npram_threshold.mem[SPIKE_TEST_NEURON]    = 16'h0001;
+        dut.u_npram_leak.mem[SPIKE_TEST_NEURON]         = 16'h0000;
+        uart_send_byte(8'h3C);
+        check(dut.spike_pending === 1'b1,
+              "controlled UART event must set spike_pending");
+        wait_tick_applied();
+        wait_lif_sweep_done();
+        check(dut.u_lif_array.spike_bitmap[SPIKE_TEST_NEURON] === 1'b1,
+              "controlled row must commit a real spike bit");
+        check(led[SPIKE_TEST_NEURON] === 1'b1,
+              "controlled PE spike bit must reach its LED bit");
+
+        wait_tick_applied();
+        wait_lif_sweep_done();
+        check(dut.u_lif_array.membrane_potential[SPIKE_TEST_NEURON] === '0,
+              "spiking row must reset to zero on the following refractory tick");
+
+        // ------------------------------------------------------------
+        // Test 8: LED bus preserves every committed N=16 bitmap bit.
         // ------------------------------------------------------------
         check(led === 16'h0000,
-              "merged_v2 no-input follow-up must clear the complete LED bitmap");
+              "no-input refractory follow-up must clear the complete LED bitmap");
         force dut.spike_bitmap = 16'hA55A;
         #1;
         check(led === 16'hA55A,

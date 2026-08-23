@@ -282,7 +282,7 @@ Clarifications:
 1. Landed: this boundary matrix, [`docs/interface-alignment.md`](interface-alignment.md),
    and SoC `INIT_FILE` `$readmemh` (E1/E2).
 2. Remaining under [#54](https://github.com/rmems/silicon-hdl/issues/54): 16-channel
-   protocol parser + TX ([#62](https://github.com/rmems/silicon-hdl/issues/62)), runtime
+   protocol parser / input-column selector + TX ([#62](https://github.com/rmems/silicon-hdl/issues/62)), runtime
    RAM write ([#63](https://github.com/rmems/silicon-hdl/issues/63)), host E2E
    ([#64](https://github.com/rmems/silicon-hdl/issues/64)), and STDP time-mux/writeback
    ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
