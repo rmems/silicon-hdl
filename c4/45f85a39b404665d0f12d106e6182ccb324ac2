@@ -1,0 +1,60 @@
+scripts/build_soc.tcl
+  s_48604fbbf97057::t_70b50a5b3fa8e0 35,74
+  s_48604fbbf97057::t_559206d02ffaba 54,69
+docs/interface-alignment.md
+  s_48604fbbf97057::t_e24620c649a005 2,25,30,98,127-131,133
+  s_48604fbbf97057::t_781bf32c4d8df7 170,174-176,192,195,198-201,204-208,212-215,217-219,221,223-226,229-230
+  s_48604fbbf97057::t_19a82530ed3a86 248-249,313-315
+CHANGELOG.md
+  s_48604fbbf97057::t_e707abe179e9b4 36-40
+spikenaut-soc-sv/rtl/Basys3_Top.sv
+  s_48604fbbf97057::t_c465524c14a29d 78-79,92-93,98-99,102,104-112,116-118,120-142,212-213,215-216,228-229,237-264,280
+AGENTS.md
+  s_48604fbbf97057::t_2bf0842888692b 88-91,98-100
+spikenaut-core-sv/rtl/LifNeuronArray.sv
+  s_48604fbbf97057::t_55b4f6eb3adf1a 31-34,51-57
+  s_48604fbbf97057::t_559206d02ffaba 181-182
+README.md
+  s_48604fbbf97057::t_559206d02ffaba 54,61,67
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_48604fbbf97057::t_6af2e279b7f76c 318-320,322-326
+  s_48604fbbf97057::t_b1d92dcfce76d3 8,12,16-17,23-24,58-60,79,166-197,227,234
+  s_48604fbbf97057::t_6ac48a7a06eeed 273-274,311,313-315,317,321,327-337,349-350,391-392,398,402-407
+  s_48604fbbf97057::t_98ae160bb93095 401
+spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv
+  s_48604fbbf97057::t_193d8ea338f6ad 32-34,147,150-151,153-154,176-178,214-215,217-219,231-233
+  s_48604fbbf97057::t_a4b5de6d37c4c5 172-173,198-199,205
+  s_48604fbbf97057::t_1b60064d52f44b 211
+  s_48604fbbf97057::t_f6b248991593d7 1-31,35-136,141-146,148-149,152,155-171,174-175,179-197,200-204,206-210,212-213,216,220-230,234-259
+  s_48604fbbf97057::t_cc1f526ee367e9 137-140
+scripts/quality.sh
+  s_48604fbbf97057::t_70b50a5b3fa8e0 114-126,130,144
+docs/boundary-matrix.md
+  s_48604fbbf97057::t_559206d02ffaba 113
+  s_48604fbbf97057::t_7bf8545c238d6f 77,94,97,144,230-234,285-287
+spikenaut-core-sv/tb/tb_LifNeuronArray.sv
+  s_48604fbbf97057::t_7e33a96dc72b73 35,66,211-213
+.github/workflows/sim.yml
+  s_48604fbbf97057::t_70b50a5b3fa8e0 138-147,167
+scripts/sim_core.tcl
+  s_48604fbbf97057::t_70b50a5b3fa8e0 57,61,84,108
+spikenaut-soc-sv/rtl/SocProtocolFsm.sv
+  s_48604fbbf97057::t_633661334ee0cd 1-183,185-193,195-205,207-221,223-229,231-239
+  s_48604fbbf97057::t_3df8fb9acc4bbe 184,194,206,222,230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c445f85a39b404665d0f12d106e6182ccb324ac2",
+  "prompts": {},
+  "sessions": {
+    "s_48604fbbf97057": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0225f-d042-7c50-b094-47666fb3cdc3",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
