@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // tb_LifNeuronArray.sv
+// Canonical source: spikenaut-core-sv/tb
 // Unit testbench for the time-multiplexed N=16 LifNeuronArray PE.
 //
 // The local RAM models preserve the synchronous, one-fabric-cycle registered

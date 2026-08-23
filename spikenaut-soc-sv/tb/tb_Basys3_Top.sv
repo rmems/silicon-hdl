@@ -355,6 +355,11 @@ module tb_spikenaut_soc_basys3_top #(
         // ------------------------------------------------------------
         check(led === 16'h0000,
               "merged_v2 no-input follow-up must clear the complete LED bitmap");
+        force dut.spike_bitmap = 16'hA55A;
+        #1;
+        check(led === 16'hA55A,
+              "LED bus must preserve every committed spike bitmap bit");
+        release dut.spike_bitmap;
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");
 
         if (errors == 0) begin
