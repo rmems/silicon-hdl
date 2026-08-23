@@ -12,7 +12,7 @@
 // build_soc.tcl may override with absolute paths via -generic.
 //
 // RTL dependencies (compiled in lib_core / lib_bridge before this file):
-//   spikenaut-core-sv/rtl/LifNeuron.sv
+//   spikenaut-core-sv/rtl/LifNeuronArray.sv
 //   spikenaut-core-sv/rtl/WeightRam.sv
 //   spikenaut-core-sv/rtl/NeuronParamRam.sv
 //   spikenaut-core-sv/rtl/StdpController.sv
@@ -45,6 +45,7 @@ module spikenaut_soc_basys3_top #(
     localparam int BAUD_RATE       = 115_200;
     localparam int DATA_WIDTH      = 16;
     localparam int PARAM_WIDTH     = 16;
+    localparam int NUM_NEURONS     = 16;
 
     // gh-14 5u3.5 (P1): inversion in RTL (XDC pin/port rst_n kept for compatibility;
     // BTNC/CPU_RESET U18 is active-high). Use 'rst' (active-low) for all submodules + local logic.
@@ -124,11 +125,15 @@ module spikenaut_soc_basys3_top #(
     // Per NeuronParamRam contract (gh-14 5u3.6/5u3.7): stores ONE param per addr.
     // Multiple param types (threshold/leak) require separate RAM instances.
     // E2: $readmemh from merged_v2; host UART rewrite remains a later path.
-    // we=0, addr=0 => dout settles to image word 0 after first post-reset read.
-    // Timestep: LifNeuron / StdpController update only on step_en (1 ms).
+    // we=0: the PE owns read addressing while #63 owns runtime host writes.
+    // The time-multiplexed LIF PE sweeps the 16 parameter entries on each
+    // logical tick; its address outputs account for registered RAM read latency.
+    // Timestep: LifNeuronArray / StdpController update only on step_en (1 ms).
     // See docs/timestep-contract.md (#57 / #60).
     logic [PARAM_WIDTH-1:0] threshold_param;
     logic [PARAM_WIDTH-1:0] leak_param;
+    logic [NEURON_ADDR_W-1:0] threshold_addr;
+    logic [NEURON_ADDR_W-1:0] leak_addr;
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),
@@ -138,7 +143,7 @@ module spikenaut_soc_basys3_top #(
         .clk  (clk),
         .rst_n (rst),
         .we   (1'b0),
-        .addr ('0),
+        .addr (threshold_addr),
         .din  ('0),
         .dout (threshold_param)
     );
@@ -151,7 +156,7 @@ module spikenaut_soc_basys3_top #(
         .clk  (clk),
         .rst_n (rst),
         .we   (1'b0),
-        .addr ('0),
+        .addr (leak_addr),
         .din  ('0),
         .dout (leak_param)
     );
@@ -160,6 +165,7 @@ module spikenaut_soc_basys3_top #(
     // Weight RAM
     // ----------------------------------------------------------------
     logic [DATA_WIDTH-1:0] weight_dout;
+    logic [WEIGHT_ADDR_W-1:0] weight_addr;
 
     WeightRam #(
         .ADDR_WIDTH (WEIGHT_ADDR_W),
@@ -169,41 +175,50 @@ module spikenaut_soc_basys3_top #(
         .clk  (clk),
         .rst_n (rst),
         .we   (1'b0),
-        .addr ('0),
+        .addr (weight_addr),
         .din  ('0),
         .dout (weight_dout)
     );
 
     // ----------------------------------------------------------------
-    // LIF neuron
+    // Time-multiplexed N=16 LIF processing element
     // ----------------------------------------------------------------
     // gh-14 / 5u3.2 (P0): reviewed widths for neuron threshold/leak params
     // (from NeuronParamRam) + weight + SoC inst site.
-    // Note: PARAM_WIDTH for params, DATA_WIDTH for weights/neuron data.
-    // Bridge iface is 8b (see below); DATA_WIDTH=16 here is *not* for UART.
-    // Both variants checked (synapse variant has no neuron/RAMs).
-    // Threshold and leak sourced from separate NeuronParamRam instances per contract.
-    logic spike_out;
+    // Note: PARAM_WIDTH for params, DATA_WIDTH for weights/neuron data;
+    // bridge DATA_WIDTH remains 8b.  The current binary UART event broadcasts
+    // to all 16 output-neuron rows at input column 0.  #62 will provide the
+    // 16-channel frame parser / selectable input column.
+    logic [NUM_NEURONS-1:0] spike_bitmap;
 
-    LifNeuron #(
-        .DATA_WIDTH  (DATA_WIDTH),
-        .PARAM_WIDTH (PARAM_WIDTH)
-    ) u_neuron (
-        .clk       (clk),
-        .rst_n     (rst),
-        .step_en   (step_en),
-        .spike_in  (spike_pending),
-        .weight    (weight_dout),
-        .threshold (threshold_param),
-        .leak      (leak_param),
-        .spike_out (spike_out)
+    LifNeuronArray #(
+        .DATA_WIDTH        (DATA_WIDTH),
+        .PARAM_WIDTH       (PARAM_WIDTH),
+        .NUM_NEURONS       (NUM_NEURONS),
+        .PARAM_ADDR_WIDTH  (NEURON_ADDR_W),
+        .WEIGHT_ADDR_WIDTH (WEIGHT_ADDR_W)
+    ) u_lif_array (
+        .clk            (clk),
+        .rst_n          (rst),
+        .step_en        (step_en),
+        .spike_in       (spike_pending),
+        .input_index    ('0),
+        .weight_dout    (weight_dout),
+        .threshold_dout (threshold_param),
+        .leak_dout      (leak_param),
+        .threshold_addr (threshold_addr),
+        .leak_addr      (leak_addr),
+        .weight_addr    (weight_addr),
+        .spike_bitmap   (spike_bitmap),
+        .tick_done      ()
     );
 
     // ----------------------------------------------------------------
     // STDP controller
     // ----------------------------------------------------------------
-    // gh-14 5u3.2: width review at ~109 area (DATA_WIDTH paths to Stdp);
-    // connections match declared widths (no mismatch post-cast review).
+    // #70 exclusion: STDP is still the original single-address controller.
+    // Time-multiplexed STDP and WeightRam writeback are intentionally out of
+    // scope, so it observes output row 0 and its write ports remain detached.
     StdpController #(
         .DATA_WIDTH   (DATA_WIDTH),
         .ADDR_WIDTH   (WEIGHT_ADDR_W)
@@ -212,7 +227,7 @@ module spikenaut_soc_basys3_top #(
         .rst_n          (rst),
         .step_en        (step_en),
         .pre_spike      (spike_pending),
-        .post_spike     (spike_out),
+        .post_spike     (spike_bitmap[0]),
         .weight_addr    ('0),
         .weight_in      (weight_dout),
         .weight_we      (),
@@ -223,11 +238,6 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     // LED output
     // ----------------------------------------------------------------
-    always_ff @(posedge clk) begin
-        if (!rst)
-            led <= '0;
-        else
-            led <= {15'b0, spike_out};
-    end
+    assign led = spike_bitmap;
 
 endmodule

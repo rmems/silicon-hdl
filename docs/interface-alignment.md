@@ -27,7 +27,7 @@ either side of the contract changes.
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
 | Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
 | Logical timestep / `step_en` | **Documented** | [`docs/timestep-contract.md`](timestep-contract.md); SoC 1 ms divider (#57 / #60) |
-| SoC demo maturity (F0 honesty) | **Partial** | `INIT_FILE` yes; 1 neuron; `addr = 0`; STDP writeback open; `tx_send = 0`. See [#54](https://github.com/rmems/silicon-hdl/issues/54) |
+| SoC demo maturity (F0 honesty) | **Partial** | `INIT_FILE` and N=16 time-multiplexed LIF sweep are wired; runtime UART writes, 16-channel frame parsing, STDP writeback, and `tx_send` remain open. See [#54](https://github.com/rmems/silicon-hdl/issues/54) |
 
 Foundational RTL correctness that supports this alignment landed earlier via
 PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
@@ -95,6 +95,7 @@ operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
 | `WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` | `DATA_WIDTH = 16` | `2**ADDR_WIDTH`, `ADDR_WIDTH = 10` → 1024 | Synaptic weights |
 | `NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` | `PARAM_WIDTH = 16` | `2**ADDR_WIDTH`, `ADDR_WIDTH = 8` → 256 | **One** parameter type per instance (threshold **or** leak, not both) |
 | `LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16` | n/a | LIF dynamics; requires `PARAM_WIDTH == DATA_WIDTH` at elaborate time |
+| `LifNeuronArray` | `spikenaut-core-sv/rtl/LifNeuronArray.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16`, `NUM_NEURONS = 16` | 16 membrane words + one shared datapath | Time-multiplexed N=16 LIF PE; commits a 16-bit bitmap after each sweep |
 | `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; unsigned saturate (#55). `WINDOW_WIDTH` is in logical ticks; traces update only on `step_en`. |
 
 **LIF semantics vs Q8.8 (unsigned):**
@@ -119,11 +120,15 @@ operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
 threshold, and leak RAMs load `merged_v2_weights.mem`, `merged_v2_thresholds.mem`,
 and `merged_v2_decay.mem` at elaboration (`merged_v2_output_weights.mem` is
 vendored only). Vivado: `build_soc.tcl` `-generic` absolute paths so `$readmemh`
-resolves. Ports remain `we = 0`, `addr = 0`, so after the first post-reset read
-`dout` is **image word 0** — not a walked array. UART/config loader
-([#63](https://github.com/rmems/silicon-hdl/issues/63)) and multi-neuron
-addressing ([#61](https://github.com/rmems/silicon-hdl/issues/61)) are still
-open. That is a **scale / protocol** gap, not a missing `$readmemh` path.
+resolves. `LifNeuronArray` starts a 16-slot sweep on each `step_en` and pipelines
+the RAM address one fabric cycle ahead of its registered `dout` consumption.
+Threshold and leak walk neuron addresses `0..15`; the weight map is
+`flat_addr = neuron_row * 16 + input_index` over the 256-word image. The
+current binary-event demo fixes `input_index = 0`, so every sweep reads rows
+`0, 16, …, 240`; the #62 parser will select the remaining input columns.
+Ports remain `we = 0` because UART/config writes are #63 work. This closes the
+N=16 addressing gap in [#61](https://github.com/rmems/silicon-hdl/issues/61),
+not the remaining protocol gap.
 
 ### 1.4 Width alignment summary
 
@@ -132,7 +137,7 @@ open. That is a **scale / protocol** gap, not a missing `$readmemh` path.
 | Parameter / weight word | `u16` Q8.8 | 16-bit `logic` (`DATA_WIDTH` / `PARAM_WIDTH`) | Yes |
 | Threshold vector | `FpgaParameters.thresholds: Vec<u16>` | `NeuronParamRam` (threshold instance) | Yes (format) |
 | Decay / leak vector | `FpgaParameters.decay_rates: Vec<u16>` | `NeuronParamRam` (leak instance) | Yes (format) |
-| Weight matrix flat | `FpgaParameters.weights: Vec<u16>` | `WeightRam` | Yes (format); address mapping is SoC policy |
+| Weight matrix flat | `FpgaParameters.weights: Vec<u16>` | `WeightRam` | Yes; implemented as `neuron_row * 16 + input_index` over the 16×16 image |
 | Max weight depth (default) | sized by export metadata | 1024 entries @ 16-bit | Host must not exceed RAM depth for a given parameterization |
 | Max param depth (default) | `num_neurons` | 256 entries @ 16-bit | Host `num_neurons` ≤ 256 at default `ADDR_WIDTH` |
 
@@ -190,8 +195,10 @@ Current SoC demo wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   (a one-cycle UART strobe would otherwise miss the gated neuron). Any received
   byte is a binary event; payload bits are not decoded. Multiple bytes inside
   one tick collapse to a single spike.
-- One `LifNeuron`; RAMs sit at `addr = 0` after `$readmemh` init (word 0 of each
-  wired merged_v2 image).
+- One `LifNeuronArray` time-multiplexes 16 neuron slots. It sweeps threshold
+  and leak entries `0..15` and maps `WeightRam` as
+  `neuron_row * 16 + input_index`; the current binary-event path selects input
+  column 0 until the #62 frame parser is present.
 - `StdpController` is instantiated (classical Bi–Poo, `step_en`-gated) but
   writeback is **open**: `weight_we` / `weight_addr_out` / `weight_out` are left
   unconnected ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
@@ -217,18 +224,18 @@ module that:
 
 | Rust (silicon-bridge) | SV module / port / artifact | Match notes |
 |-----------------------|-----------------------------|-------------|
-| `FixedPointEncode::encode_q88` | 16-bit `din`/`dout` on RAMs; `weight` / `threshold` / `leak` on `LifNeuron` | Same 16-bit word size; RTL unsigned ops |
+| `FixedPointEncode::encode_q88` | 16-bit `din`/`dout` on RAMs; `weight` / `threshold` / `leak` on `LifNeuronArray` | Same 16-bit word size; RTL unsigned ops |
 | `q88_to_f32` / `format_q88_hex` | Host-side only | No RTL equivalent required |
 | `FpgaParameters.thresholds` | `NeuronParamRam` (threshold instance) `.din`/`.dout` | 16-bit; separate RAM from leak |
 | `FpgaParameters.decay_rates` | `NeuronParamRam` (leak instance) | Mapped as **leak** in LIF (`membrane -= leak`) |
-| `FpgaParameters.weights` | `WeightRam` `.din`/`.dout` | Flattened matrix → linear addresses (SoC policy) |
+| `FpgaParameters.weights` | `WeightRam` `.din`/`.dout` | Flattened 16×16 matrix → `neuron_row * 16 + input_index` |
 | `MemFileWriter` `.mem` lines | SoC `INIT_FILE` `$readmemh` into RAM arrays | **Wired** in demo top (`merged_v2` defaults); host rewrite later (#63) |
 | `EXPORT_FORMAT_VERSION` | Metadata only | No RTL parse |
 | `FpgaBridge` open @ 115200 | `SiliconBridge` `BAUD_RATE=115_200` | Match |
 | UART 8 data bits | `DATA_WIDTH=8` on bridge/UART | Match |
 | Host TX frame `0xAA` + 32 B | *Application layer above bridge* | Not in `SiliconBridge.sv` |
 | Host RX 36 B response | *Application layer above bridge* | Not in demo top (`tx_send=0`) |
-| Spike flag word (16 bits) | Could map to `spike_out` vector / LED bus | Demo exposes 1 neuron on `led[0]` |
+| Spike flag word (16 bits) | `LifNeuronArray.spike_bitmap` / LED bus | Demo exposes the committed N=16 bitmap on `led[15:0]` |
 | `FpgaMetrics::parse_from_report` (WNS) | Vivado timing summary from SoC build | CI: see §4 |
 | `serialport` USB path | Board USB-UART (`uart_rx`/`uart_tx` on Basys 3) | Physical |
 
@@ -291,13 +298,11 @@ acceptance. Clarifying comments only may be added on `SiliconBridge.sv`.
 tracked under finishing epic
 [#54](https://github.com/rmems/silicon-hdl/issues/54), not as a missing mem-init path:
 
-- SoC protocol FSM for SiliconBridge v3.0 frames above `SiliconBridge`, TX enabled,
-  `tx_busy` respected ([#62](https://github.com/rmems/silicon-hdl/issues/62))
-- UART / write-port load of RAMs at runtime ([#63](https://github.com/rmems/silicon-hdl/issues/63))
-- Multi-neuron array plus spike-bitmap packing for the 16-neuron host frame
-  ([#61](https://github.com/rmems/silicon-hdl/issues/61) / [#64](https://github.com/rmems/silicon-hdl/issues/64))
-- Explicit address map from the flattened weight matrix onto `WeightRam` (today: `addr = 0`)
-- STDP writeback into `WeightRam` ([#70](https://github.com/rmems/silicon-hdl/issues/70))
+- SoC protocol FSM for SiliconBridge v3.0 frames, including the UART 16-channel
+  parser, input-column selector, TX enable, and `tx_busy` handling
+  ([#62](https://github.com/rmems/silicon-hdl/issues/62)); runtime RAM writes
+  remain [#63](https://github.com/rmems/silicon-hdl/issues/63)
+- STDP time-multiplexing and writeback into `WeightRam` ([#70](https://github.com/rmems/silicon-hdl/issues/70))
 
 ---
 

@@ -41,6 +41,16 @@ jobs:
             spikenaut-core-sv/tb/tb_LifNeuron.sv
           ./obj_dir/Vtb_LifNeuron
 
+      - name: Run tb_LifNeuronArray
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_LifNeuronArray \
+            -Ispikenaut-core-sv/rtl \
+            spikenaut-core-sv/rtl/LifNeuronArray.sv \
+            spikenaut-core-sv/tb/tb_LifNeuronArray.sv
+          ./obj_dir/Vtb_LifNeuronArray
+
       - name: Run tb_WeightRam
         run: |
           rm -rf obj_dir
@@ -140,6 +150,7 @@ jobs:
             spikenaut-bridge-sv/rtl/UartTx.sv \
             spikenaut-bridge-sv/rtl/SiliconBridge.sv \
             spikenaut-core-sv/rtl/LifNeuron.sv \
+            spikenaut-core-sv/rtl/LifNeuronArray.sv \
             spikenaut-core-sv/rtl/WeightRam.sv \
             spikenaut-core-sv/rtl/NeuronParamRam.sv \
             spikenaut-core-sv/rtl/StdpController.sv \
