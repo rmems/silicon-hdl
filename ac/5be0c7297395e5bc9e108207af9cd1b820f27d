@@ -1,0 +1,21 @@
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_48604fbbf97057::t_04105fe4e70f68 58,286-287,343-344,350-351,355-381,384
+docs/boundary-matrix.md
+  s_48604fbbf97057::t_04105fe4e70f68 285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ac5be0c7297395e5bc9e108207af9cd1b820f27d",
+  "prompts": {},
+  "sessions": {
+    "s_48604fbbf97057": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0225f-d042-7c50-b094-47666fb3cdc3",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
