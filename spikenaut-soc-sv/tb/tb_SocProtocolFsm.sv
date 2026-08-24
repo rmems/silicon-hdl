@@ -58,7 +58,7 @@ module tb_SocProtocolFsm;
     initial clk = 1'b0;
     always #(CLK_PERIOD/2) clk = ~clk;
 
-    always @(posedge clk) begin
+    always @(negedge clk) begin
         if (stimuli_valid === 1'b1)
             stimuli_valid_pulses++;
     end

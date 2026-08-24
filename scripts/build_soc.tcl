@@ -66,7 +66,7 @@ read_verilog -sv [list \
 
 # ---------------------------------------------------------------------------
 # 3. lib_soc  –  spikenaut-soc-sv/rtl
-#    SoC-owned application codec and the renamed top module only.
+#    SoC application codec (SocProtocolFsm) and top module (spikenaut_soc_basys3_top) only.
 # ---------------------------------------------------------------------------
 set soc_rtl [file join $repo_root spikenaut-soc-sv rtl]
 
