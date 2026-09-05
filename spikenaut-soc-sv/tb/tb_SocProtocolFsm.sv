@@ -15,6 +15,8 @@ module tb_SocProtocolFsm;
     localparam int CLK_PERIOD  = 10;
     localparam int FRAME_BYTES = 36;
     localparam int WAIT_BOUND  = 32;
+    // Short timeout so the abandon-path case stays cheap in Verilator.
+    localparam int IDLE_TIMEOUT_CYCLES = 16;
 
     logic clk;
     logic rst_n;
@@ -37,8 +39,9 @@ module tb_SocProtocolFsm;
     int stimuli_valid_pulses = 0;
 
     SocProtocolFsm #(
-        .NUM_NEURONS (NUM_NEURONS),
-        .WORD_WIDTH  (WORD_WIDTH)
+        .NUM_NEURONS           (NUM_NEURONS),
+        .WORD_WIDTH            (WORD_WIDTH),
+        .IDLE_TIMEOUT_CYCLES   (IDLE_TIMEOUT_CYCLES)
     ) dut (
         .clk           (clk),
         .rst_n         (rst_n),
@@ -117,6 +120,39 @@ module tb_SocProtocolFsm;
             frame_send = 1'b1;
             @(negedge clk);
             frame_send = 1'b0;
+        end
+    endtask
+
+    // Distinct per-lane potentials so a stale pending snapshot cannot match.
+    task automatic load_live_snapshot(
+        input logic [WORD_WIDTH-1:0] pot_base,
+        input logic [NUM_NEURONS-1:0] spikes,
+        input logic [WORD_WIDTH-1:0] aux
+    );
+        begin
+            for (int lane = 0; lane < NUM_NEURONS; lane++)
+                potentials_in[lane*WORD_WIDTH +: WORD_WIDTH] =
+                    pot_base + WORD_WIDTH'(lane * 16'h0101);
+            spike_flags = spikes;
+            aux_state   = aux;
+        end
+    endtask
+
+    task automatic remember_expected();
+        begin
+            expected_potentials  = potentials_in;
+            expected_spike_flags = spike_flags;
+            expected_aux_state   = aux_state;
+        end
+    endtask
+
+    task automatic collect_response_bytes(input int unsigned start_index, input string msg);
+        logic [7:0] captured;
+        begin
+            for (int byte_index = start_index; byte_index < FRAME_BYTES; byte_index++) begin
+                wait_for_tx_byte(captured);
+                check_byte(captured, expected_response_byte(byte_index), msg);
+            end
         end
     endtask
 
@@ -246,6 +282,72 @@ module tb_SocProtocolFsm;
             check_byte(observed, expected_response_byte(byte_index),
                        "busy release must resume without dropped or repeated bytes");
         end
+
+        // Latest-wins pending: three distinguishable frame_send pulses while
+        // the first response is still serializing. The first extra pulse is
+        // aligned to a send_pending cycle (tx_send high) so a one-cycle SoC
+        // tick cannot be dropped. The active frame must stay snapshot A;
+        // the next frame must be snapshot D (latest pending), not B or C.
+        load_live_snapshot(16'h1100, 16'h0001, 16'hA001);
+        remember_expected();
+        trigger_response();
+        begin
+            int unsigned waited;
+            waited = 0;
+            while (tx_send !== 1'b1 && waited < WAIT_BOUND) begin
+                @(negedge clk);
+                waited++;
+            end
+            check(tx_send === 1'b1,
+                  "latest-wins active frame must present byte zero");
+            check_byte(tx_data, expected_response_byte(0),
+                       "latest-wins active frame must start with snapshot A");
+            // tx_send high means send_pending is set; pulse here so a
+            // one-cycle SoC tick is captured instead of dropped.
+            load_live_snapshot(16'h2200, 16'h0002, 16'hB002);
+            frame_send = 1'b1;
+            @(negedge clk);
+            frame_send = 1'b0;
+        end
+        load_live_snapshot(16'h3300, 16'h0004, 16'hC003);
+        trigger_response();
+        load_live_snapshot(16'h4400, 16'h0008, 16'hD004);
+        trigger_response();
+        // Corrupt live inputs so a missed snapshot capture cannot pass.
+        load_live_snapshot(16'hFFFF, 16'hFFFF, 16'hFFFF);
+        collect_response_bytes(1, "active frame must remain snapshot A while later triggers pend");
+        load_live_snapshot(16'h4400, 16'h0008, 16'hD004);
+        remember_expected();
+        collect_response_bytes(0, "next frame must be the latest pending snapshot D");
+        repeat (3) @(negedge clk);
+        check(tx_send === 1'b0, "serializer must stop after the promoted pending frame");
+
+        // RX abandon: start a frame, send a few payload bytes (including a
+        // legal mid-payload 0xAA), idle past the timeout, then prove a fresh
+        // 0xAA+payload commits cleanly instead of mixing with the remnant.
+        baseline_pulses = stimuli_valid_pulses;
+        send_rx_byte(8'hAA);
+        send_rx_byte(8'hAA);
+        send_rx_byte(8'h11);
+        send_rx_byte(8'h22);
+        repeat (IDLE_TIMEOUT_CYCLES + 4) @(negedge clk);
+        check(stimuli_valid === 1'b0, "idle timeout must not commit a partial RX frame");
+        check(stimuli_valid_pulses === baseline_pulses,
+              "idle timeout must not pulse stimuli_valid");
+        send_rx_byte(8'hAA);
+        for (int lane = 0; lane < NUM_NEURONS; lane++) begin
+            send_rx_byte(8'(8'h30 + lane));
+            send_rx_byte(8'(8'h40 + lane));
+        end
+        @(negedge clk);
+        check(stimuli_valid === 1'b1, "fresh frame after idle timeout must commit");
+        for (int lane = 0; lane < NUM_NEURONS; lane++) begin
+            check_word(stimuli_out[lane*WORD_WIDTH +: WORD_WIDTH],
+                       {8'(8'h30 + lane), 8'(8'h40 + lane)},
+                       "post-timeout receive must assemble a complete new frame");
+        end
+        check(stimuli_valid_pulses === baseline_pulses + 1,
+              "post-timeout commit must create exactly one stimulus-valid pulse");
 
         if (errors == 0) begin
             $display("TB_SOCPROTOCOLFSM: ALL TESTS PASSED");

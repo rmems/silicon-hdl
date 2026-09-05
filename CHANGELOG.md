@@ -36,8 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SoC application protocol FSM (#62) — canonical `SocProtocolFsm` decodes the
   `0xAA` + 16-word big-endian host frame, holds a completed stimulus frame for
   the next logical tick, and emits the 36-byte potential/spike/aux response
-  with `tx_busy`-safe serialization. `tb_SocProtocolFsm` covers decode, byte
-  order, and busy stalls; the N=16 PE now exposes packed membrane readback.
+  with `tx_busy`-safe serialization. Incomplete RX frames abort after an
+  inter-byte idle timeout (not mid-payload `0xAA` resync). `tb_SocProtocolFsm`
+  covers decode, byte order, busy stalls, latest-wins pending snapshots, and
+  RX idle-timeout recovery; the N=16 PE now exposes packed membrane readback.
 
 ### Changed
 

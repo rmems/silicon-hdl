@@ -199,6 +199,11 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   big-endian Q8.8 words, atomically publishes the packed bus, and pulses
   `stimuli_valid`. The SoC holds that completed frame until the next 1 ms
   `step_en`; partial frames and raw `rx_valid` pulses cannot stimulate the PE.
+  An incomplete receive is abandoned after `IDLE_TIMEOUT_CYCLES` fabric clocks
+  without `rx_valid` (default four 10-bit UART character times at
+  100 MHz / 115200) and returns to waiting for `0xAA`. Mid-payload `0xAA` is
+  legal Q8.8 data and is not a resync; a retried host frame must idle at least
+  that long before the next sync byte.
 - One `LifNeuronArray` time-multiplexes 16 neuron slots. It sweeps threshold
   and leak entries `0..15` and maps `WeightRam` as
   `neuron_row * 16 + input_index`. The current shared-event PE maps the

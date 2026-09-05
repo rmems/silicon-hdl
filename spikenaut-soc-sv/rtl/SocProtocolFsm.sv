@@ -10,11 +10,18 @@
 // Basys 3 default 115200 baud a 36-byte response takes about 3.125 ms, longer
 // than the 1 ms logical tick, so triggers received while a frame is active are
 // deliberately coalesced into the latest single pending snapshot.
+//
+// RX_COLLECT recovers from an abandoned host frame with an inter-byte idle
+// timeout only.  Mid-payload 0xAA is legal Q8.8 data and is never a resync.
+// Hosts that retry a truncated request must idle at least
+// IDLE_TIMEOUT_CYCLES fabric clocks before the next 0xAA.
 
 module SocProtocolFsm #(
     parameter int NUM_NEURONS = 16,
     parameter int WORD_WIDTH  = 16,
-    parameter logic [7:0] SYNC_BYTE = 8'hAA
+    parameter logic [7:0] SYNC_BYTE = 8'hAA,
+    // Four 10-bit UART character times at 100 MHz / 115200 (CLKS_PER_BIT=868).
+    parameter int IDLE_TIMEOUT_CYCLES = 4 * 10 * (100_000_000 / 115_200)
 )(
     input  logic                                 clk,
     input  logic                                 rst_n,
@@ -41,11 +48,14 @@ module SocProtocolFsm #(
     localparam int FRAME_BYTES    = PAYLOAD_BYTES + (2 * BYTES_PER_WORD);
     localparam int RX_COUNT_WIDTH = (PAYLOAD_BYTES > 1) ? $clog2(PAYLOAD_BYTES) : 1;
     localparam int TX_COUNT_WIDTH = (FRAME_BYTES > 1) ? $clog2(FRAME_BYTES) : 1;
+    localparam int IDLE_COUNT_WIDTH = (IDLE_TIMEOUT_CYCLES > 1)
+        ? $clog2(IDLE_TIMEOUT_CYCLES + 1) : 1;
 
     typedef enum logic [1:0] {RX_WAIT_SYNC, RX_COLLECT, RX_COMMIT} rx_state_t;
     rx_state_t rx_state;
 
     logic [RX_COUNT_WIDTH-1:0] rx_byte_count;
+    logic [IDLE_COUNT_WIDTH-1:0] rx_idle_count;
     logic [NUM_NEURONS*WORD_WIDTH-1:0] rx_payload;
 
     // The active response frame is held in word form so byte serialization is
@@ -71,16 +81,22 @@ module SocProtocolFsm #(
             $error("SocProtocolFsm: WORD_WIDTH (%0d) must be a positive multiple of 8", WORD_WIDTH);
         if (NUM_NEURONS > WORD_WIDTH)
             $error("SocProtocolFsm: NUM_NEURONS (%0d) must not exceed WORD_WIDTH (%0d)", NUM_NEURONS, WORD_WIDTH);
+        if (IDLE_TIMEOUT_CYCLES < 1)
+            $error("SocProtocolFsm: IDLE_TIMEOUT_CYCLES (%0d) must be at least one", IDLE_TIMEOUT_CYCLES);
     endgenerate
 
     // Receive 0xAA followed by NUM_NEURONS big-endian words.  RX_COLLECT
-    // advances only on rx_valid, so idle fabric cycles between UART bytes are
-    // harmless.  RX_COMMIT keeps partially assembled payloads invisible to
-    // the core and produces a precisely one-cycle stimuli_valid strobe.
+    // advances only on rx_valid; short idle gaps between UART bytes are
+    // harmless.  An idle stretch of IDLE_TIMEOUT_CYCLES clocks aborts back
+    // to RX_WAIT_SYNC and clears the partial byte count so a retried 0xAA
+    // can start a fresh frame.  RX_COMMIT keeps partially assembled payloads
+    // invisible to the core and produces a precisely one-cycle stimuli_valid
+    // strobe.
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             rx_state       <= RX_WAIT_SYNC;
             rx_byte_count  <= '0;
+            rx_idle_count  <= '0;
             rx_payload     <= '0;
             stimuli_out    <= '0;
             stimuli_valid  <= 1'b0;
@@ -91,17 +107,12 @@ module SocProtocolFsm #(
                 RX_WAIT_SYNC: begin
                     if (rx_valid && (rx_data == SYNC_BYTE)) begin
                         rx_byte_count <= '0;
+                        rx_idle_count <= '0;
                         rx_state      <= RX_COLLECT;
                     end
                 end
 
                 RX_COLLECT: begin
-                    // TODO(#62 P2): no idle-timeout / abandon path. An interrupted
-                    // host frame leaves this state counting payload bytes, so a
-                    // retried 0xAA is consumed as data and desynchronizes until
-                    // reset. A safe fix needs a fabric-cycle idle limit
-                    // (CLK_FREQ/BAUD * N) plus TB coverage; do not treat 0xAA as
-                    // a mid-payload resync because it is legal Q8.8 data.
                     if (rx_valid) begin
                         // The host transmits each word high byte first.  The
                         // packed vector uses lane 0 at the LSB, hence this
@@ -109,11 +120,18 @@ module SocProtocolFsm #(
                         rx_payload[(rx_byte_count / BYTES_PER_WORD) * WORD_WIDTH +
                                    ((BYTES_PER_WORD - 1 - (rx_byte_count % BYTES_PER_WORD)) * 8) +: 8]
                             <= rx_data;
+                        rx_idle_count <= '0;
                         if (rx_byte_count == PAYLOAD_BYTES - 1) begin
                             rx_state <= RX_COMMIT;
                         end else begin
                             rx_byte_count <= rx_byte_count + 1'b1;
                         end
+                    end else if (rx_idle_count == IDLE_COUNT_WIDTH'(IDLE_TIMEOUT_CYCLES - 1)) begin
+                        rx_byte_count <= '0;
+                        rx_idle_count <= '0;
+                        rx_state      <= RX_WAIT_SYNC;
+                    end else begin
+                        rx_idle_count <= rx_idle_count + 1'b1;
                     end
                 end
 
@@ -173,6 +191,8 @@ module SocProtocolFsm #(
                 if (send_pending) begin
                     // A tx_send was asserted during the preceding cycle while
                     // tx_busy was low, so UartTx consumes this exact byte now.
+                    // A one-cycle frame_send can land on this consume cycle;
+                    // capture it as the latest-wins pending snapshot.
                     send_pending <= 1'b0;
 
                     if (tx_byte_index == FRAME_BYTES - 1) begin
