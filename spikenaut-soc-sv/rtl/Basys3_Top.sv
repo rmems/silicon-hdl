@@ -241,10 +241,28 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     // SoC application protocol (0xAA frame codec + TX readback)
     // ----------------------------------------------------------------
-    // Trigger after the PE commits its sweep, rather than at sweep start, so
-    // every response snapshots one coherent post-tick membrane/spike result.
-    // The FSM coalesces tick triggers while UART is busy; a 36-byte response
-    // cannot physically complete within the 1 ms tick at 115200 baud.
+    // Host contract (#62): one 36-byte response per consumed 0xAA stimulus
+    // frame. Arm on the step_en that consumes stimuli_pending; fire on the
+    // subsequent lif_tick_done so the snapshot is that tick's post-sweep
+    // membrane/spike result. Idle 1 ms ticks must not stream UART responses
+    // before any host frame (or between host frames).
+    // The FSM still coalesces a later armed trigger while UART is busy; a
+    // 36-byte response cannot physically complete within the 1 ms tick at
+    // 115200 baud.
+    logic response_armed;
+    logic frame_send;
+
+    always_ff @(posedge clk) begin
+        if (!rst)
+            response_armed <= 1'b0;
+        else if (step_en && stimuli_pending)
+            response_armed <= 1'b1;
+        else if (lif_tick_done)
+            response_armed <= 1'b0;
+    end
+
+    assign frame_send = lif_tick_done && response_armed;
+
     SocProtocolFsm #(
         .NUM_NEURONS (NUM_NEURONS),
         .WORD_WIDTH  (DATA_WIDTH)
@@ -261,7 +279,7 @@ module spikenaut_soc_basys3_top #(
         .potentials_in (membrane_potentials),
         .spike_flags   (spike_bitmap),
         .aux_state     ('0),
-        .frame_send    (lif_tick_done)
+        .frame_send    (frame_send)
     );
 
     // ----------------------------------------------------------------

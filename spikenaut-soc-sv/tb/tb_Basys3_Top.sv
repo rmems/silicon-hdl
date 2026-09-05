@@ -16,6 +16,8 @@
 //   5. Frame delivery    — a complete 0xAA / 16-word UART frame is latched
 //                          and reaches the N=16 LIF PE on the next tick.
 //   6. Decay             — with no event, the membrane leaks back to 0.
+//   7. Gated frame_send  — idle 1 ms ticks do not arm a UART response; a
+//                          response fires only after a consumed host frame.
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
@@ -72,6 +74,7 @@ module tb_spikenaut_soc_basys3_top #(
 
     int errors = 0;
     int unsigned first_tick_cycles;
+    int unsigned frame_send_count;
     logic [NUM_NEURONS-1:0] expected_first_spikes;
     logic [NUM_NEURONS-1:0] seen_threshold_addr;
     logic [NUM_NEURONS-1:0] seen_leak_addr;
@@ -135,6 +138,8 @@ module tb_spikenaut_soc_basys3_top #(
 
     always @(negedge clk) begin
         cyc++;
+        if (dut.frame_send === 1'b1)
+            frame_send_count++;
         if (dut.step_en === 1'b1) begin
             width_run++;
             tick_count++;
@@ -263,6 +268,7 @@ module tb_spikenaut_soc_basys3_top #(
         // ------------------------------------------------------------
         btn_rst      = 1'b1;    // active-high button pressed => DUT in reset
         uart_rx_line = 1'b1;    // UART idle
+        frame_send_count    = 0;
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
         seen_weight_row     = '0;
@@ -272,6 +278,9 @@ module tb_spikenaut_soc_basys3_top #(
         check(dut.step_cnt === '0,        "reset: step_cnt must be cleared");
         check(dut.stimuli_pending === 1'b0,
               "reset: completed-frame pending state must be cleared");
+        check(dut.response_armed === 1'b0,
+              "reset: response_armed must be cleared");
+        check(dut.frame_send === 1'b0,    "reset: frame_send must be low");
         check(led === 16'h0000,           "reset: led must be cleared");
 
         // ------------------------------------------------------------
@@ -300,6 +309,12 @@ module tb_spikenaut_soc_basys3_top #(
         wait_tick_applied();
         wait_tick_applied();
         check_int(tick_count, 3, "monitor must have observed three ticks");
+        check_int(frame_send_count, 0,
+                  "idle ticks before any host frame must not arm frame_send");
+        check(dut.u_protocol_fsm.tx_active === 1'b0,
+              "idle ticks must not start a UART response");
+        check(dut.bridge_tx_send === 1'b0,
+              "idle ticks must not pulse SiliconBridge tx_send");
 
         // No UART event has been delivered yet, so every PE slot must be idle.
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
@@ -348,7 +363,14 @@ module tb_spikenaut_soc_basys3_top #(
         record_sweep_addresses();
         check(dut.stimuli_pending === 1'b0,
               "step_en must consume exactly one completed stimulus frame");
+        check(dut.response_armed === 1'b1,
+              "consuming a host frame must arm the post-sweep response");
         wait_lif_sweep_done();
+        check(dut.frame_send === 1'b1,
+              "lif_tick_done after a consumed host frame must pulse frame_send");
+        @(negedge clk); // let the free-running monitor retire this pulse
+        check_int(frame_send_count, 1,
+                  "exactly one response must be armed for the first consumed frame");
 
         expected_first_spikes = '0;
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
@@ -374,6 +396,10 @@ module tb_spikenaut_soc_basys3_top #(
         // ------------------------------------------------------------
         wait_tick_applied();
         wait_lif_sweep_done();
+        check(dut.frame_send === 1'b0,
+              "a leak-only tick must not re-arm frame_send");
+        check_int(frame_send_count, 1,
+                  "idle leak tick must not increment the gated response count");
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
             if (expected_first_spikes[neuron])
                 check(dut.u_lif_array.membrane_potential[neuron] === '0,
@@ -407,6 +433,11 @@ module tb_spikenaut_soc_basys3_top #(
               "selected non-zero protocol lane must create the PE event");
         wait_tick_applied();
         wait_lif_sweep_done();
+        check(dut.frame_send === 1'b1,
+              "second consumed host frame must arm another gated response");
+        @(negedge clk); // let the free-running monitor retire this pulse
+        check_int(frame_send_count, 2,
+                  "each consumed host frame must arm exactly one response");
         check(dut.u_lif_array.spike_bitmap[SPIKE_TEST_NEURON] === 1'b1,
               "controlled row must commit a real spike bit");
         check(led[SPIKE_TEST_NEURON] === 1'b1,
@@ -414,6 +445,10 @@ module tb_spikenaut_soc_basys3_top #(
 
         wait_tick_applied();
         wait_lif_sweep_done();
+        check(dut.frame_send === 1'b0,
+              "refractory follow-up tick must not re-arm frame_send");
+        check_int(frame_send_count, 2,
+                  "refractory follow-up tick must not increment the gated response count");
         check(dut.u_lif_array.membrane_potential[SPIKE_TEST_NEURON] === '0,
               "spiking row must reset to zero on the following refractory tick");
 

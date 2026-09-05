@@ -95,9 +95,9 @@ verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD
 
 Notes for editing it:
 
-- It observes `step_en`, `step_cnt`, `stimuli_pending`, `protocol_stimuli`, and the PE membrane
-  register file by hierarchical reference, so the synthesized top needs no debug ports. Renaming
-  those nets breaks the TB.
+- It observes `step_en`, `step_cnt`, `stimuli_pending`, `protocol_stimuli`, `response_armed`,
+  `frame_send`, and the PE membrane register file by hierarchical reference, so the synthesized
+  top needs no debug ports. Renaming those nets breaks the TB.
 - `step_en` is a **register**: it is set at posedge P and the cores consume it at posedge P+1.
   Sample post-tick state via `wait_tick_applied()`, not `wait_for_tick()`.
 - Tick period and pulse width are checked by a free-running monitor on every tick; absolute

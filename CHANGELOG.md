@@ -51,3 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - STDP polarity inversion vs Bi–Poo / Song–Miller–Abbott convention (#55).
+- SoC protocol snapshot capture stays inline NBA in `always_ff` (Verilator and
+  XSim reject `task automatic ... ref` from sequential logic). `frame_send` is
+  armed only after a consumed host `0xAA` frame, not on every 1 ms `tick_done`
+  (#62).

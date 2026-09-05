@@ -205,14 +205,17 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   lowest-index non-zero frame lane to one selected input column for that tick;
   it does not yet sum multiple simultaneously active lanes.
 - The PE exports all 16 committed membrane words and the 16-bit spike bitmap to
-  the FSM. `tick_done` triggers a coherent post-sweep response snapshot.
+  the FSM. The SoC arms `frame_send` only after a host `0xAA` frame is consumed
+  by `step_en`; the subsequent `tick_done` then snapshots that tick's result.
+  Idle 1 ms ticks do not stream responses.
 - `StdpController` is instantiated (classical Bi–Poo, `step_en`-gated) but
   writeback is **open**: `weight_we` / `weight_addr_out` / `weight_out` are left
   unconnected ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
 - TX emits the documented 36 bytes in big-endian order. It asserts `tx_send`
   only when `tx_busy` is low and holds the current byte across stalls. Because
   one 36-byte 115200-baud response takes about 3.125 ms, the FSM keeps one
-  latest-wins pending snapshot while tick triggers arrive at 1 kHz.
+  latest-wins pending snapshot if another consumed-frame trigger arrives while
+  UART serialization is still active.
 
 The codec is implemented above the bridge. End-to-end host/board exercise and
 runtime RAM writes remain separately scoped under [#64](https://github.com/rmems/silicon-hdl/issues/64)
