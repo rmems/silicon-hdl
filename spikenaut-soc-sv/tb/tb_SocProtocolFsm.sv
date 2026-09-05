@@ -308,13 +308,16 @@ module tb_SocProtocolFsm;
             frame_send = 1'b1;
             @(negedge clk);
             frame_send = 1'b0;
+            // Stall the remainder of A so later triggers cannot race the
+            // serializer while we apply snapshots C and D.
+            tx_busy = 1'b1;
         end
         load_live_snapshot(16'h3300, 16'h0004, 16'hC003);
         trigger_response();
         load_live_snapshot(16'h4400, 16'h0008, 16'hD004);
         trigger_response();
-        // Corrupt live inputs so a missed snapshot capture cannot pass.
         load_live_snapshot(16'hFFFF, 16'hFFFF, 16'hFFFF);
+        tx_busy = 1'b0;
         collect_response_bytes(1, "active frame must remain snapshot A while later triggers pend");
         load_live_snapshot(16'h4400, 16'h0008, 16'hD004);
         remember_expected();
@@ -346,6 +349,8 @@ module tb_SocProtocolFsm;
                        {8'(8'h30 + lane), 8'(8'h40 + lane)},
                        "post-timeout receive must assemble a complete new frame");
         end
+        @(negedge clk);
+        check(stimuli_valid === 1'b0, "post-timeout stimuli_valid must deassert after one cycle");
         check(stimuli_valid_pulses === baseline_pulses + 1,
               "post-timeout commit must create exactly one stimulus-valid pulse");
 
