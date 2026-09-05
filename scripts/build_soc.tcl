@@ -32,7 +32,7 @@ create_project -force $project_name $project_dir -part $part
 #   bridge: UartRx.sv UartTx.sv SiliconBridge.sv (spikenaut-bridge-sv/rtl)
 #   core:   LifNeuron.sv LifNeuronArray.sv WeightRam.sv NeuronParamRam.sv StdpController.sv (spikenaut-core-sv/rtl)
 #   mem:    merged_v2_{weights,thresholds,decay}.mem (spikenaut-core-sv/mem) — E2 INIT
-#   soc:    Basys3_Top.sv (spikenaut-soc-sv/rtl)  -- top=spikenaut_soc_basys3_top
+#   soc:    SocProtocolFsm.sv Basys3_Top.sv (spikenaut-soc-sv/rtl)  -- top=spikenaut_soc_basys3_top
 #   xdc:    constraints/basys3.xdc (used by both tops)
 # See also sim_core.tcl, dedup greps in README, and headers in each .sv.
 # To evolve: could source a manifest .f file, but explicit lists + comments kept simple.
@@ -51,7 +51,7 @@ read_verilog -sv [list \
 
 # ---------------------------------------------------------------------------
 # 2. lib_core  –  spikenaut-core-sv/rtl
-#    All four canonical modules live here and ONLY here.
+#    All canonical core modules live here and ONLY here.
 #    spikenaut-soc-sv/rtl does NOT contain these files.
 # ---------------------------------------------------------------------------
 set core_rtl [file join $repo_root spikenaut-core-sv rtl]
@@ -66,11 +66,12 @@ read_verilog -sv [list \
 
 # ---------------------------------------------------------------------------
 # 3. lib_soc  –  spikenaut-soc-sv/rtl
-#    Only SoC wrappers and the renamed top module.
+#    SoC application codec (SocProtocolFsm) and top module (spikenaut_soc_basys3_top) only.
 # ---------------------------------------------------------------------------
 set soc_rtl [file join $repo_root spikenaut-soc-sv rtl]
 
 read_verilog -sv [list \
+    [file join $soc_rtl SocProtocolFsm.sv] \
     [file join $soc_rtl Basys3_Top.sv]   \
 ]
 

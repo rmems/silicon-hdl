@@ -32,6 +32,7 @@ module tb_LifNeuronArray;
     logic [PARAM_ADDR_WIDTH-1:0]  leak_addr;
     logic [WEIGHT_ADDR_WIDTH-1:0] weight_addr;
     logic [NUM_NEURONS-1:0]       spike_bitmap;
+    logic [NUM_NEURONS*DATA_WIDTH-1:0] membrane_potentials;
     logic                         tick_done;
 
     logic [DATA_WIDTH-1:0]  weight_mem [0:NUM_NEURONS*NUM_NEURONS-1];
@@ -62,6 +63,7 @@ module tb_LifNeuronArray;
         .leak_addr      (leak_addr),
         .weight_addr    (weight_addr),
         .spike_bitmap   (spike_bitmap),
+        .membrane_potentials (membrane_potentials),
         .tick_done      (tick_done)
     );
 
@@ -206,6 +208,9 @@ module tb_LifNeuronArray;
             check_data(dut.membrane_potential[neuron],
                        weight_mem[neuron * NUM_NEURONS + SELECTED_INPUT],
                        "first sweep must retain each row's own integrated membrane value");
+            check_data(membrane_potentials[neuron*DATA_WIDTH +: DATA_WIDTH],
+                       weight_mem[neuron * NUM_NEURONS + SELECTED_INPUT],
+                       "packed membrane readback must preserve each row's own state");
         end
 
         // Second tick has no event.  Previously spiking neurons take their

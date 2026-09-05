@@ -54,10 +54,11 @@ read_verilog -sv [list \
 # 2b. lib_soc  –  spikenaut-soc-sv/rtl (top-level wrapper; #57 / #60)
 # ---------------------------------------------------------------------------
 # Needed by the SoC-level testbench, which is the only sim that exercises the
-# 1 ms step_en divider and the UART-event -> tick-domain handoff.
+# 1 ms step_en divider and the UART-frame -> tick-domain handoff.
 set soc_rtl [file join $repo_root spikenaut-soc-sv rtl]
 
 read_verilog -sv [list \
+    [file join $soc_rtl SocProtocolFsm.sv] \
     [file join $soc_rtl Basys3_Top.sv] \
 ]
 
@@ -80,7 +81,7 @@ foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_UartRx tb_UartTx tb_SiliconBridge tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_spikenaut_soc_basys3_top}
 
 set mem_dir [file join $repo_root spikenaut-core-sv mem]
 
@@ -104,7 +105,7 @@ foreach tb_top $core_tb_tops {
             "THRESH_INIT=[file normalize [file join $mem_dir merged_v2_thresholds.mem]]" \
             "LEAK_INIT=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
         ] [get_filesets sim_1]
-        set run_time 10ms
+        set run_time 20ms
     } else {
         # Clear any leftover generic from a prior top in this loop.
         catch {set_property generic {} [get_filesets sim_1]}

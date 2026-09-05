@@ -28,6 +28,10 @@ module LifNeuronArray #(
     output logic [PARAM_ADDR_WIDTH-1:0]  leak_addr,
     output logic [WEIGHT_ADDR_WIDTH-1:0] weight_addr,
     output logic [NUM_NEURONS-1:0]       spike_bitmap,
+    // Packed readback view of the per-neuron register file.  Lane 0 is the
+    // least-significant DATA_WIDTH slice; the SoC protocol FSM serializes
+    // each lane big-endian for the host response frame.
+    output logic [NUM_NEURONS*DATA_WIDTH-1:0] membrane_potentials,
     output logic                         tick_done
 );
 
@@ -43,6 +47,14 @@ module LifNeuronArray #(
     // One state word per neuron.  This is intentionally a register file, not
     // 16 replicated LIF datapaths.
     logic [DATA_WIDTH-1:0] membrane_potential [0:NUM_NEURONS-1];
+
+    genvar membrane_lane;
+    generate
+        for (membrane_lane = 0; membrane_lane < NUM_NEURONS; membrane_lane++) begin : g_membrane_readback
+            assign membrane_potentials[membrane_lane*DATA_WIDTH +: DATA_WIDTH] =
+                membrane_potential[membrane_lane];
+        end
+    endgenerate
 
     logic [INDEX_WIDTH-1:0] address_neuron;
     logic [INDEX_WIDTH-1:0] address_input;
@@ -166,8 +178,8 @@ module LifNeuronArray #(
             case (sweep_state)
                 IDLE: begin
                     if (step_en) begin
-                        // Capture the event before the SoC clears its
-                        // spike_pending latch on this same edge.
+                        // Capture the selected binary event before the SoC
+                        // consumes its completed protocol frame on this edge.
                         neuron_index      <= '0;
                         sweep_input_index <= input_index;
                         sweep_spike_in    <= spike_in;

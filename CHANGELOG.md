@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bridge unit testbenches `tb_UartRx`, `tb_UartTx`, and `tb_SiliconBridge` (#58) — 2FF
   sync, baud-timed 8N1, and `tx_busy` handshake. Wired into `scripts/quality.sh`,
   `.github/workflows/sim.yml`, and `scripts/sim_core.tcl`.
+- SoC application protocol FSM (#62) — canonical `SocProtocolFsm` decodes the
+  `0xAA` + 16-word big-endian host frame, holds a completed stimulus frame for
+  the next logical tick, and emits the 36-byte potential/spike/aux response
+  with `tx_busy`-safe serialization. Incomplete RX frames abort after an
+  inter-byte idle timeout (not mid-payload `0xAA` resync). `tb_SocProtocolFsm`
+  covers decode, byte order, busy stalls, latest-wins pending snapshots, and
+  RX idle-timeout recovery; the N=16 PE now exposes packed membrane readback.
 
 ### Changed
 
@@ -46,3 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - STDP polarity inversion vs Bi–Poo / Song–Miller–Abbott convention (#55).
+- SoC protocol snapshot capture stays inline NBA in `always_ff` (Verilator and
+  XSim reject `task automatic ... ref` from sequential logic). `frame_send` is
+  armed only after a consumed host `0xAA` frame, not on every 1 ms `tick_done`
+  (#62).

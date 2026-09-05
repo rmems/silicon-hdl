@@ -75,6 +75,8 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     logic [7:0] bridge_rx_data;
     logic       bridge_rx_valid;
+    logic [7:0] bridge_tx_data;
+    logic       bridge_tx_send;
     logic       bridge_tx_busy;
 
     SiliconBridge #(
@@ -87,36 +89,57 @@ module spikenaut_soc_basys3_top #(
         .uart_tx_pin  (uart_tx),
         .rx_data      (bridge_rx_data),
         .rx_valid     (bridge_rx_valid),
-        .tx_data      (bridge_rx_data),
-        .tx_send      (1'b0),
+        .tx_data      (bridge_tx_data),
+        .tx_send      (bridge_tx_send),
         .tx_busy      (bridge_tx_busy)
     );
     // Bridge: 8b UART stream (DATA_WIDTH=8 fixed in SiliconBridge/UARTs per gh-14 5u3.7 cleanup);
     // top-level DATA_WIDTH=16 / PARAM=16 used only for core (neuron/ram/weights). Widths reviewed.
-    // tx_send=1'b0 (disabled in SoC demo); tx_busy wired for 5u3.4 race review (if tx ever enabled, gate with !busy per synapse fix).
+    // The SoC-owned SocProtocolFsm below supplies the multi-byte protocol and
+    // gates every tx_send with tx_busy.  SiliconBridge remains transport-only.
 
     // ----------------------------------------------------------------
-    // UART event -> logical tick domain (#60)
+    // Protocol stimulus -> logical tick domain (#62)
     // ----------------------------------------------------------------
-    // rx_valid is a ONE fabric-cycle strobe, but the cores sample their inputs
-    // only on the one-cycle step_en tick (1 per 100_000 cycles). Feeding
-    // rx_valid straight in drops ~all received bytes. Latch each event until
-    // the next tick consumes it.
-    //
-    // Set (rx_valid) has priority over clear (step_en), so a byte landing on
-    // the same edge as a tick is carried to the *next* tick instead of being
-    // lost. Multiple bytes inside one tick collapse to a single spike: the
-    // demo input is a binary event per tick, not a count. A counting/FIFO
-    // interface belongs with the host step path (#62).
-    logic spike_pending;
+    // The protocol FSM exposes a complete packed frame only after all 32
+    // payload bytes are present.  Hold its one-cycle valid strobe until the
+    // next logical tick, with set priority over clear for a frame that lands
+    // exactly on a tick edge.
+    logic [NUM_NEURONS*DATA_WIDTH-1:0] protocol_stimuli;
+    logic                               protocol_stimuli_valid;
+    logic                               stimuli_pending;
+    logic                               stimulus_event;
+    logic [$clog2(NUM_NEURONS)-1:0]     stimulus_input_index;
 
     always_ff @(posedge clk) begin
         if (!rst)
-            spike_pending <= 1'b0;
-        else if (bridge_rx_valid)
-            spike_pending <= 1'b1;
+            stimuli_pending <= 1'b0;
+        else if (protocol_stimuli_valid)
+            stimuli_pending <= 1'b1;
         else if (step_en)
-            spike_pending <= 1'b0;
+            stimuli_pending <= 1'b0;
+    end
+
+    // LifNeuronArray is currently a binary-event PE with one selected matrix
+    // input column per logical tick.  Preserve that established core contract
+    // by decoding a non-zero Q8.8 lane as an event and choosing the lowest
+    // active input lane deterministically.  The complete 16-word frame stays
+    // available in protocol_stimuli for a future vector-accumulation PE; it is
+    // not mistaken for a raw UART-byte event.
+    always_comb begin
+        logic input_found;
+
+        input_found         = 1'b0;
+        stimulus_event      = 1'b0;
+        stimulus_input_index = '0;
+        for (int input_lane = 0; input_lane < NUM_NEURONS; input_lane++) begin
+            if (!input_found &&
+                (protocol_stimuli[input_lane*DATA_WIDTH +: DATA_WIDTH] != '0)) begin
+                input_found          = 1'b1;
+                stimulus_input_index = input_lane[$clog2(NUM_NEURONS)-1:0];
+            end
+        end
+        stimulus_event = stimuli_pending && input_found;
     end
 
     // ----------------------------------------------------------------
@@ -186,10 +209,11 @@ module spikenaut_soc_basys3_top #(
     // gh-14 / 5u3.2 (P0): reviewed widths for neuron threshold/leak params
     // (from NeuronParamRam) + weight + SoC inst site.
     // Note: PARAM_WIDTH for params, DATA_WIDTH for weights/neuron data;
-    // bridge DATA_WIDTH remains 8b.  The current binary UART event broadcasts
-    // to all 16 output-neuron rows at input column 0.  #62 will provide the
-    // 16-channel frame parser / selectable input column.
+    // bridge DATA_WIDTH remains 8b.  #62 supplies the selected event/input
+    // column from its completed 16-word host frame.
     logic [NUM_NEURONS-1:0] spike_bitmap;
+    logic [NUM_NEURONS*DATA_WIDTH-1:0] membrane_potentials;
+    logic                              lif_tick_done;
 
     LifNeuronArray #(
         .DATA_WIDTH        (DATA_WIDTH),
@@ -201,8 +225,8 @@ module spikenaut_soc_basys3_top #(
         .clk            (clk),
         .rst_n          (rst),
         .step_en        (step_en),
-        .spike_in       (spike_pending),
-        .input_index    ('0),
+        .spike_in       (stimulus_event),
+        .input_index    (stimulus_input_index),
         .weight_dout    (weight_dout),
         .threshold_dout (threshold_param),
         .leak_dout      (leak_param),
@@ -210,7 +234,52 @@ module spikenaut_soc_basys3_top #(
         .leak_addr      (leak_addr),
         .weight_addr    (weight_addr),
         .spike_bitmap   (spike_bitmap),
-        .tick_done      ()
+        .membrane_potentials (membrane_potentials),
+        .tick_done      (lif_tick_done)
+    );
+
+    // ----------------------------------------------------------------
+    // SoC application protocol (0xAA frame codec + TX readback)
+    // ----------------------------------------------------------------
+    // Host contract (#62): one 36-byte response per consumed 0xAA stimulus
+    // frame. Arm on the step_en that consumes stimuli_pending; fire on the
+    // subsequent lif_tick_done so the snapshot is that tick's post-sweep
+    // membrane/spike result. Idle 1 ms ticks must not stream UART responses
+    // before any host frame (or between host frames).
+    // The FSM still coalesces a later armed trigger while UART is busy; a
+    // 36-byte response cannot physically complete within the 1 ms tick at
+    // 115200 baud.
+    logic response_armed;
+    logic frame_send;
+
+    always_ff @(posedge clk) begin
+        if (!rst)
+            response_armed <= 1'b0;
+        else if (step_en && stimuli_pending)
+            response_armed <= 1'b1;
+        else if (lif_tick_done)
+            response_armed <= 1'b0;
+    end
+
+    assign frame_send = lif_tick_done && response_armed;
+
+    SocProtocolFsm #(
+        .NUM_NEURONS (NUM_NEURONS),
+        .WORD_WIDTH  (DATA_WIDTH)
+    ) u_protocol_fsm (
+        .clk           (clk),
+        .rst_n         (rst),
+        .rx_data       (bridge_rx_data),
+        .rx_valid      (bridge_rx_valid),
+        .tx_data       (bridge_tx_data),
+        .tx_send       (bridge_tx_send),
+        .tx_busy       (bridge_tx_busy),
+        .stimuli_out   (protocol_stimuli),
+        .stimuli_valid (protocol_stimuli_valid),
+        .potentials_in (membrane_potentials),
+        .spike_flags   (spike_bitmap),
+        .aux_state     ('0),
+        .frame_send    (frame_send)
     );
 
     // ----------------------------------------------------------------
@@ -226,7 +295,7 @@ module spikenaut_soc_basys3_top #(
         .clk            (clk),
         .rst_n          (rst),
         .step_en        (step_en),
-        .pre_spike      (spike_pending),
+        .pre_spike      (stimulus_event),
         .post_spike     (spike_bitmap[0]),
         .weight_addr    ('0),
         .weight_in      (weight_dout),

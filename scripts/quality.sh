@@ -111,9 +111,23 @@ for tb in "${BRIDGE_TBS[@]}"; do
 done
 
 echo ""
+echo "=== Verilator tb_SocProtocolFsm ==="
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_SocProtocolFsm \
+    -Ispikenaut-soc-sv/rtl \
+    spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+    spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv \
+  && ./obj_dir/Vtb_SocProtocolFsm; then
+  record "verilator/tb_SocProtocolFsm" "PASS"
+else
+  record "verilator/tb_SocProtocolFsm" "FAIL"
+fi
+
+echo ""
 echo "=== Verilator tb_spikenaut_soc_basys3_top ==="
 # SoC-level TB: the only sim that exercises the 1 ms step_en divider and the
-# UART-event -> tick-domain handoff (#57 / #60). Needs lib_bridge + lib_core +
+# UART-frame -> tick-domain handoff (#57 / #60 / #62). Needs lib_bridge + lib_core +
 # lib_soc in dependency order, and repo-root CWD for the $readmemh INIT paths.
 rm -rf obj_dir
 if verilator "${VERILATOR_FLAGS[@]}" \
@@ -127,6 +141,7 @@ if verilator "${VERILATOR_FLAGS[@]}" \
     spikenaut-core-sv/rtl/WeightRam.sv \
     spikenaut-core-sv/rtl/NeuronParamRam.sv \
     spikenaut-core-sv/rtl/StdpController.sv \
+    spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
     spikenaut-soc-sv/rtl/Basys3_Top.sv \
     spikenaut-soc-sv/tb/tb_Basys3_Top.sv \
   && ./obj_dir/Vtb_spikenaut_soc_basys3_top; then
