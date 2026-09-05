@@ -96,6 +96,12 @@ module SocProtocolFsm #(
                 end
 
                 RX_COLLECT: begin
+                    // TODO(#62 P2): no idle-timeout / abandon path. An interrupted
+                    // host frame leaves this state counting payload bytes, so a
+                    // retried 0xAA is consumed as data and desynchronizes until
+                    // reset. A safe fix needs a fabric-cycle idle limit
+                    // (CLK_FREQ/BAUD * N) plus TB coverage; do not treat 0xAA as
+                    // a mid-payload resync because it is legal Q8.8 data.
                     if (rx_valid) begin
                         // The host transmits each word high byte first.  The
                         // packed vector uses lane 0 at the LSB, hence this
@@ -142,22 +148,6 @@ module SocProtocolFsm #(
         end
     end
 
-    // Helper task to capture snapshot fields from live inputs into a destination buffer.
-    // Uses non-blocking assignments for use within the sequential always_ff block.
-    task automatic capture_snapshot(
-        ref logic [WORD_WIDTH-1:0] dest_potentials [0:NUM_NEURONS-1],
-        ref logic [WORD_WIDTH-1:0] dest_spike_flags,
-        ref logic [WORD_WIDTH-1:0] dest_aux_state,
-        input logic [NUM_NEURONS*WORD_WIDTH-1:0] src_potentials,
-        input logic [NUM_NEURONS-1:0] src_spikes,
-        input logic [WORD_WIDTH-1:0] src_aux
-    );
-        for (int lane = 0; lane < NUM_NEURONS; lane++)
-            dest_potentials[lane] <= src_potentials[lane*WORD_WIDTH +: WORD_WIDTH];
-        dest_spike_flags <= WORD_WIDTH'(src_spikes);
-        dest_aux_state <= src_aux;
-    endtask
-
     // Serialize a frame through the bridge.  active_* is the byte hold buffer
     // for the current frame; pending_* is a one-entry, latest-wins response
     // queue for tick triggers that arrive while UART serialization is active.
@@ -196,17 +186,21 @@ module SocProtocolFsm #(
                             // as the new one-entry pending snapshot while the
                             // prior pending frame becomes active.
                             if (frame_send) begin
-                                capture_snapshot(pending_potentials, pending_spike_flags,
-                                               pending_aux_state, potentials_in,
-                                               spike_flags, aux_state);
+                                for (int lane = 0; lane < NUM_NEURONS; lane++)
+                                    pending_potentials[lane] <=
+                                        potentials_in[lane*WORD_WIDTH +: WORD_WIDTH];
+                                pending_spike_flags <= WORD_WIDTH'(spike_flags);
+                                pending_aux_state   <= aux_state;
                                 tx_pending          <= 1'b1;
                             end else begin
                                 tx_pending <= 1'b0;
                             end
                         end else if (frame_send) begin
-                            capture_snapshot(active_potentials, active_spike_flags,
-                                           active_aux_state, potentials_in,
-                                           spike_flags, aux_state);
+                            for (int lane = 0; lane < NUM_NEURONS; lane++)
+                                active_potentials[lane] <=
+                                    potentials_in[lane*WORD_WIDTH +: WORD_WIDTH];
+                            active_spike_flags <= WORD_WIDTH'(spike_flags);
+                            active_aux_state   <= aux_state;
                             tx_byte_index      <= '0;
                         end else begin
                             tx_active <= 1'b0;
@@ -214,9 +208,11 @@ module SocProtocolFsm #(
                     end else begin
                         tx_byte_index <= tx_byte_index + 1'b1;
                         if (frame_send) begin
-                            capture_snapshot(pending_potentials, pending_spike_flags,
-                                           pending_aux_state, potentials_in,
-                                           spike_flags, aux_state);
+                            for (int lane = 0; lane < NUM_NEURONS; lane++)
+                                pending_potentials[lane] <=
+                                    potentials_in[lane*WORD_WIDTH +: WORD_WIDTH];
+                            pending_spike_flags <= WORD_WIDTH'(spike_flags);
+                            pending_aux_state   <= aux_state;
                             tx_pending          <= 1'b1;
                         end
                     end
@@ -228,16 +224,19 @@ module SocProtocolFsm #(
                         send_pending <= 1'b1;
                     end
                     if (frame_send) begin
-                        capture_snapshot(pending_potentials, pending_spike_flags,
-                                       pending_aux_state, potentials_in,
-                                       spike_flags, aux_state);
+                        for (int lane = 0; lane < NUM_NEURONS; lane++)
+                            pending_potentials[lane] <=
+                                potentials_in[lane*WORD_WIDTH +: WORD_WIDTH];
+                        pending_spike_flags <= WORD_WIDTH'(spike_flags);
+                        pending_aux_state   <= aux_state;
                         tx_pending          <= 1'b1;
                     end
                 end
             end else if (frame_send) begin
-                capture_snapshot(active_potentials, active_spike_flags,
-                               active_aux_state, potentials_in,
-                               spike_flags, aux_state);
+                for (int lane = 0; lane < NUM_NEURONS; lane++)
+                    active_potentials[lane] <= potentials_in[lane*WORD_WIDTH +: WORD_WIDTH];
+                active_spike_flags <= WORD_WIDTH'(spike_flags);
+                active_aux_state   <= aux_state;
                 tx_byte_index      <= '0;
                 tx_active          <= 1'b1;
                 tx_pending         <= 1'b0;
