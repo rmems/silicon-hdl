@@ -15,6 +15,11 @@
 // timeout only.  Mid-payload 0xAA is legal Q8.8 data and is never a resync.
 // Hosts that retry a truncated request must idle at least
 // IDLE_TIMEOUT_CYCLES fabric clocks before the next 0xAA.
+//
+// Status outputs feed SocStatusLeds (docs/led-map.md): rx_busy is high
+// outside RX_WAIT_SYNC, rx_abort pulses on idle-timeout, and
+// tx_frame_active mirrors the internal tx_active frame (not the tx_busy
+// input).
 
 module SocProtocolFsm #(
     parameter int NUM_NEURONS = 16,
@@ -40,7 +45,13 @@ module SocProtocolFsm #(
     input  logic [NUM_NEURONS*WORD_WIDTH-1:0]    potentials_in,
     input  logic [NUM_NEURONS-1:0]               spike_flags,
     input  logic [WORD_WIDTH-1:0]                aux_state,
-    input  logic                                 frame_send
+    input  logic                                 frame_send,
+
+    // Status outputs for SocStatusLeds (docs/led-map.md).  tx_frame_active
+    // mirrors tx_active; do not name this port tx_busy (that is an input).
+    output logic                                 rx_busy,
+    output logic                                 rx_abort,
+    output logic                                 tx_frame_active
 );
 
     localparam int BYTES_PER_WORD = WORD_WIDTH / 8;
@@ -100,8 +111,10 @@ module SocProtocolFsm #(
             rx_payload     <= '0;
             stimuli_out    <= '0;
             stimuli_valid  <= 1'b0;
+            rx_abort       <= 1'b0;
         end else begin
             stimuli_valid <= 1'b0;
+            rx_abort      <= 1'b0;
 
             case (rx_state)
                 RX_WAIT_SYNC: begin
@@ -130,6 +143,7 @@ module SocProtocolFsm #(
                         rx_byte_count <= '0;
                         rx_idle_count <= '0;
                         rx_state      <= RX_WAIT_SYNC;
+                        rx_abort      <= 1'b1;
                     end else begin
                         rx_idle_count <= rx_idle_count + 1'b1;
                     end
@@ -145,6 +159,9 @@ module SocProtocolFsm #(
             endcase
         end
     end
+
+    assign rx_busy = (rx_state != RX_WAIT_SYNC);
+    assign tx_frame_active = tx_active;
 
     // Present the next held byte combinationally.  tx_byte_index changes only
     // after send_pending confirms a prior tx_send was accepted, so tx_data is

@@ -145,6 +145,16 @@ jobs:
             spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv
           ./obj_dir/Vtb_SocProtocolFsm
 
+      - name: Run tb_SocStatusLeds
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_SocStatusLeds \
+            -Ispikenaut-soc-sv/rtl \
+            spikenaut-soc-sv/rtl/SocStatusLeds.sv \
+            spikenaut-soc-sv/tb/tb_SocStatusLeds.sv
+          ./obj_dir/Vtb_SocStatusLeds
+
       - name: Run tb_spikenaut_soc_basys3_top
         run: |
           rm -rf obj_dir
@@ -165,6 +175,7 @@ jobs:
             spikenaut-core-sv/rtl/NeuronParamRam.sv \
             spikenaut-core-sv/rtl/StdpController.sv \
             spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+            spikenaut-soc-sv/rtl/SocStatusLeds.sv \
             spikenaut-soc-sv/rtl/Basys3_Top.sv \
             spikenaut-soc-sv/tb/tb_Basys3_Top.sv
           ./obj_dir/Vtb_spikenaut_soc_basys3_top

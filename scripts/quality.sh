@@ -125,6 +125,20 @@ else
 fi
 
 echo ""
+echo "=== Verilator tb_SocStatusLeds ==="
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_SocStatusLeds \
+    -Ispikenaut-soc-sv/rtl \
+    spikenaut-soc-sv/rtl/SocStatusLeds.sv \
+    spikenaut-soc-sv/tb/tb_SocStatusLeds.sv \
+  && ./obj_dir/Vtb_SocStatusLeds; then
+  record "verilator/tb_SocStatusLeds" "PASS"
+else
+  record "verilator/tb_SocStatusLeds" "FAIL"
+fi
+
+echo ""
 echo "=== Verilator tb_spikenaut_soc_basys3_top ==="
 # SoC-level TB: the only sim that exercises the 1 ms step_en divider and the
 # UART-frame -> tick-domain handoff (#57 / #60 / #62). Needs lib_bridge + lib_core +
@@ -142,6 +156,7 @@ if verilator "${VERILATOR_FLAGS[@]}" \
     spikenaut-core-sv/rtl/NeuronParamRam.sv \
     spikenaut-core-sv/rtl/StdpController.sv \
     spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+    spikenaut-soc-sv/rtl/SocStatusLeds.sv \
     spikenaut-soc-sv/rtl/Basys3_Top.sv \
     spikenaut-soc-sv/tb/tb_Basys3_Top.sv \
   && ./obj_dir/Vtb_spikenaut_soc_basys3_top; then

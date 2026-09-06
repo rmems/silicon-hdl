@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inter-byte idle timeout (not mid-payload `0xAA` resync). `tb_SocProtocolFsm`
   covers decode, byte order, busy stalls, latest-wins pending snapshots, and
   RX idle-timeout recovery; the N=16 PE now exposes packed membrane readback.
+- LED / status map (#65) — [`docs/led-map.md`](docs/led-map.md), combinational
+  `SocStatusLeds` mux (SW15 after 2FF), FSM status outputs (`rx_busy`,
+  `rx_abort`, `tx_frame_active`), and SoC-only `constraints/basys3_soc.xdc`.
 
 ### Changed
 
@@ -49,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl) after return from Limen-Neural (#75).
 - `StdpController` LTP/LTD polarity matches classical causal STDP (Bi–Poo): pre-then-post
   potentiates, post-then-pre depresses (#55). `tb_StdpController` updated to lock the policy.
+- `spikenaut_soc_basys3_top` drives `led` from `SocStatusLeds` and publishes
+  synchronized `sw` as response bytes 34–35 (`aux_state`). Default SW15=0 keeps
+  the N=16 spike-bitmap view from #81.
 
 ### Fixed
 

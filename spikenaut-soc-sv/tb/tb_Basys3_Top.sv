@@ -18,6 +18,9 @@
 //   6. Decay             — with no event, the membrane leaks back to 0.
 //   7. Gated frame_send  — idle 1 ms ticks do not arm a UART response; a
 //                          response fires only after a consumed host frame.
+//   8. LED bitmap        — every committed N=16 spike bit is preserved (SW=0).
+//   9. SW15 status mux   — 2FF sync latency, then status word from primitive
+//                          refs; synchronized sw is published as aux.
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
@@ -61,6 +64,7 @@ module tb_spikenaut_soc_basys3_top #(
     // 1 ms ticks at 115200 baud; the protocol FSM must wait for all payload
     // bytes rather than turning early bytes into raw spikes.
     localparam int SEQ_SLACK         = 16;
+    localparam int SW_SYNC_LATENCY   = 2;
 
     // Ticks are at most STEP_DIV cycles apart, so any wait that exceeds this
     // bound means the divider is broken. Fail loudly with a cycle count
@@ -70,6 +74,7 @@ module tb_spikenaut_soc_basys3_top #(
     logic        btn_rst;        // drives the active-high rst_n port
     logic        uart_rx_line;
     logic        uart_tx_line;
+    logic [15:0] sw;
     logic [15:0] led;
 
     int errors = 0;
@@ -90,6 +95,7 @@ module tb_spikenaut_soc_basys3_top #(
         .rst_n   (btn_rst),
         .uart_rx (uart_rx_line),
         .uart_tx (uart_tx_line),
+        .sw      (sw),
         .led     (led)
     );
 
@@ -268,6 +274,7 @@ module tb_spikenaut_soc_basys3_top #(
         // ------------------------------------------------------------
         btn_rst      = 1'b1;    // active-high button pressed => DUT in reset
         uart_rx_line = 1'b1;    // UART idle
+        sw           = '0;      // SW15=0 keeps the combinational spike LED view
         frame_send_count    = 0;
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
@@ -461,7 +468,61 @@ module tb_spikenaut_soc_basys3_top #(
         #1;
         check(led === 16'hA55A,
               "LED bus must preserve every committed spike bitmap bit");
+        check(sw === 16'h0000,
+              "existing LED checks require SW15=0 spike mode");
         release dut.spike_bitmap;
+
+        // ------------------------------------------------------------
+        // Test 9: SW15 2FF latency, status word from primitive refs, aux.
+        // Do not compare led against u_status_leds.status_word (tautology).
+        // ------------------------------------------------------------
+        force dut.spike_bitmap = 16'h5AA5;
+        #1;
+        check(led === 16'h5AA5,
+              "test 9: distinguishable spike bitmap must still drive LED in spike mode");
+        sw = 16'hA5A5; // SW15=1 plus a live aux pattern for bytes 34-35
+        check(led === 16'h5AA5,
+              "test 9: SW15 must not switch the LED mux on the same cycle");
+        repeat (SW_SYNC_LATENCY - 1) @(negedge clk);
+        check(led === 16'h5AA5,
+              "test 9: first sync flop must keep spike mode");
+        @(negedge clk);
+        check(dut.sw_sync_1 === 16'hA5A5,
+              "test 9: sw_sync_1 must present the switch bus after 2FF latency");
+        check(led[0] === dut.u_status_leds.tick_cnt[8],
+              "test 9: status[0] must follow tick_cnt[8]");
+        check(led[1] === dut.u_status_leds.rx_busy_held,
+              "test 9: status[1] must follow rx_busy_held");
+        check(led[2] === dut.u_status_leds.rx_commit_held,
+              "test 9: status[2] must follow rx_commit_held");
+        check(led[3] === dut.u_status_leds.abort_sticky,
+              "test 9: status[3] must follow abort_sticky");
+        check(led[4] === dut.u_status_leds.tx_frame_held,
+              "test 9: status[4] must follow tx_frame_held");
+        check(led[5] === dut.u_status_leds.stimuli_pending_held,
+              "test 9: status[5] must follow stimuli_pending_held");
+        check(led[6] === dut.u_status_leds.response_armed_held,
+              "test 9: status[6] must follow response_armed_held");
+        check(led[7] === |dut.u_status_leds.spike_hold,
+              "test 9: status[7] must be any_spike from spike_hold");
+        check(led[12:8] === 5'($countones(dut.u_status_leds.spike_hold)),
+              "test 9: status[12:8] must be countones(spike_hold)");
+        check(led[15:13] === 3'b000,
+              "test 9: reserved status[15:13] must stay 0");
+        release dut.spike_bitmap;
+
+        uart_send_stimulus_frame(SPIKE_TEST_NEURON);
+        wait_for_stimuli_pending();
+        wait_tick_applied();
+        wait_lif_sweep_done();
+        check(dut.frame_send === 1'b1,
+              "test 9: consumed host frame must still arm a response");
+        @(negedge clk); // FSM consumes the combo strobe and snapshots aux
+        // A prior 36-byte response may still be on the wire (~3.125 ms), so
+        // this trigger is either the active snapshot or the latest-wins pend.
+        check((dut.u_protocol_fsm.active_aux_state === 16'hA5A5) ||
+              (dut.u_protocol_fsm.pending_aux_state === 16'hA5A5),
+              "test 9: synchronized sw must reach the host response aux word");
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");
 
         if (errors == 0) begin
