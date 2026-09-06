@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # basys3.xdc
 # Physical constraints for the Digilent Basys 3 (Artix-7 XC7A35T-1CPG236C)
-# Used by: spikenaut_soc_basys3_top, synapse_demo_basys3_top
+# Shared port set only (clk, rst_n, uart_rx, uart_tx, led) used by
+# spikenaut_soc_basys3_top and synapse_demo_basys3_top.
+# SoC-only switch pins live in constraints/basys3_soc.xdc.
 
 ## Clock – W5 (100 MHz)
 set_property -dict {PACKAGE_PIN W5 IOSTANDARD LVCMOS33} [get_ports clk]

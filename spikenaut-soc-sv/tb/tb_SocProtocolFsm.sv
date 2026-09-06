@@ -31,12 +31,16 @@ module tb_SocProtocolFsm;
     logic [NUM_NEURONS-1:0]             spike_flags;
     logic [WORD_WIDTH-1:0]              aux_state;
     logic                               frame_send;
+    logic                               rx_busy;
+    logic                               rx_abort;
+    logic                               tx_frame_active;
     logic [NUM_NEURONS*WORD_WIDTH-1:0] expected_potentials;
     logic [NUM_NEURONS-1:0]             expected_spike_flags;
     logic [WORD_WIDTH-1:0]              expected_aux_state;
 
     int errors = 0;
     int stimuli_valid_pulses = 0;
+    int rx_abort_pulses = 0;
 
     SocProtocolFsm #(
         .NUM_NEURONS           (NUM_NEURONS),
@@ -54,8 +58,11 @@ module tb_SocProtocolFsm;
         .stimuli_valid (stimuli_valid),
         .potentials_in (potentials_in),
         .spike_flags   (spike_flags),
-        .aux_state     (aux_state),
-        .frame_send    (frame_send)
+        .aux_state       (aux_state),
+        .frame_send      (frame_send),
+        .rx_busy         (rx_busy),
+        .rx_abort        (rx_abort),
+        .tx_frame_active (tx_frame_active)
     );
 
     initial clk = 1'b0;
@@ -64,6 +71,8 @@ module tb_SocProtocolFsm;
     always @(negedge clk) begin
         if (stimuli_valid === 1'b1)
             stimuli_valid_pulses++;
+        if (rx_abort === 1'b1)
+            rx_abort_pulses++;
     end
 
     task automatic check(input logic condition, input string msg);
@@ -216,6 +225,8 @@ module tb_SocProtocolFsm;
         repeat (3) @(negedge clk);
         check(stimuli_out === '0, "reset must clear the packed stimulus bus");
         check(stimuli_valid === 1'b0, "reset must keep stimuli_valid low");
+        check(rx_busy === 1'b0, "reset must keep rx_busy low in RX_WAIT_SYNC");
+        check(rx_abort === 1'b0, "reset must keep rx_abort low");
         rst_n = 1'b1;
 
         // A non-sync byte cannot start a frame or pulse the output-valid bit.
@@ -230,10 +241,12 @@ module tb_SocProtocolFsm;
         // strobe.  Every lane is unique, so swapped word or byte order fails.
         baseline_pulses = stimuli_valid_pulses;
         send_rx_byte(8'hAA);
+        check(rx_busy === 1'b1, "rx_busy must track RX_COLLECT after sync");
         for (int lane = 0; lane < NUM_NEURONS; lane++) begin
             send_rx_byte(8'(8'h10 + lane));
             send_rx_byte(8'(8'h80 + lane));
         end
+        check(rx_busy === 1'b1, "rx_busy must stay high through RX_COMMIT");
         @(negedge clk); // RX_COMMIT has now published the stable packed frame.
         check(stimuli_valid === 1'b1, "complete frame must pulse stimuli_valid exactly once");
         for (int lane = 0; lane < NUM_NEURONS; lane++) begin
@@ -243,6 +256,7 @@ module tb_SocProtocolFsm;
         end
         @(negedge clk);
         check(stimuli_valid === 1'b0, "stimuli_valid must deassert after one fabric cycle");
+        check(rx_busy === 1'b0, "rx_busy must return to RX_WAIT_SYNC after commit");
         check(stimuli_valid_pulses === baseline_pulses + 1,
               "complete frame must create exactly one stimulus-valid pulse");
 
@@ -330,6 +344,7 @@ module tb_SocProtocolFsm;
         // 0xAA+payload commits cleanly instead of mixing with the remnant.
         baseline_pulses = stimuli_valid_pulses;
         send_rx_byte(8'hAA);
+        check(rx_busy === 1'b1, "partial frame must keep rx_busy in RX_COLLECT");
         send_rx_byte(8'hAA);
         send_rx_byte(8'h11);
         send_rx_byte(8'h22);
@@ -337,6 +352,8 @@ module tb_SocProtocolFsm;
         check(stimuli_valid === 1'b0, "idle timeout must not commit a partial RX frame");
         check(stimuli_valid_pulses === baseline_pulses,
               "idle timeout must not pulse stimuli_valid");
+        check(rx_abort_pulses === 1, "idle timeout must pulse rx_abort");
+        check(rx_busy === 1'b0, "idle timeout must return rx_busy to RX_WAIT_SYNC");
         send_rx_byte(8'hAA);
         for (int lane = 0; lane < NUM_NEURONS; lane++) begin
             send_rx_byte(8'(8'h30 + lane));

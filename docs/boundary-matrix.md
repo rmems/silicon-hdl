@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-08-19 -->
+<!-- Last updated: 2026-09-06 -->
 
 # silicon-hdl runtime / deployment boundary matrix
 
@@ -74,7 +74,7 @@ lib_bridge  →  lib_core  →  lib_soc / lib_synapse
 |---------|------|----------|
 | `lib_core` | `spikenaut-core-sv/rtl` | `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, `StdpController` |
 | `lib_bridge` | `spikenaut-bridge-sv/rtl` | `UartRx`, `UartTx`, `SiliconBridge` |
-| `lib_soc` | `spikenaut-soc-sv/rtl` | `SocProtocolFsm` application codec and Basys 3 SoC top (`spikenaut_soc_basys3_top`) |
+| `lib_soc` | `spikenaut-soc-sv/rtl` | `SocProtocolFsm` application codec, `SocStatusLeds` LED/status mux, and Basys 3 SoC top (`spikenaut_soc_basys3_top`) |
 | `lib_synapse` | `synapse-link-hdl/src` | `SynapseRouter`; demo top `synapse_demo_basys3_top` |
 
 Single-source-of-truth rule: no module is defined in more than one place (enforced by the
@@ -92,7 +92,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 | Elaboration / bitstream `.mem` init | **Wired** — `INIT_FILE` `$readmemh` on `WeightRam` / `NeuronParamRam`; SoC defaults to `spikenaut-core-sv/mem/merged_v2_{weights,thresholds,decay}.mem`; `scripts/build_soc.tcl` overrides with absolute paths | [#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52) (E1/E2) |
 | Runtime RAM write (UART / host rewrite) | **Off** — `we` tied low on all three SoC RAM instances | [#63](https://github.com/rmems/silicon-hdl/issues/63) |
 | RAM address used by the PE | **Swept** — threshold/leak addresses walk `0..15`; the flattened weight address is `neuron_row * 16 + input_index`. #62 selects the lowest active decoded host lane, so the binary-event SoC path can walk any one input column across all 16 rows | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#62](https://github.com/rmems/silicon-hdl/issues/62) |
-| Neuron count | **N=16** `LifNeuronArray` time-multiplexes one shared datapath across 16 neuron slots and commits a board-agnostic 16-bit `spike_bitmap`; `spikenaut_soc_basys3_top` maps that bitmap to `led[15:0]` | [#61](https://github.com/rmems/silicon-hdl/issues/61) |
+| Neuron count | **N=16** `LifNeuronArray` time-multiplexes one shared datapath across 16 neuron slots and commits a board-agnostic 16-bit `spike_bitmap`; `spikenaut_soc_basys3_top` maps that bitmap to `led[15:0]` in spike mode (SW15=0). SW15 selects the stretched status word. See [`docs/led-map.md`](led-map.md) | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#65](https://github.com/rmems/silicon-hdl/issues/65) |
 | STDP | `StdpController` is instantiated (classical Bi–Poo, [#55](https://github.com/rmems/silicon-hdl/issues/55)) and gated by `step_en`, but **writeback is open**: `weight_we` / `weight_addr_out` / `weight_out` are unconnected; `weight_addr` is `'0` | [#70](https://github.com/rmems/silicon-hdl/issues/70) |
 | Host UART protocol | **Implemented #62** — `SocProtocolFsm` consumes `0xAA` + 32 payload bytes, commits a 16-word big-endian stimulus frame, and holds it until `step_en`; it serializes 16 membrane words, spike flags, and aux state while respecting `tx_busy`. The present PE selects the lowest active binary stimulus lane; it does not yet accumulate multi-active vectors | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#64](https://github.com/rmems/silicon-hdl/issues/64) |
 | Logical timestep | **1 ms** `step_en` (100_000 fabric cycles @ 100 MHz) | [#57](https://github.com/rmems/silicon-hdl/issues/57) / [#60](https://github.com/rmems/silicon-hdl/issues/60); [`docs/timestep-contract.md`](timestep-contract.md) |

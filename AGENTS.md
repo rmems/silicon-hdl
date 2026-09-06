@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-07-21 -->
+<!-- Last updated: 2026-09-06 -->
 # AGENTS.md
 
 Companion agent guidance for `silicon-hdl`. Claude Code loads this file via `@AGENTS.md` from
@@ -7,7 +7,7 @@ Companion agent guidance for `silicon-hdl`. Claude Code loads this file via `@AG
 
 ## Build and test
 
-**Local free-stack quality** (guardian + all four core Verilator TBs):
+**Local free-stack quality** (guardian + every core/bridge/SoC Verilator TB):
 
 ```bash
 ./scripts/quality.sh
@@ -59,12 +59,15 @@ symbols or tops conflict.
 | Top module | Device under test (DUT) / testbench (TB) sources |
 |---|---|
 | `tb_LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` + `spikenaut-core-sv/tb/tb_LifNeuron.sv` |
+| `tb_LifNeuronArray` | `spikenaut-core-sv/rtl/LifNeuronArray.sv` + `spikenaut-core-sv/tb/tb_LifNeuronArray.sv` |
 | `tb_WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/tb/tb_WeightRam.sv` |
 | `tb_NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam.sv` |
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
 | `tb_UartRx` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/tb/tb_UartRx.sv` |
 | `tb_UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/tb/tb_UartTx.sv` |
 | `tb_SiliconBridge` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/rtl/SiliconBridge.sv` + `spikenaut-bridge-sv/tb/tb_SiliconBridge.sv` |
+| `tb_SocProtocolFsm` | `spikenaut-soc-sv/rtl/SocProtocolFsm.sv` + `spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv` |
+| `tb_SocStatusLeds` | `spikenaut-soc-sv/rtl/SocStatusLeds.sv` + `spikenaut-soc-sv/tb/tb_SocStatusLeds.sv` |
 
 Testbenches call `$fatal` on failure and are self-checking (look for an `errors` counter and
 `$display` summary at the end). Bridge TBs use a fast integer baud (`CLK_FREQ=1_000_000`,
@@ -89,6 +92,7 @@ verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD
   spikenaut-core-sv/rtl/WeightRam.sv spikenaut-core-sv/rtl/NeuronParamRam.sv \
   spikenaut-core-sv/rtl/StdpController.sv \
   spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+  spikenaut-soc-sv/rtl/SocStatusLeds.sv \
   spikenaut-soc-sv/rtl/Basys3_Top.sv spikenaut-soc-sv/tb/tb_Basys3_Top.sv
 ./obj_dir/Vtb_spikenaut_soc_basys3_top
 ```
@@ -135,6 +139,8 @@ python scripts/dedup_guardian.py --radar radar.md --threshold 0.85   # near-dup 
   `lib_soc` / `lib_synapse`.
 - Logical SNN timestep vs fabric clock: [`docs/timestep-contract.md`](docs/timestep-contract.md)
   (1 ms `step_en` from the SoC; LIF/STDP do not update every 100 MHz edge).
+- LED / status map: [`docs/led-map.md`](docs/led-map.md) — SW15 selects the
+  combinational spike bitmap versus the stretched protocol status word.
 - `spikenaut-soc-sv/rtl` and `synapse-link-hdl/examples/basys3` should only *instantiate*
   core/bridge modules and should not contain their own copies.
 - If a SoC- or demo-only wrapper needs new logic, give it a distinct module name rather than

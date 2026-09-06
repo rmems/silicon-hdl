@@ -2,6 +2,8 @@
 # artix7_trainer.xdc
 # Physical constraints for a generic Artix-7 trainer board
 # Adjust PACKAGE_PIN assignments to match your specific board
+# Shared port set only (clk, rst_n, uart_rx, uart_tx, led).
+# Switch pins are SoC-only in constraints/basys3_soc.xdc; this file does not invent them.
 
 ## Clock – assume 100 MHz on E3
 set_property -dict {PACKAGE_PIN E3 IOSTANDARD LVCMOS33} [get_ports clk]

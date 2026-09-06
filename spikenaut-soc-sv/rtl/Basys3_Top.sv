@@ -19,6 +19,8 @@
 //   spikenaut-bridge-sv/rtl/UartRx.sv
 //   spikenaut-bridge-sv/rtl/UartTx.sv
 //   spikenaut-bridge-sv/rtl/SiliconBridge.sv
+//   spikenaut-soc-sv/rtl/SocProtocolFsm.sv
+//   spikenaut-soc-sv/rtl/SocStatusLeds.sv
 
 module spikenaut_soc_basys3_top #(
     // merged_v2 defaults (repo-root relative). Override from build_soc.tcl.
@@ -34,7 +36,9 @@ module spikenaut_soc_basys3_top #(
     // UART
     input  logic        uart_rx,
     output logic        uart_tx,
-    // LEDs (lower 16 bits of spike output bus)
+    // Switches: SW15 selects LED mode; the full bus is published as aux. See docs/led-map.md.
+    input  logic [15:0] sw,
+    // LEDs: spike bitmap or status word. See docs/led-map.md.
     output logic [15:0] led
 );
 
@@ -51,6 +55,24 @@ module spikenaut_soc_basys3_top #(
     // BTNC/CPU_RESET U18 is active-high). Use 'rst' (active-low) for all submodules + local logic.
     logic rst;
     assign rst = ~rst_n;
+
+    // 2FF synchronizer at the I/O boundary. Synchronous reset to '0 keeps
+    // the default LED view in spike mode (SW15=0). Use sw_sync_1 everywhere.
+    // ASYNC_REG keeps the pair packed into adjacent slices and stops synthesis
+    // from replicating or retiming them, which would defeat the MTBF the two
+    // stages exist to buy.  Adjacency in the source is not a constraint.
+    (* ASYNC_REG = "TRUE" *) logic [15:0] sw_sync_0;
+    (* ASYNC_REG = "TRUE" *) logic [15:0] sw_sync_1;
+
+    always_ff @(posedge clk) begin
+        if (!rst) begin
+            sw_sync_0 <= '0;
+            sw_sync_1 <= '0;
+        end else begin
+            sw_sync_0 <= sw;
+            sw_sync_1 <= sw_sync_0;
+        end
+    end
 
     localparam int TICK_HZ   = 1000;
     localparam int STEP_DIV  = CLK_FREQ / TICK_HZ; // 100_000
@@ -251,6 +273,9 @@ module spikenaut_soc_basys3_top #(
     // 115200 baud.
     logic response_armed;
     logic frame_send;
+    logic rx_busy;
+    logic rx_abort;
+    logic tx_frame_active;
 
     always_ff @(posedge clk) begin
         if (!rst)
@@ -276,10 +301,13 @@ module spikenaut_soc_basys3_top #(
         .tx_busy       (bridge_tx_busy),
         .stimuli_out   (protocol_stimuli),
         .stimuli_valid (protocol_stimuli_valid),
-        .potentials_in (membrane_potentials),
-        .spike_flags   (spike_bitmap),
-        .aux_state     ('0),
-        .frame_send    (frame_send)
+        .potentials_in   (membrane_potentials),
+        .spike_flags     (spike_bitmap),
+        .aux_state       (sw_sync_1),
+        .frame_send      (frame_send),
+        .rx_busy         (rx_busy),
+        .rx_abort        (rx_abort),
+        .tx_frame_active (tx_frame_active)
     );
 
     // ----------------------------------------------------------------
@@ -305,8 +333,24 @@ module spikenaut_soc_basys3_top #(
     );
 
     // ----------------------------------------------------------------
-    // LED output
+    // LED output — spike bitmap or stretched status. See docs/led-map.md.
     // ----------------------------------------------------------------
-    assign led = spike_bitmap;
+    SocStatusLeds #(
+        .NUM_NEURONS (NUM_NEURONS),
+        .LED_WIDTH   (16)
+    ) u_status_leds (
+        .clk             (clk),
+        .rst_n           (rst),
+        .mode_sel        (sw_sync_1[15]),
+        .step_en         (step_en),
+        .spike_bitmap    (spike_bitmap),
+        .rx_busy         (rx_busy),
+        .rx_commit       (protocol_stimuli_valid),
+        .rx_abort        (rx_abort),
+        .tx_frame_active (tx_frame_active),
+        .stimuli_pending (stimuli_pending),
+        .response_armed  (response_armed),
+        .led             (led)
+    );
 
 endmodule

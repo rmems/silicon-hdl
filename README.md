@@ -28,7 +28,7 @@ silicon-hdl/
 │   ├── tb/                    #   Unit testbenches
 │   └── doc/
 ├── spikenaut-soc-sv/          # lib_soc  – SoC wrappers only
-│   ├── rtl/                   #   spikenaut_soc_basys3_top (Basys3_Top.sv)
+│   ├── rtl/                   #   SocProtocolFsm, SocStatusLeds, spikenaut_soc_basys3_top (Basys3_Top.sv)
 │   ├── tb/                    #   Integration testbenches
 │   └── ip/                    #   Xilinx IP blocks
 ├── spikenaut-bridge-sv/       # lib_bridge  – communication primitives
@@ -40,6 +40,7 @@ silicon-hdl/
 │       └── basys3/            #   synapse_demo_basys3_top (Basys3_Top.sv)
 ├── constraints/
 │   ├── basys3.xdc
+│   ├── basys3_soc.xdc         # SoC-only switch pins
 │   └── artix7_trainer.xdc
 └── scripts/
     ├── build_soc.tcl          # Vivado build: SoC for Basys 3
@@ -59,6 +60,7 @@ silicon-hdl/
 | `UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` |
 | `SiliconBridge` | `spikenaut-bridge-sv/rtl/SiliconBridge.sv` |
 | `SocProtocolFsm` | `spikenaut-soc-sv/rtl/SocProtocolFsm.sv` |
+| `SocStatusLeds` | `spikenaut-soc-sv/rtl/SocStatusLeds.sv` |
 | `SynapseRouter` | `synapse-link-hdl/src/SynapseRouter.sv` |
 | `spikenaut_soc_basys3_top` | `spikenaut-soc-sv/rtl/Basys3_Top.sv` |
 | `synapse_demo_basys3_top` | `synapse-link-hdl/examples/basys3/Basys3_Top.sv` |
