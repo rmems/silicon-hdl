@@ -1,0 +1,24 @@
+AGENTS.md
+  s_ae9342923f5b31::t_98c14f846df620 62
+docs/led-map.md
+  s_ae9342923f5b31::t_14a696fad6e910 47-53,73-80,93-96
+spikenaut-soc-sv/tb/tb_SocStatusLeds.sv
+  s_ae9342923f5b31::t_d250804dd680de 111-112
+  s_ae9342923f5b31::t_f711dfb8b85856 33,104-110,113-118,254-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ff7777d2fed86c5fb2357b8c3a3a43d653c47895",
+  "prompts": {},
+  "sessions": {
+    "s_ae9342923f5b31": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c44bbe1d-c2a3-47cb-ba8e-ac42a9455f8e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
