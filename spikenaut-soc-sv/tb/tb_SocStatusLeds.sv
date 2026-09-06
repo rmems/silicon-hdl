@@ -30,6 +30,7 @@ module tb_SocStatusLeds;
     logic [LED_WIDTH-1:0] led;
 
     int errors = 0;
+    int hold_cycles;
 
     SocStatusLeds #(
         .NUM_NEURONS (NUM_NEURONS),
@@ -97,6 +98,21 @@ module tb_SocStatusLeds;
                 if (waited > STRETCH_DIV + 2)
                     $fatal(1, "wait_stretch_tick: no stretch_tick within %0d cycles", waited);
             end
+        end
+    endtask
+
+    // Park the DUT at the start of a fresh stretch window, using only the led
+    // port.  The window phase is free-running, so hold a flag until it is lit,
+    // drop it, and wait for the clear -- that clear IS the boundary.  Requires
+    // mode_sel = 1 so led[1] shows the held rx_busy flag.
+    task automatic align_to_window();
+        begin
+            idle_inputs();
+            mode_sel = 1'b1;   // idle_inputs() clears it; led[1] must show the flag
+            rx_busy  = 1'b1;
+            repeat (2 * STRETCH_DIV + 2) @(negedge clk);
+            rx_busy = 1'b0;
+            while (led[1] !== 1'b0) @(negedge clk);
         end
     endtask
 
@@ -234,6 +250,34 @@ module tb_SocStatusLeds;
         check(led[7] === 1'b1, "all-ones spike_hold must set any_spike");
         check(led[12:8] === 5'd16, "all-ones spike_hold must count sixteen");
         check(led[15:13] === 3'b000, "reserved bits must stay 0 for a full bitmap");
+
+        // ------------------------------------------------------------
+        // Stretch window DURATION, measured through the led port only.
+        //
+        // The checks above use wait_stretch_tick() and dut.*_held, so they
+        // confirm that a flag is held until the tick and cleared by it -- but
+        // they pass for any window length, including a stretcher that expires
+        // every cycle.  Visibility is the entire reason this block exists, so
+        // bound the hold: a one-cycle event must stay lit for very nearly a
+        // full STRETCH_DIV and must not outlive it.
+        // ------------------------------------------------------------
+        mode_sel = 1'b1;
+        align_to_window();
+        rx_busy = 1'b1;
+        @(negedge clk);
+        rx_busy = 1'b0;
+        check(led[1] === 1'b1, "a one-cycle event must latch into the status word");
+
+        hold_cycles = 0;
+        while ((led[1] === 1'b1) && (hold_cycles <= 2 * STRETCH_DIV)) begin
+            @(negedge clk);
+            hold_cycles++;
+        end
+        check(led[1] === 1'b0, "a held flag must eventually clear");
+        check(hold_cycles >= STRETCH_DIV - 2,
+              "a one-cycle event must be held for very nearly a full window");
+        check(hold_cycles <= STRETCH_DIV + 1,
+              "a held flag must not outlive its stretch window");
 
         if (errors == 0) begin
             $display("TB_SOCSTATUSLEDS: ALL TESTS PASSED");

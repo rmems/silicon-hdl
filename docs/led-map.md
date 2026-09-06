@@ -44,6 +44,13 @@ SW15 = 0 (default / reset). `led[i]` is neuron `i` of the committed N=16
 | LD14 | `led[14]` | P1 |
 | LD15 | `led[15]` | L1 |
 
+**Expect this view to look dark.** A spike holds for exactly one logical tick
+([`timestep-contract.md`](timestep-contract.md)), and `LifNeuronArray`'s
+refractory rule forces a neuron that fired at tick *T* to stay low at *T+1* —
+so the duty cycle is at most 50% of a 1 ms window, and an isolated spike is a
+1 ms flash. Spike mode is the unfiltered view, meant for a logic analyser or a
+capture; use status mode to eyeball a running demo.
+
 ## Status mode
 
 SW15 = 1. Bits `[1]`, `[2]`, `[4]`, `[5]`, `[6]` and `spike_hold` are set on
@@ -63,6 +70,14 @@ event and cleared on the shared `stretch_tick`. `abort_sticky` clears only on
 | `[12:8]` | spike_count | `$countones(spike_hold)` |
 | `[15:13]` | reserved | 0 |
 
+`rx_abort` is sticky rather than stretched on purpose: the inter-byte idle
+timeout is silent everywhere else in the design, so a truncated host frame
+would otherwise leave no trace on the board.
+
+Reading the board during a healthy host session: `[0]` blinking, `[2]` and
+`[4]` flickering together once per request, `[12:8]` tracking the population
+response, `[3]` dark.
+
 ## Switch bus
 
 `sw[15:0]` is synchronized with two flops at the SoC I/O boundary
@@ -74,6 +89,11 @@ mode. `sw_sync_1` is the only copy used in the fabric:
 
 Pins (SoC-only, `constraints/basys3_soc.xdc`): SW0..SW15 = V17 V16 W16 W17
 W15 V15 W14 W13 V2 T3 T2 R3 W2 U1 T1 R2.
+
+They are kept out of the shared `constraints/basys3.xdc` because
+`synapse_demo_basys3_top` reads that file and has no `sw` port: `get_ports`
+would return empty, and `set_property` on an empty object list is a hard
+Vivado error (`[Common 17-55]`) that aborts `synth_design`.
 
 ## Non-goals
 

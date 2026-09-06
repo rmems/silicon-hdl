@@ -59,6 +59,7 @@ symbols or tops conflict.
 | Top module | Device under test (DUT) / testbench (TB) sources |
 |---|---|
 | `tb_LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` + `spikenaut-core-sv/tb/tb_LifNeuron.sv` |
+| `tb_LifNeuronArray` | `spikenaut-core-sv/rtl/LifNeuronArray.sv` + `spikenaut-core-sv/tb/tb_LifNeuronArray.sv` |
 | `tb_WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/tb/tb_WeightRam.sv` |
 | `tb_NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam.sv` |
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
