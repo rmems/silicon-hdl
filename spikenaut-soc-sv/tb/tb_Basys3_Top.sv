@@ -67,7 +67,12 @@ module tb_spikenaut_soc_basys3_top #(
     localparam int SW_SYNC_LATENCY   = 2;
 
     // Mirrors SocProtocolFsm's default: four 10-bit UART character times.
-    localparam int IDLE_TIMEOUT_CYCLES = 4 * 10 * (CLK_FREQ / 115_200);
+    // Derived from BAUD_RATE rather than a second inline 115_200, and checked
+    // against the DUT's actual parameter at the top of the run -- test 10's
+    // half-window waits depend on this matching, and a silent drift would move
+    // the mid-window sample outside the idle window and quietly stop
+    // discriminating rx_abort from rx_busy.
+    localparam int IDLE_TIMEOUT_CYCLES = 4 * 10 * CLKS_PER_BIT;
 
     // Ticks are at most STEP_DIV cycles apart, so any wait that exceeds this
     // bound means the divider is broken. Fail loudly with a cycle count
@@ -284,6 +289,8 @@ module tb_spikenaut_soc_basys3_top #(
         seen_weight_row     = '0;
         repeat (5) @(negedge clk);
 
+        check_int(dut.u_protocol_fsm.IDLE_TIMEOUT_CYCLES, IDLE_TIMEOUT_CYCLES,
+                  "TB idle-timeout mirror must match the DUT parameter");
         check(dut.step_en === 1'b0,       "reset: step_en must be low");
         check(dut.step_cnt === '0,        "reset: step_cnt must be cleared");
         check(dut.stimuli_pending === 1'b0,

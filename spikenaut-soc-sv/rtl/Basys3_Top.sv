@@ -58,8 +58,11 @@ module spikenaut_soc_basys3_top #(
 
     // 2FF synchronizer at the I/O boundary. Synchronous reset to '0 keeps
     // the default LED view in spike mode (SW15=0). Use sw_sync_1 everywhere.
-    logic [15:0] sw_sync_0;
-    logic [15:0] sw_sync_1;
+    // ASYNC_REG keeps the pair packed into adjacent slices and stops synthesis
+    // from replicating or retiming them, which would defeat the MTBF the two
+    // stages exist to buy.  Adjacency in the source is not a constraint.
+    (* ASYNC_REG = "TRUE" *) logic [15:0] sw_sync_0;
+    (* ASYNC_REG = "TRUE" *) logic [15:0] sw_sync_1;
 
     always_ff @(posedge clk) begin
         if (!rst) begin

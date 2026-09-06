@@ -106,13 +106,24 @@ module tb_SocStatusLeds;
     // drop it, and wait for the clear -- that clear IS the boundary.  Requires
     // mode_sel = 1 so led[1] shows the held rx_busy flag.
     task automatic align_to_window();
+        int unsigned waited;
         begin
             idle_inputs();
             mode_sel = 1'b1;   // idle_inputs() clears it; led[1] must show the flag
             rx_busy  = 1'b1;
             repeat (2 * STRETCH_DIV + 2) @(negedge clk);
             rx_busy = 1'b0;
-            while (led[1] !== 1'b0) @(negedge clk);
+            // Bounded like wait_stretch_tick above: a held flag that never
+            // clears would otherwise hang here until the CI job timeout with
+            // no diagnostic at all.
+            waited = 0;
+            while (led[1] !== 1'b0) begin
+                @(negedge clk);
+                waited++;
+                if (waited > STRETCH_DIV + 2)
+                    $fatal(1, "align_to_window: led[1] still set %0d cycles after rx_busy dropped (mode_sel=%b, stretch window %0d)",
+                           waited, mode_sel, STRETCH_DIV);
+            end
         end
     endtask
 
