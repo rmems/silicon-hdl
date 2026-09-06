@@ -1,0 +1,28 @@
+docs/interface-alignment.md
+  s_ae9342923f5b31::t_af97961b30755e 186,216-219,262
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_ae9342923f5b31::t_e2992d6e3e7905 69-71,542-545,551,559-564,579-593,606-617
+  s_ae9342923f5b31::t_68430f30a56951 361-387
+  s_ae9342923f5b31::t_7349ab9823bbc4 546-550,552-558
+  s_ae9342923f5b31::t_e683647aa63378 594-605
+spikenaut-soc-sv/rtl/SocStatusLeds.sv
+  s_ae9342923f5b31::t_af97961b30755e 33-39,41-42,46-51
+docs/led-map.md
+  s_ae9342923f5b31::t_e6b7bbeb372cc9 18,88-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "44d8445262cfe3959b305907d5dc9f8d8ca52329",
+  "prompts": {},
+  "sessions": {
+    "s_ae9342923f5b31": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c44bbe1d-c2a3-47cb-ba8e-ac42a9455f8e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
