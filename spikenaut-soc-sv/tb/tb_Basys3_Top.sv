@@ -66,6 +66,9 @@ module tb_spikenaut_soc_basys3_top #(
     localparam int SEQ_SLACK         = 16;
     localparam int SW_SYNC_LATENCY   = 2;
 
+    // Mirrors SocProtocolFsm's default: four 10-bit UART character times.
+    localparam int IDLE_TIMEOUT_CYCLES = 4 * 10 * (CLK_FREQ / 115_200);
+
     // Ticks are at most STEP_DIV cycles apart, so any wait that exceeds this
     // bound means the divider is broken. Fail loudly with a cycle count
     // instead of hanging until an external job timeout with no diagnostic.
@@ -355,6 +358,33 @@ module tb_spikenaut_soc_basys3_top #(
         end
         check(dut.stimulus_input_index === 4'd0,
               "lowest active protocol lane must select input column zero");
+
+        // ------------------------------------------------------------
+        // Test 5b: distinguish status bits 5 and 6 (#65 review).
+        //
+        // The first host frame is committed but no tick has consumed it yet,
+        // so stimuli_pending is high while response_armed is still low -- the
+        // only window in this run where the two differ.  Once each has been
+        // high once, the ~64 ms stretcher holds both for the rest of the
+        // ~11 ms simulation and a swapped binding becomes invisible, so the
+        // check has to happen here rather than in test 9.
+        //
+        // sw only feeds the LED mux and aux_state, and aux_state is sampled
+        // only on frame_send (which needs a tick first), so this excursion
+        // cannot perturb the sequence.
+        // ------------------------------------------------------------
+        check(dut.stimuli_pending === 1'b1 && dut.response_armed === 1'b0,
+              "test 5b: a committed frame must be pending but not yet armed");
+        sw = 16'h8000;
+        repeat (SW_SYNC_LATENCY + 1) @(negedge clk);
+        check(led[5] === 1'b1,
+              "test 5b: status bit 5 must be stimuli_pending, high in this window");
+        check(led[6] === 1'b0,
+              "test 5b: status bit 6 must be response_armed, still low in this window");
+        sw = 16'h0000;
+        repeat (SW_SYNC_LATENCY + 1) @(negedge clk);
+        check(dut.stimuli_pending === 1'b1,
+              "test 5b: the mode excursion must not consume the pending frame");
         check(dut.stimulus_event === 1'b1,
               "a completed non-zero stimulus frame must arm a binary PE event");
 
@@ -509,6 +539,29 @@ module tb_spikenaut_soc_basys3_top #(
               "test 9: status[12:8] must be countones(spike_hold)");
         check(led[15:13] === 3'b000,
               "test 9: reserved status[15:13] must stay 0");
+
+        // The checks above mirror led against u_status_leds internals, so a
+        // wrong Basys3_Top port binding moves both operands together and
+        // passes.  These name expected VALUES instead.
+        // Heartbeat counts logical ticks, so after ~11 of them tick_cnt[8] is
+        // still low.  Sample three times 256 fabric clocks apart: if step_en
+        // were mis-bound to something that pulses every clock, tick_cnt[8]
+        // would have a 512-clock period and at least one of these samples
+        // would read high.  A single sample would be a coin flip.
+        check(led[0] === 1'b0,
+              "test 9: heartbeat must be low after ~11 logical ticks");
+        repeat (256) @(negedge clk);
+        check(led[0] === 1'b0,
+              "test 9: heartbeat must not advance on fabric clocks (sample 2)");
+        repeat (256) @(negedge clk);
+        check(led[0] === 1'b0,
+              "test 9: heartbeat must not advance on fabric clocks (sample 3)");
+        check(led[2] === 1'b1,
+              "test 9: accepted host frames must have latched the commit bit");
+        check(led[3] === 1'b0,
+              "test 9: no idle timeout has occurred, so the sticky abort bit must be clear");
+        check(led[7] === 1'b1,
+              "test 9: spikes have been committed, so any_spike must be set");
         release dut.spike_bitmap;
 
         uart_send_stimulus_frame(SPIKE_TEST_NEURON);
@@ -523,6 +576,45 @@ module tb_spikenaut_soc_basys3_top #(
         check((dut.u_protocol_fsm.active_aux_state === 16'hA5A5) ||
               (dut.u_protocol_fsm.pending_aux_state === 16'hA5A5),
               "test 9: synchronized sw must reach the host response aux word");
+
+        // ------------------------------------------------------------
+        // Test 10: rx_abort actually reaches status bit 3 (#65 review).
+        //
+        // Test 9 can only prove bit 3 is low.  Drive it high from the UART
+        // wire -- abandon a frame after its sync byte and let the FSM's
+        // inter-byte idle timeout fire -- so the top-level rx_abort binding is
+        // checked by a 0 -> 1 transition rather than by a mirror comparison.
+        //
+        // Note the analogous rx_busy check is not useful here: led[1] latched
+        // high during the first host frame and the ~64 ms stretch window
+        // outlives this ~11 ms simulation, so it can no longer transition.
+        // ------------------------------------------------------------
+        check(led[3] === 1'b0, "test 10: abort bit must still be clear before the abandon");
+        uart_send_byte(8'hAA);   // sync only; never completes the payload
+
+        // The FSM is now in RX_COLLECT with rx_busy high but no abort yet.
+        // Checking bit 3 is still low HERE is what distinguishes a binding to
+        // rx_abort from one to rx_busy -- without it, wiring bit 3 to rx_busy
+        // passes the whole sequence.
+        repeat (IDLE_TIMEOUT_CYCLES / 2) @(negedge clk);
+        check(dut.rx_busy === 1'b1,
+              "test 10: the abandoned frame must leave the receive FSM busy");
+        check(led[3] === 1'b0,
+              "test 10: a frame still inside the idle window must not look like an abort");
+
+        repeat ((IDLE_TIMEOUT_CYCLES / 2) + SEQ_SLACK) @(negedge clk);
+        check(led[3] === 1'b1,
+              "test 10: an abandoned host frame must light the sticky abort bit");
+
+        // Sticky, not stretched: it must survive until a frame is accepted.
+        repeat (IDLE_TIMEOUT_CYCLES) @(negedge clk);
+        check(led[3] === 1'b1,
+              "test 10: the abort bit must stay lit until the next accepted frame");
+        uart_send_stimulus_frame(SPIKE_TEST_NEURON);
+        wait_for_stimuli_pending();
+        check(led[3] === 1'b0,
+              "test 10: an accepted host frame must clear the sticky abort bit");
+
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");
 
         if (errors == 0) begin

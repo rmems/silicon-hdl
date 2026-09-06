@@ -30,13 +30,25 @@ module SocStatusLeds #(
 
     localparam int COUNT_WIDTH = $clog2(NUM_NEURONS + 1);
 
+    // The status layout below is FIXED, not parameterized: flags in [7:0], the
+    // spike count in [12:8], reserved [15:13].  Guard against the layout as
+    // written rather than against 8+COUNT_WIDTH, which let two bad
+    // configurations through:
+    //   NUM_NEURONS = 32 => COUNT_WIDTH = 6, silently truncated into the 5-bit
+    //     [12:8] field, so an all-neurons-firing bitmap reported a count of 0.
+    //   LED_WIDTH 13..15 => [15:13] selects past the end of status_word.
     generate
+        if (NUM_NEURONS < 1)
+            $error("SocStatusLeds: NUM_NEURONS (%0d) must be at least one", NUM_NEURONS);
         if (NUM_NEURONS > LED_WIDTH)
             $error("SocStatusLeds: NUM_NEURONS (%0d) must not exceed LED_WIDTH (%0d)",
                    NUM_NEURONS, LED_WIDTH);
-        if ((8 + COUNT_WIDTH) > LED_WIDTH)
-            $error("SocStatusLeds: status field 8+COUNT_WIDTH (%0d) must not exceed LED_WIDTH (%0d)",
-                   8 + COUNT_WIDTH, LED_WIDTH);
+        if (LED_WIDTH < 16)
+            $error("SocStatusLeds: LED_WIDTH (%0d) must be at least 16 for the fixed status layout",
+                   LED_WIDTH);
+        if (COUNT_WIDTH > 5)
+            $error("SocStatusLeds: NUM_NEURONS (%0d) needs a %0d-bit count, but status_word[12:8] holds 5",
+                   NUM_NEURONS, COUNT_WIDTH);
     endgenerate
 
     logic [$clog2(STRETCH_DIV)-1:0] stretch_cnt;

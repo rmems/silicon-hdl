@@ -183,7 +183,7 @@ Host → FPGA (33 bytes):
 FPGA → Host (36 bytes):
   [0..31]  = 16 × Q8.8 potentials    // i16 big-endian each
   [32..33] = spike flags             // u16 BE, bit i = neuron i spiked
-  [34..35] = switch / aux state      // u16 BE, live synchronized `sw`
+  [34..35] = switch / aux state      // u16 BE, synchronized `sw` sampled at frame_send
 ```
 
 | Layer | Owner | Status in this monorepo |
@@ -213,7 +213,10 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   the FSM. The SoC arms `frame_send` only after a host `0xAA` frame is consumed
   by `step_en`; the subsequent `tick_done` then snapshots that tick's result.
   Idle 1 ms ticks do not stream responses. `aux_state` is the 2FF-synchronized
-  switch bus (`sw_sync_1`), so response bytes 34–35 are live `sw`.
+  switch bus (`sw_sync_1`). `SocProtocolFsm` latches it into
+  `active_aux_state` / `pending_aux_state` on the `frame_send` capture edge, so
+  response bytes 34–35 are that sampled value held for the whole ~3.1 ms
+  transmission — not a live view of the switches.
 - `StdpController` is instantiated (classical Bi–Poo, `step_en`-gated) but
   writeback is **open**: `weight_we` / `weight_addr_out` / `weight_out` are left
   unconnected ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
@@ -256,7 +259,7 @@ separate SoC protocol extension that:
 | UART 8 data bits | `DATA_WIDTH=8` on bridge/UART | Match |
 | Host TX frame `0xAA` + 32 B | `SocProtocolFsm` application layer above bridge | Implemented in SoC; words decode big-endian and commit atomically |
 | Host RX 36 B response | `SocProtocolFsm` application layer above bridge | Implemented in SoC; 16 potentials, spike word, then aux word; `tx_busy` respected |
-| Spike flag word (16 bits) | `LifNeuronArray.spike_bitmap` / LED bus | `led[i] = neuron i` in spike mode (SW15=0). SW15=1 shows the stretched status word. Bytes 34–35 carry live synchronized `sw`. See [`docs/led-map.md`](led-map.md) |
+| Spike flag word (16 bits) | `LifNeuronArray.spike_bitmap` / LED bus | `led[i] = neuron i` in spike mode (SW15=0). SW15=1 shows the stretched status word. Bytes 34–35 carry synchronized `sw` sampled at `frame_send`. See [`docs/led-map.md`](led-map.md) |
 | `FpgaMetrics::parse_from_report` (WNS) | Vivado timing summary from SoC build | CI: see §4 |
 | `serialport` USB path | Board USB-UART (`uart_rx`/`uart_tx` on Basys 3) | Physical |
 

@@ -15,7 +15,7 @@ Linear [LIM-926](https://linear.app/rpd-34/issue/LIM-926).
 | Default view | SW15 = 0 after reset: combinational `led = spike_bitmap` |
 | Status view | SW15 = 1 (after 2FF sync): stretched protocol / heartbeat word |
 | Stretcher | Shared `STRETCH_DIV = 6_400_000` @ 100 MHz (~64 ms) |
-| Aux word | Synchronized `sw[15:0]` is response bytes `[34..35]` |
+| Aux word | Synchronized `sw[15:0]` sampled at `frame_send`, sent as response bytes `[34..35]` |
 | LED driver | Combinational `SocStatusLeds` mux; no registered LED path |
 
 No breadboard. The on-board LEDs and slide switches are the only indicators.
@@ -85,7 +85,10 @@ response, `[3]` dark.
 mode. `sw_sync_1` is the only copy used in the fabric:
 
 - `mode_sel = sw_sync_1[15]`
-- `SocProtocolFsm.aux_state = sw_sync_1` (host response bytes 34–35)
+- `SocProtocolFsm.aux_state = sw_sync_1` (host response bytes 34–35). The FSM
+  latches it on the `frame_send` capture edge, so those bytes report the switch
+  position at the start of the response, held for the whole ~3.1 ms frame — a
+  switch flipped mid-transmission shows up in the *next* response.
 
 Pins (SoC-only, `constraints/basys3_soc.xdc`): SW0..SW15 = V17 V16 W16 W17
 W15 V15 W14 W13 V2 T3 T2 R3 W2 U1 T1 R2.
