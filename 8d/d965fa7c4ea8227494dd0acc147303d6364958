@@ -1,0 +1,28 @@
+scripts/quality.sh
+  s_ae9342923f5b31::t_9ca520c7f74d77 121-142
+  s_ae9342923f5b31::t_49fa0aa174a83b 46-53
+AGENTS.md
+  s_ae9342923f5b31::t_4681855d9aa3be 64,66,129-138,144
+scripts/check_tb_coverage.py
+  s_ae9342923f5b31::t_7cff898106d540 1-118
+CLAUDE.md
+  s_ae9342923f5b31::t_4681855d9aa3be 36
+.github/workflows/sim.yml
+  s_ae9342923f5b31::t_49fa0aa174a83b 29-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8dd965fa7c4ea8227494dd0acc147303d6364958",
+  "prompts": {},
+  "sessions": {
+    "s_ae9342923f5b31": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c44bbe1d-c2a3-47cb-ba8e-ac42a9455f8e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
