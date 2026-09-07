@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- resource-budget-n16.md -->
+<!-- Last updated: 2026-09-07 -->
 
 # N=16 time-multiplexed PE resource budget
 
@@ -23,8 +24,61 @@ measured utilization. When self-hosted Vivado CI runs,
 authoritative measured source. Free-runner CI gates Verilator simulation and
 the Deduplication Guardian, not utilization.
 
-For the #61 implementation, a routed Vivado 2026.1 build measured **279 LUTs**
-(1.34%), **429 flip-flops** (1.03%), **three RAMB18E1s** (1.5 Block RAM tiles),
-and **0 DSPs**. Timing closed at 100 MHz with WNS **+1.200 ns** and WHS
-**+0.177 ns**. These figures are a build snapshot; regenerate
-`utilization.rpt` and `timing_summary.rpt` after later RTL or tool changes.
+## Measured utilization
+
+Routed Vivado 2026.1 build of `spikenaut_soc_basys3_top`, self-hosted Vivado CI,
+tree as merged at `8fb664b` (#85):
+
+| Resource | Used | Available | Utilization |
+|---|---|---|---|
+| Slice LUTs | 892 | 20,800 | 4.29% |
+| Slice Registers | 1,660 | 41,600 | 3.99% |
+| Block RAM Tile | 1.5 (3 × RAMB18E1) | 50 | 3.00% |
+| DSPs | 0 | 90 | 0.00% |
+| Bonded IOB | 36 | 106 | 33.96% |
+
+Timing closes at 100 MHz with **zero failing endpoints** in both directions:
+
+| Metric | Value | Failing / total endpoints |
+|---|---|---|
+| WNS | **+1.230 ns** | 0 / 3205 |
+| WHS | **+0.106 ns** | 0 / 3205 |
+| WPWS | +4.500 ns | 0 / 1664 |
+
+### How this moved since the #61 snapshot
+
+The previous figures in this doc were measured at the **#61** commit and were
+badly stale by the time #85 landed:
+
+| Metric | #61 snapshot | Current (`8fb664b`) | Change |
+|---|---|---|---|
+| Slice LUTs | 279 (1.34%) | 892 (4.29%) | ×3.2 |
+| Slice Registers | 429 (1.03%) | 1,660 (3.99%) | ×3.9 |
+| Block RAM | 3 × RAMB18E1 | 3 × RAMB18E1 | unchanged |
+| DSPs | 0 | 0 | unchanged |
+| Bonded IOB | 20 | 36 | +16 |
+| WNS | +1.200 ns | +1.230 ns | +0.030 ns |
+| WHS | +0.177 ns | +0.106 ns | −0.071 ns |
+
+Two features landed in between: [#62](https://github.com/rmems/silicon-hdl/issues/62)
+(`SocProtocolFsm` — the 36-byte response serializer holds both an active and a
+pending 16-word Q8.8 snapshot) and
+[#65](https://github.com/rmems/silicon-hdl/issues/65) (`SocStatusLeds` — shared
+stretch prescaler, held status flags, tick counter, plus the `sw` 2FF
+synchronizer).
+
+The **+16 IOBs are directly attributable** to the `sw[15:0]` port added by #65.
+The LUT and flip-flop growth is *not* attributed per module here, because
+`report_utilization` was flat at the time of this build. `scripts/build_soc.tcl`
+now also emits `utilization_hier.rpt`, so the next self-hosted build will carry a
+per-module breakdown and this section can be made specific rather than
+directional.
+
+WNS variance across recent builds of nearly identical trees has been ±0.2 ns
+(1.200 / 1.323 / 1.405 / 1.230 ns), so treat small movements as placement noise
+rather than as a signal about a particular change.
+
+These figures are a build snapshot. Regenerate `utilization.rpt`,
+`utilization_hier.rpt`, and `timing_summary.rpt` after later RTL or tool changes —
+they are produced by `scripts/build_soc.tcl` and uploaded by the Vivado CI job as
+the `vivado-ci-reports` artifact.

@@ -47,6 +47,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `LifNeuron` and `StdpController` update only when `step_en` is high; SoC pulses it at 1 kHz (#60).
+- [`docs/resource-budget-n16.md`](docs/resource-budget-n16.md) refreshed against a real routed
+  build: 892 LUTs / 1660 FFs / 1.5 BRAM tiles / 0 DSPs / 36 IOBs, WNS +1.230 ns, WHS +0.106 ns,
+  zero failing endpoints. The prior figures were the #61 snapshot and understated LUTs by 3.2x
+  after #62 and #65 landed. `scripts/build_soc.tcl` now also emits `utilization_hier.rpt` so the
+  next build can attribute growth per module.
 - `UartRx`'s `rx_sync_0`/`rx_sync_1` clock-domain-crossing pair now carries
   `(* ASYNC_REG = "TRUE" *)` (#84), so synthesis packs it into adjacent slices and will
   not replicate or retime the flops. Every 2FF synchronizer in the repo now declares it;
