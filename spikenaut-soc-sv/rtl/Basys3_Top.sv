@@ -53,8 +53,30 @@ module spikenaut_soc_basys3_top #(
 
     // gh-14 5u3.5 (P1): inversion in RTL (XDC pin/port rst_n kept for compatibility;
     // BTNC/CPU_RESET U18 is active-high). Use 'rst' (active-low) for all submodules + local logic.
+    //
+    // BTNC is a mechanical button with no relationship to clk, and `rst` fans
+    // out to every sequential element in the design. Sampling it directly meant
+    // a button edge landing near a clock edge could resolve differently in
+    // different flops, releasing parts of the design from reset a cycle apart.
+    // The 2FF synchronizer makes the whole fabric see one consistent reset.
+    //
+    // These two flops are deliberately unreset -- they *are* the reset source.
+    // FPGA configuration brings them up at 0 via GSR, which reads as
+    // "button not pressed", the correct idle state.
+    //
+    // Cost: reset assertion and release are each two clocks later at the pin
+    // than they used to be. tb_Basys3_Top accounts for that explicitly via
+    // RST_SYNC_LATENCY; see its first-tick check.
+    (* ASYNC_REG = "TRUE" *) logic rst_n_sync_0;
+    (* ASYNC_REG = "TRUE" *) logic rst_n_sync_1;
+
+    always_ff @(posedge clk) begin
+        rst_n_sync_0 <= rst_n;
+        rst_n_sync_1 <= rst_n_sync_0;
+    end
+
     logic rst;
-    assign rst = ~rst_n;
+    assign rst = ~rst_n_sync_1;
 
     // 2FF synchronizer at the I/O boundary. Synchronous reset to '0 keeps
     // the default LED view in spike mode (SW15=0). Use sw_sync_1 everywhere.

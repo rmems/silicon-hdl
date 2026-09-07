@@ -66,6 +66,12 @@ module tb_spikenaut_soc_basys3_top #(
     localparam int SEQ_SLACK         = 16;
     localparam int SW_SYNC_LATENCY   = 2;
 
+    // Depth of the BTNC reset synchronizer. The button is asynchronous to clk
+    // and `rst` fans out to the whole fabric, so it is sampled through 2 flops
+    // rather than combinationally inverted. Both reset assertion and release
+    // are therefore two clocks later in the fabric than at the pin.
+    localparam int RST_SYNC_LATENCY  = 2;
+
     // Mirrors SocProtocolFsm's default: four 10-bit UART character times.
     // Derived from BAUD_RATE rather than a second inline 115_200, and checked
     // against the DUT's actual parameter at the top of the run -- test 10's
@@ -301,13 +307,21 @@ module tb_spikenaut_soc_basys3_top #(
         check(led === 16'h0000,           "reset: led must be cleared");
 
         // ------------------------------------------------------------
-        // Test 2: first tick lands exactly STEP_DIV cycles after release
+        // Test 2: first tick lands STEP_DIV + RST_SYNC_LATENCY after release
         //
         // Counted here rather than in the monitor so the measurement is a
         // single-process, race-free sequence: reset is released at this
         // negedge, and the loop below starts counting at the next one.
+        //
+        // The two extra cycles are the BTNC reset synchronizer, not slack:
+        // releasing the button does not release the fabric until the level has
+        // crossed both flops. Asserted as a value so removing or resizing the
+        // synchronizer fails here rather than silently shifting the tick phase.
         // ------------------------------------------------------------
         btn_rst = 1'b0;
+        // Costs no cycles: the chain still holds the pressed value at this edge.
+        check(dut.rst === 1'b0,
+              "reset release must not reach the fabric on the same edge as the button");
         first_tick_cycles = 0;
         forever begin
             @(negedge clk);
@@ -317,8 +331,8 @@ module tb_spikenaut_soc_basys3_top #(
                 $fatal(1, "first tick: no step_en within %0d cycles of reset release (bound %0d)",
                        first_tick_cycles, TICK_WAIT_BOUND);
         end
-        check_int(first_tick_cycles, STEP_DIV,
-                  "first step_en must be STEP_DIV cycles after reset release");
+        check_int(first_tick_cycles, STEP_DIV + RST_SYNC_LATENCY,
+                  "first step_en must be STEP_DIV cycles after the synchronized reset release");
 
         // ------------------------------------------------------------
         // Tests 3-4 run in the monitor. Let two more clean ticks elapse.

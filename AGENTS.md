@@ -108,6 +108,9 @@ Notes for editing it:
   first-tick latency is measured in the main sequence to keep it free of process-ordering races.
 - Reset polarity is inverted at this level: the `rst_n` **port** is the active-high BTNC button,
   so the TB asserts reset with `btn_rst = 1`.
+- The button crosses a 2FF synchronizer before becoming `rst`, so the fabric sees reset
+  assertion and release two clocks after the pin. Test 2 asserts the first tick at
+  `STEP_DIV + RST_SYNC_LATENCY`; the extra cycles are the synchronizer, not slack.
 
 ### Vivado (when available)
 

@@ -47,6 +47,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `LifNeuron` and `StdpController` update only when `step_en` is high; SoC pulses it at 1 kHz (#60).
+- The BTNC reset in `spikenaut_soc_basys3_top` is now sampled through a 2FF `ASYNC_REG`
+  synchronizer instead of being inverted combinationally. `rst` fans out to every sequential
+  element, so a button edge near a clock edge could previously release parts of the fabric a
+  cycle apart. Reset assertion and release are each two clocks later than at the pin;
+  `tb_Basys3_Top` pins that as `RST_SYNC_LATENCY`.
 - `UartRx`'s `rx_sync_0`/`rx_sync_1` clock-domain-crossing pair now carries
   `(* ASYNC_REG = "TRUE" *)` (#84), so synthesis packs it into adjacent slices and will
   not replicate or retime the flops. Every 2FF synchronizer in the repo now declares it;
