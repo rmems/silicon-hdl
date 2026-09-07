@@ -1,0 +1,32 @@
+synapse-link-hdl/tb/tb_SynapseRouter.sv
+  s_ae9342923f5b31::t_fb10a253f01b1c 1-114,120-121,123-124,128,130-131,134-183
+  s_ae9342923f5b31::t_889e1caad982cc 115-119,122,125-127,129,132-133
+.github/workflows/sim.yml
+  s_ae9342923f5b31::t_56ae7b7e8f1589 161-170
+scripts/quality.sh
+  s_ae9342923f5b31::t_56ae7b7e8f1589 172-186
+AGENTS.md
+  s_ae9342923f5b31::t_f8c0fb23d1d572 73
+scripts/check_tb_coverage.py
+  s_ae9342923f5b31::t_56ae7b7e8f1589 32-35
+CHANGELOG.md
+  s_ae9342923f5b31::t_f8c0fb23d1d572 46-50
+scripts/sim_core.tcl
+  s_ae9342923f5b31::t_56ae7b7e8f1589 67-75,79-82,85,96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0dab57af82b6e125a8f3505678aea72989e60a2f",
+  "prompts": {},
+  "sessions": {
+    "s_ae9342923f5b31": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c44bbe1d-c2a3-47cb-ba8e-ac42a9455f8e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
