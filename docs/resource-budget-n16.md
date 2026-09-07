@@ -68,11 +68,38 @@ stretch prescaler, held status flags, tick counter, plus the `sw` 2FF
 synchronizer).
 
 The **+16 IOBs are directly attributable** to the `sw[15:0]` port added by #65.
-The LUT and flip-flop growth is *not* attributed per module here, because
-`report_utilization` was flat at the time of this build. `scripts/build_soc.tcl`
-now also emits `utilization_hier.rpt`, so the next self-hosted build will carry a
-per-module breakdown and this section can be made specific rather than
-directional.
+
+## Per-module breakdown
+
+From `utilization_hier.rpt` (`report_utilization -hierarchical`), same routed build:
+
+| Instance | Module | LUTs | % of LUTs | FFs | % of FFs |
+|---|---|---|---:|---:|---:|
+| `u_protocol_fsm` | `SocProtocolFsm` | 543 | 60.9% | 1,129 | 68.0% |
+| `u_lif_array` | `LifNeuronArray` | 236 | 26.5% | 365 | 22.0% |
+| `u_bridge` | `SiliconBridge` | 59 | 6.6% | 59 | 3.6% |
+| `u_status_leds` | `SocStatusLeds` | 49 | 5.5% | 55 | 3.3% |
+| — | top-level glue | 6 | 0.7% | 52 | 3.1% |
+| **Total** | `spikenaut_soc_basys3_top` | **892** | | **1,660** | |
+
+Three things this settles:
+
+- **`SocProtocolFsm` dominates**, at ~61% of LUTs and ~68% of flip-flops. That matches
+  its structure: it holds *both* an active and a pending 16-word Q8.8 response snapshot
+  (2 × 16 × 16 = 512 flip-flops of snapshot alone) plus the receive payload buffer. It is
+  the first place to look if the budget ever gets tight, not the neuron array.
+- **`SocStatusLeds` is cheap** — 49 LUTs and 55 flip-flops, ~5% and ~3%. The shared
+  stretch prescaler was chosen over eight independent counters precisely to keep it that
+  way, and the measurement bears that out.
+- The 52 top-level glue flip-flops account for exactly the expected set: the `sw` 2FF
+  synchronizer (32), the `step_cnt` divider (17) and `step_en` (1), plus `stimuli_pending`
+  and `response_armed` (1 each).
+
+`StdpController`, `WeightRam` and the two `NeuronParamRam` instances do not appear as
+separate rows. The RAMs are inferred as the three top-level `RAMB18E1` primitives, and
+`u_stdp` contributes no reportable logic because its writeback ports are still detached
+(the [#70](https://github.com/rmems/silicon-hdl/issues/70) exclusion documented in
+`AGENTS.md`) — so most of it optimizes away. Expect its cost to appear once #70 lands.
 
 WNS variance across recent builds of nearly identical trees has been ±0.2 ns
 (1.200 / 1.323 / 1.405 / 1.230 ns), so treat small movements as placement noise
