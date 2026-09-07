@@ -82,6 +82,18 @@ From `utilization_hier.rpt` (`report_utilization -hierarchical`), same routed bu
 | — | top-level glue | 6 | 0.7% | 52 | 3.1% |
 | **Total** | `spikenaut_soc_basys3_top` | **892** | | **1,660** | |
 
+The LUT rows sum to 893 against a design total of **892**. That is expected, not a
+transcription error — `utilization_hier.rpt` carries the explanation as a footnote:
+
+> `* Note: The sum of lower-level cells may be larger than their parent cells total,`
+> `due to cross-hierarchy LUT combining`
+
+Two logic functions from different modules packed into one physical LUT are attributed to
+both rows but counted once in the parent. **892 is the authoritative unique count**, and it
+matches the flat `Slice LUTs` figure in `utilization.rpt`. The flip-flop column has no such
+effect and reconciles exactly (52 + 59 + 365 + 1,129 + 55 = 1,660), so treat the per-module
+LUT split as accurate to about ±1 and the FF split as exact.
+
 Three things this settles:
 
 - **`SocProtocolFsm` dominates**, at ~61% of LUTs and ~68% of flip-flops. That matches
