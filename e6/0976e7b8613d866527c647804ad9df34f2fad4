@@ -1,0 +1,21 @@
+CHANGELOG.md
+  ai_agent 50-53
+spikenaut-bridge-sv/rtl/UartRx.sv
+  s_ae9342923f5b31::t_2a180b4bc6f064 35-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e60976e7b8613d866527c647804ad9df34f2fad4",
+  "prompts": {},
+  "sessions": {
+    "s_ae9342923f5b31": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c44bbe1d-c2a3-47cb-ba8e-ac42a9455f8e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
