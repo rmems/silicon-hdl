@@ -185,6 +185,26 @@ else
 fi
 
 echo ""
+echo "=== Verilator elaborate synapse_demo_basys3_top ==="
+# The synapse demo top has no testbench, so nothing else compiles it. Without
+# this it is the only synthesizable top in the repo that CI never touches, and
+# a broken port list or syntax error would ship silently. Lint-only: it checks
+# elaboration and port consistency, it does not simulate.
+rm -rf obj_dir
+if verilator --lint-only -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+    --top-module synapse_demo_basys3_top \
+    -Isynapse-link-hdl/src -Ispikenaut-bridge-sv/rtl \
+    synapse-link-hdl/src/SynapseRouter.sv \
+    spikenaut-bridge-sv/rtl/UartRx.sv \
+    spikenaut-bridge-sv/rtl/UartTx.sv \
+    spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+    synapse-link-hdl/examples/basys3/Basys3_Top.sv; then
+  record "verilator/elaborate-synapse_demo_basys3_top" "PASS"
+else
+  record "verilator/elaborate-synapse_demo_basys3_top" "FAIL"
+fi
+
+echo ""
 echo "=== Verilator tb_spikenaut_soc_basys3_top ==="
 # SoC-level TB: the only sim that exercises the 1 ms step_en divider and the
 # UART-frame -> tick-domain handoff (#57 / #60 / #62). Needs lib_bridge + lib_core +

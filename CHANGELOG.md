@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never elaborated by CI. Covers one-clock latency, ordering across back-to-back beats, the
   unconditional address path, full-width addresses, and asynchronous reset. Wired into
   `scripts/quality.sh`, `scripts/sim_core.tcl` and `.github/workflows/sim.yml`.
+- `synapse_demo_basys3_top` is now elaborated by `scripts/quality.sh` and
+  `.github/workflows/sim.yml` (`verilator --lint-only`). It has no testbench, so nothing else
+  compiled it — it was the only synthesizable top in the repo that CI never touched.
 - Testbench coverage drift guard: [`scripts/check_tb_coverage.py`](scripts/check_tb_coverage.py)
   reconciles the testbench lists in `scripts/quality.sh`, `scripts/sim_core.tcl` and
   `.github/workflows/sim.yml` against the testbenches on disk, and runs first in both

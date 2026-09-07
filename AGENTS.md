@@ -72,6 +72,11 @@ symbols or tops conflict.
 | `tb_SocStatusLeds` | `spikenaut-soc-sv/rtl/SocStatusLeds.sv` + `spikenaut-soc-sv/tb/tb_SocStatusLeds.sv` |
 | `tb_SynapseRouter` | `synapse-link-hdl/src/SynapseRouter.sv` + `synapse-link-hdl/tb/tb_SynapseRouter.sv` |
 
+`synapse_demo_basys3_top` has no testbench, so `quality.sh` and `sim.yml` elaborate it
+with `verilator --lint-only` instead. Without that it is the only synthesizable top in the
+repo that CI never compiles, and a broken port list would ship silently. It checks
+elaboration and port consistency only — it does not simulate.
+
 Testbenches call `$fatal` on failure and are self-checking (look for an `errors` counter and
 `$display` summary at the end). Bridge TBs use a fast integer baud (`CLK_FREQ=1_000_000`,
 `BAUD_RATE=100_000`) so a byte is tens of clocks, not a 100 MHz / 115200 bit time.

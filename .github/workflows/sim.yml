@@ -168,6 +168,19 @@ jobs:
             synapse-link-hdl/tb/tb_SynapseRouter.sv
           ./obj_dir/Vtb_SynapseRouter
 
+      - name: Elaborate synapse_demo_basys3_top
+        run: |
+          rm -rf obj_dir
+          # No testbench exists for this top, so nothing else compiles it.
+          verilator --lint-only -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module synapse_demo_basys3_top \
+            -Isynapse-link-hdl/src -Ispikenaut-bridge-sv/rtl \
+            synapse-link-hdl/src/SynapseRouter.sv \
+            spikenaut-bridge-sv/rtl/UartRx.sv \
+            spikenaut-bridge-sv/rtl/UartTx.sv \
+            spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+            synapse-link-hdl/examples/basys3/Basys3_Top.sv
+
       - name: Run tb_spikenaut_soc_basys3_top
         run: |
           rm -rf obj_dir
