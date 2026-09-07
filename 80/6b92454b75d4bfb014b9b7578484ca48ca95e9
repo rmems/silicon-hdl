@@ -1,0 +1,23 @@
+CHANGELOG.md
+  ai_agent 50-54
+scripts/build_soc.tcl
+  s_ae9342923f5b31::t_dc354b143349ee 129-132
+docs/resource-budget-n16.md
+  s_ae9342923f5b31::t_71c06d836e1976 3,27-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "806b92454b75d4bfb014b9b7578484ca48ca95e9",
+  "prompts": {},
+  "sessions": {
+    "s_ae9342923f5b31": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c44bbe1d-c2a3-47cb-ba8e-ac42a9455f8e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
