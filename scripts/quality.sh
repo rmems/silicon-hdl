@@ -169,6 +169,22 @@ else
 fi
 
 echo ""
+echo "=== Verilator tb_SynapseRouter ==="
+# lib_synapse's only testbench. Before it, SynapseRouter and the demo top were
+# never elaborated by any runner.
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_SynapseRouter \
+    -Isynapse-link-hdl/src \
+    synapse-link-hdl/src/SynapseRouter.sv \
+    synapse-link-hdl/tb/tb_SynapseRouter.sv \
+  && ./obj_dir/Vtb_SynapseRouter; then
+  record "verilator/tb_SynapseRouter" "PASS"
+else
+  record "verilator/tb_SynapseRouter" "FAIL"
+fi
+
+echo ""
 echo "=== Verilator tb_spikenaut_soc_basys3_top ==="
 # SoC-level TB: the only sim that exercises the 1 ms step_en divider and the
 # UART-frame -> tick-domain handoff (#57 / #60 / #62). Needs lib_bridge + lib_core +

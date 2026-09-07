@@ -158,6 +158,16 @@ jobs:
             spikenaut-soc-sv/tb/tb_SocStatusLeds.sv
           ./obj_dir/Vtb_SocStatusLeds
 
+      - name: Run tb_SynapseRouter
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_SynapseRouter \
+            -Isynapse-link-hdl/src \
+            synapse-link-hdl/src/SynapseRouter.sv \
+            synapse-link-hdl/tb/tb_SynapseRouter.sv
+          ./obj_dir/Vtb_SynapseRouter
+
       - name: Run tb_spikenaut_soc_basys3_top
         run: |
           rm -rf obj_dir

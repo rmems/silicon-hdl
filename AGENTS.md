@@ -70,6 +70,7 @@ symbols or tops conflict.
 | `tb_SiliconBridge` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/rtl/SiliconBridge.sv` + `spikenaut-bridge-sv/tb/tb_SiliconBridge.sv` |
 | `tb_SocProtocolFsm` | `spikenaut-soc-sv/rtl/SocProtocolFsm.sv` + `spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv` |
 | `tb_SocStatusLeds` | `spikenaut-soc-sv/rtl/SocStatusLeds.sv` + `spikenaut-soc-sv/tb/tb_SocStatusLeds.sv` |
+| `tb_SynapseRouter` | `synapse-link-hdl/src/SynapseRouter.sv` + `synapse-link-hdl/tb/tb_SynapseRouter.sv` |
 
 Testbenches call `$fatal` on failure and are self-checking (look for an `errors` counter and
 `$display` summary at the end). Bridge TBs use a fast integer baud (`CLK_FREQ=1_000_000`,

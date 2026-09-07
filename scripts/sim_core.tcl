@@ -64,14 +64,25 @@ read_verilog -sv [list \
 ]
 
 # ---------------------------------------------------------------------------
+# 2b. lib_synapse  -  synapse-link-hdl/src
+#     AER router. Independent of lib_soc; no shared modules.
+# ---------------------------------------------------------------------------
+set synapse_rtl [file join $repo_root synapse-link-hdl src]
+
+read_verilog -sv [list \
+    [file join $synapse_rtl SynapseRouter.sv] \
+]
+
+# ---------------------------------------------------------------------------
 # 3. lib_tb_core  –  unit + SoC testbenches (#58 adds bridge TBs)
 # ---------------------------------------------------------------------------
-set core_tb   [file join $repo_root spikenaut-core-sv tb]
-set bridge_tb [file join $repo_root spikenaut-bridge-sv tb]
-set soc_tb    [file join $repo_root spikenaut-soc-sv tb]
+set core_tb    [file join $repo_root spikenaut-core-sv tb]
+set bridge_tb  [file join $repo_root spikenaut-bridge-sv tb]
+set soc_tb     [file join $repo_root spikenaut-soc-sv tb]
+set synapse_tb [file join $repo_root synapse-link-hdl tb]
 
 # Add all testbench files in tb/ if any exist
-foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
+foreach tb_dir [list $core_tb $bridge_tb $soc_tb $synapse_tb] {
     if {[llength [glob -nocomplain [file join $tb_dir *.sv]]] > 0} {
         read_verilog -sv [glob [file join $tb_dir *.sv]]
     }
@@ -82,7 +93,7 @@ foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocStatusLeds tb_SynapseRouter tb_spikenaut_soc_basys3_top}
 
 set mem_dir [file join $repo_root spikenaut-core-sv mem]
 

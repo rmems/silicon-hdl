@@ -29,7 +29,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-TB_GLOBS = ["spikenaut-*/tb/*.sv"]
+# lib_synapse lives outside the spikenaut-* prefix. Omitting it here was the
+# guard's own blind spot: a synapse testbench wired into nothing would have
+# passed this check silently.
+TB_GLOBS = ["spikenaut-*/tb/*.sv", "synapse-link-hdl/tb/*.sv"]
 MODULE_RE = re.compile(r"^\s*module\s+(tb_\w+)", re.MULTILINE)
 TOP_MODULE_RE = re.compile(r"--top-module\s+(tb_\w+)")
 CORE_TB_TOPS_RE = re.compile(r"set\s+core_tb_tops\s*\{([^}]*)\}")
