@@ -1,0 +1,21 @@
+CHANGELOG.md
+  s_e54bbbde045b3d::t_dde369eca273e5 53-56
+docs/resource-budget-n16.md
+  s_e54bbbde045b3d::t_dde369eca273e5 85-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c8f61f2fe021cb3bb354150f12c7219cd06679c1",
+  "prompts": {},
+  "sessions": {
+    "s_e54bbbde045b3d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf24b905-565d-4367-92a0-0dc17b46171a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
