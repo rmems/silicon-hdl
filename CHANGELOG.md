@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LED / status map (#65) — [`docs/led-map.md`](docs/led-map.md), combinational
   `SocStatusLeds` mux (SW15 after 2FF), FSM status outputs (`rx_busy`,
   `rx_abort`, `tx_frame_active`), and SoC-only `constraints/basys3_soc.xdc`.
+- Testbench coverage drift guard: [`scripts/check_tb_coverage.py`](scripts/check_tb_coverage.py)
+  reconciles the testbench lists in `scripts/quality.sh`, `scripts/sim_core.tcl` and
+  `.github/workflows/sim.yml` against the testbenches on disk, and runs first in both
+  `quality.sh` and CI so drift fails fast.
 
 ### Changed
 
@@ -61,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the N=16 spike-bitmap view from #81.
 
 ### Fixed
+
+- `scripts/quality.sh` was silently skipping `tb_WeightRam_init` and `tb_NeuronParamRam_init`
+  while `scripts/sim_core.tcl` and `.github/workflows/sim.yml` both ran them. Those are the only
+  two testbenches that exercise `$readmemh` against the merged_v2 memory images, so a broken
+  image passed the documented local gate and failed only in CI. The local gate now runs 15
+  checks, not 12.
 
 - STDP polarity inversion vs Bi–Poo / Song–Miller–Abbott convention (#55).
 - SoC protocol snapshot capture stays inline NBA in `always_ff` (Verilator and
