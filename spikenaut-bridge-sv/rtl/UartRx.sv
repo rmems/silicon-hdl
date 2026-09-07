@@ -32,7 +32,14 @@ module UartRx #(
     // 2FF synchronizer for async serial rx (from external UART line).
     // gh-14 / Greptile comment 3035928747 (P1 Critical): prevents metastability
     // when sampling into FPGA clk domain. Per beads silicon-hdl-5u3.1.
-    logic                rx_sync_0, rx_sync_1;
+    //
+    // ASYNC_REG (#84) names the pair as a synchronizer so Vivado packs it into
+    // adjacent slices and will not replicate or retime the flops. Without it
+    // the protection is purely positional -- being written next to each other
+    // is not a constraint, and either transform spends the MTBF the second
+    // stage exists to buy. Matches the sw pair in spikenaut_soc_basys3_top (#83).
+    (* ASYNC_REG = "TRUE" *) logic rx_sync_0;
+    (* ASYNC_REG = "TRUE" *) logic rx_sync_1;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
