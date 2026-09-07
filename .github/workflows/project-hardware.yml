@@ -18,13 +18,34 @@ jobs:
   sync-project:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync issue(s) with org Hardware project
+      # Projects v2 writes need a PAT/App with `project` scope. The default
+      # GITHUB_TOKEN does not have it, so falling back to it does not degrade
+      # gracefully -- it guarantees "Resource not accessible by integration"
+      # and a red run on every issue event. Skip instead, loudly.
+      - name: Check for a project token
+        id: gate
         env:
-          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN || secrets.LIMEN_NEURAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          PROJECT_ID: PVT_kwDOEEyGS84BfB8y
-          STATUS_FIELD_ID: PVTSSF_lADOEEyGS84BfB8yzhZX2Lc
-          OPT_READY: "856cdede"
-          OPT_DONE: "98236657"
+          PROJECT_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+        run: |
+          if [ -z "${PROJECT_TOKEN:-}" ]; then
+            echo "have_token=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Project sync skipped::PROJECTS_TOKEN is not set, so this repo cannot write a Projects v2 board. Set it (PAT or App with 'project' write) to re-enable. See #87."
+          else
+            echo "have_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync issue(s) with the hardware project board
+        if: steps.gate.outputs.have_token == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          # Overridable via repo variables so retargeting the board is a
+          # settings change, not a code change. Defaults are the historical
+          # Limen-Neural org board, which is CLOSED after the transfer to
+          # rmems (#75) -- set these vars before enabling the token.
+          PROJECT_ID: ${{ vars.HARDWARE_PROJECT_ID || 'PVT_kwDOEEyGS84BfB8y' }}
+          STATUS_FIELD_ID: ${{ vars.HARDWARE_STATUS_FIELD_ID || 'PVTSSF_lADOEEyGS84BfB8yzhZX2Lc' }}
+          OPT_READY: ${{ vars.HARDWARE_OPT_READY || '856cdede' }}
+          OPT_DONE: ${{ vars.HARDWARE_OPT_DONE || '98236657' }}
           EVENT_NAME: ${{ github.event_name }}
           ISSUE_NUM_EVENT: ${{ github.event.issue.number }}
           ISSUE_STATE_EVENT: ${{ github.event.issue.state }}
