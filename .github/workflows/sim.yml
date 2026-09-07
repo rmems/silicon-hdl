@@ -26,6 +26,9 @@ jobs:
       - name: Install Verilator
         run: sudo apt-get update && sudo apt-get install -y verilator
 
+      - name: Testbench coverage drift guard
+        run: python3 scripts/check_tb_coverage.py
+
       - name: Run tb_LifNeuron
         run: |
           rm -rf obj_dir

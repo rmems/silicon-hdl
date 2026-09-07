@@ -61,7 +61,9 @@ symbols or tops conflict.
 | `tb_LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` + `spikenaut-core-sv/tb/tb_LifNeuron.sv` |
 | `tb_LifNeuronArray` | `spikenaut-core-sv/rtl/LifNeuronArray.sv` + `spikenaut-core-sv/tb/tb_LifNeuronArray.sv` |
 | `tb_WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/tb/tb_WeightRam.sv` |
+| `tb_WeightRam_init` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/tb/tb_WeightRam_init.sv` — `$readmemh` of the merged_v2 weight image; needs repo-root CWD |
 | `tb_NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam.sv` |
+| `tb_NeuronParamRam_init` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam_init.sv` — `$readmemh` of the merged_v2 threshold image; needs repo-root CWD |
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
 | `tb_UartRx` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/tb/tb_UartRx.sv` |
 | `tb_UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/tb/tb_UartTx.sv` |
@@ -124,11 +126,22 @@ add a new RTL module under `spikenaut-core-sv/rtl`, `spikenaut-bridge-sv/rtl`, o
 testbenches are picked up automatically, but you must append the top module name to the
 `core_tb_tops` list before it will run.
 
+A testbench top has to be named by hand in **three** unrelated places —
+`scripts/quality.sh`, `scripts/sim_core.tcl` (`core_tb_tops`) and
+`.github/workflows/sim.yml` (one step each). These drifted in practice:
+`quality.sh` was silently missing `tb_WeightRam_init` and `tb_NeuronParamRam_init`,
+the only two testbenches that exercise `$readmemh` against the merged_v2 images, so a
+broken memory image passed the local gate and failed only in CI.
+`scripts/check_tb_coverage.py` now reconciles all three lists against the testbenches
+actually on disk and fails with a diff naming the file to edit. It runs first in both
+`quality.sh` and `sim.yml`.
+
 ### Deduplication check
 
 Run before committing any RTL change:
 
 ```bash
+python scripts/check_tb_coverage.py         # exits non-zero if a TB is missing from any runner
 python scripts/dedup_guardian.py            # exits non-zero on strict duplicate violations
 python scripts/dedup_guardian.py --radar radar.md --threshold 0.85   # near-dup "Dupe Radar" report
 ```

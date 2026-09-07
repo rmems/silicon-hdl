@@ -43,6 +43,14 @@ record() {
   fi
 }
 
+echo "=== Testbench coverage drift guard ==="
+if python3 scripts/check_tb_coverage.py; then
+  record "check_tb_coverage" "PASS"
+else
+  record "check_tb_coverage" "FAIL"
+fi
+
+echo ""
 echo "=== Deduplication Guardian ==="
 if python3 scripts/dedup_guardian.py; then
   record "dedup_guardian" "PASS"
@@ -107,6 +115,28 @@ for tb in "${BRIDGE_TBS[@]}"; do
     record "verilator/tb_${tb}" "PASS"
   else
     record "verilator/tb_${tb}" "FAIL"
+  fi
+done
+
+# INIT_FILE variants: these are the only TBs that exercise $readmemh against the
+# merged_v2 images, so a broken memory image is invisible without them. They do
+# not fit the TBS=(dut:tb) loop above because the TB name is not derived from the
+# DUT name, and they require repo-root CWD for the relative INIT paths.
+for pair in "WeightRam:tb_WeightRam_init" "NeuronParamRam:tb_NeuronParamRam_init"; do
+  dut="${pair%%:*}"
+  tb="${pair##*:}"
+  echo ""
+  echo "=== Verilator $tb ==="
+  rm -rf obj_dir
+  if verilator "${VERILATOR_FLAGS[@]}" \
+      --top-module "$tb" \
+      -Ispikenaut-core-sv/rtl \
+      "spikenaut-core-sv/rtl/${dut}.sv" \
+      "spikenaut-core-sv/tb/${tb}.sv" \
+    && "./obj_dir/V${tb}"; then
+    record "verilator/$tb" "PASS"
+  else
+    record "verilator/$tb" "FAIL"
   fi
 done
 

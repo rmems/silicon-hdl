@@ -33,6 +33,7 @@ and propose the smallest safe change rather than rewriting library ownership.
 | Verilator | Fast RTL simulation of core testbenches (`tb_*`) |
 | Vivado (optional) | Synthesis, implementation, and bitstream via `scripts/*.tcl` |
 | `python scripts/dedup_guardian.py` | Strict duplicate-module check; optional `--radar` near-dup report |
+| `python scripts/check_tb_coverage.py` | Fails if a testbench is missing from `quality.sh`, `sim_core.tcl` or `sim.yml` |
 | `bd` (beads) | Canonical issue tracking (`bd prime` for command reference) |
 | GitHub / Linear | Cross-team visibility (not a replacement for `bd`) |
 
