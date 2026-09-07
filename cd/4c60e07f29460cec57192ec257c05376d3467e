@@ -1,0 +1,25 @@
+CHANGELOG.md
+  ai_agent 51-53
+AGENTS.md
+  ai_agent 75-79
+scripts/quality.sh
+  s_e54bbbde045b3d::t_9e5f6117242d57 188-206
+.github/workflows/sim.yml
+  s_e54bbbde045b3d::t_9e5f6117242d57 171-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cd4c60e07f29460cec57192ec257c05376d3467e",
+  "prompts": {},
+  "sessions": {
+    "s_e54bbbde045b3d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf24b905-565d-4367-92a0-0dc17b46171a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
