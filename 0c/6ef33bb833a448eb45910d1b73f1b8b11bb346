@@ -1,0 +1,25 @@
+spikenaut-soc-sv/rtl/Basys3_Top.sv
+  s_e54bbbde045b3d::t_d31a3a4003343a 56-77,79
+CHANGELOG.md
+  ai_agent 50-54
+AGENTS.md
+  ai_agent 111-113
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_e54bbbde045b3d::t_075325b2ab1e34 69-74,310,315-319,322-324,334-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0c6ef33bb833a448eb45910d1b73f1b8b11bb346",
+  "prompts": {},
+  "sessions": {
+    "s_e54bbbde045b3d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf24b905-565d-4367-92a0-0dc17b46171a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
