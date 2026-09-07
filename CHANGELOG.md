@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `LifNeuron` and `StdpController` update only when `step_en` is high; SoC pulses it at 1 kHz (#60).
+- `UartRx`'s `rx_sync_0`/`rx_sync_1` clock-domain-crossing pair now carries
+  `(* ASYNC_REG = "TRUE" *)` (#84), so synthesis packs it into adjacent slices and will
+  not replicate or retime the flops. Every 2FF synchronizer in the repo now declares it;
+  the `sw` pair got the same treatment in #83.
 - Vivado CI runs on `push` to `main` (self-hosted) as well as same-repository PRs / dispatch.
 - Post-transfer hygiene: live docs and issue links point at
   [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl) after return from Limen-Neural (#75).
