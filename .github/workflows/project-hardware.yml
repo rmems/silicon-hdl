@@ -18,13 +18,50 @@ jobs:
   sync-project:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync issue(s) with org Hardware project
+      # Two independent reasons this job could never succeed as written:
+      #
+      #   1. Projects v2 writes need a PAT/App with `project` scope. The default
+      #      GITHUB_TOKEN does not have it, so falling back to it did not
+      #      degrade gracefully -- it guaranteed "Resource not accessible by
+      #      integration" and a red run on every issue event.
+      #   2. The board it targeted (Limen-Neural org project #8 "Hardware") is
+      #      CLOSED, left behind by the transfer to rmems (#75).
+      #
+      # So the target is now fully unconfigured by default rather than
+      # defaulting to the dead board: a token alone is not enough to start
+      # writing somewhere useless. Every id must be supplied explicitly.
+      - name: Check project sync configuration
+        id: gate
         env:
-          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN || secrets.LIMEN_NEURAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          PROJECT_ID: PVT_kwDOEEyGS84BfB8y
-          STATUS_FIELD_ID: PVTSSF_lADOEEyGS84BfB8yzhZX2Lc
-          OPT_READY: "856cdede"
-          OPT_DONE: "98236657"
+          PROJECT_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          PROJECT_ID: ${{ vars.HARDWARE_PROJECT_ID }}
+          STATUS_FIELD_ID: ${{ vars.HARDWARE_STATUS_FIELD_ID }}
+          OPT_READY: ${{ vars.HARDWARE_OPT_READY }}
+          OPT_DONE: ${{ vars.HARDWARE_OPT_DONE }}
+        run: |
+          missing=""
+          if [ -z "${PROJECT_TOKEN:-}" ]; then missing="$missing PROJECTS_TOKEN(secret)"; fi
+          if [ -z "${PROJECT_ID:-}" ]; then missing="$missing HARDWARE_PROJECT_ID"; fi
+          if [ -z "${STATUS_FIELD_ID:-}" ]; then missing="$missing HARDWARE_STATUS_FIELD_ID"; fi
+          if [ -z "${OPT_READY:-}" ]; then missing="$missing HARDWARE_OPT_READY"; fi
+          if [ -z "${OPT_DONE:-}" ]; then missing="$missing HARDWARE_OPT_DONE"; fi
+
+          if [ -n "$missing" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Project sync skipped::Not configured; missing:$missing. The status field and option ids are per-board and must be re-derived for whichever board you target. See #87."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "project sync configured for $PROJECT_ID"
+          fi
+
+      - name: Sync issue(s) with the hardware project board
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          PROJECT_ID: ${{ vars.HARDWARE_PROJECT_ID }}
+          STATUS_FIELD_ID: ${{ vars.HARDWARE_STATUS_FIELD_ID }}
+          OPT_READY: ${{ vars.HARDWARE_OPT_READY }}
+          OPT_DONE: ${{ vars.HARDWARE_OPT_DONE }}
           EVENT_NAME: ${{ github.event_name }}
           ISSUE_NUM_EVENT: ${{ github.event.issue.number }}
           ISSUE_STATE_EVENT: ${{ github.event.issue.state }}
