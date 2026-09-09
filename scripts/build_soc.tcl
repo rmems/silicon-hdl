@@ -126,6 +126,10 @@ route_design
 set output_dir [file join $project_dir output]
 file mkdir $output_dir
 report_utilization -file [file join $output_dir utilization.rpt]
+# Per-module breakdown so docs/resource-budget-n16.md can attribute growth to a
+# library rather than only reporting a flat design total.
+report_utilization -hierarchical \
+    -file [file join $output_dir utilization_hier.rpt]
 report_timing_summary -file [file join $output_dir timing_summary.rpt]
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- resource-budget-n16.md -->
+<!-- Last updated: 2026-09-07 -->
 
 # N=16 time-multiplexed PE resource budget
 
@@ -23,8 +24,100 @@ measured utilization. When self-hosted Vivado CI runs,
 authoritative measured source. Free-runner CI gates Verilator simulation and
 the Deduplication Guardian, not utilization.
 
-For the #61 implementation, a routed Vivado 2026.1 build measured **279 LUTs**
-(1.34%), **429 flip-flops** (1.03%), **three RAMB18E1s** (1.5 Block RAM tiles),
-and **0 DSPs**. Timing closed at 100 MHz with WNS **+1.200 ns** and WHS
-**+0.177 ns**. These figures are a build snapshot; regenerate
-`utilization.rpt` and `timing_summary.rpt` after later RTL or tool changes.
+## Measured utilization
+
+Routed Vivado 2026.1 build of `spikenaut_soc_basys3_top`, self-hosted Vivado CI,
+tree as merged at `8fb664b` (#85):
+
+| Resource | Used | Available | Utilization |
+|---|---|---|---|
+| Slice LUTs | 892 | 20,800 | 4.29% |
+| Slice Registers | 1,660 | 41,600 | 3.99% |
+| Block RAM Tile | 1.5 (3 × RAMB18E1) | 50 | 3.00% |
+| DSPs | 0 | 90 | 0.00% |
+| Bonded IOB | 36 | 106 | 33.96% |
+
+Timing closes at 100 MHz with **zero failing endpoints** in both directions:
+
+| Metric | Value | Failing / total endpoints |
+|---|---|---|
+| WNS | **+1.230 ns** | 0 / 3205 |
+| WHS | **+0.106 ns** | 0 / 3205 |
+| WPWS | +4.500 ns | 0 / 1664 |
+
+### How this moved since the #61 snapshot
+
+The previous figures in this doc were measured at the **#61** commit and were
+badly stale by the time #85 landed:
+
+| Metric | #61 snapshot | Current (`8fb664b`) | Change |
+|---|---|---|---|
+| Slice LUTs | 279 (1.34%) | 892 (4.29%) | ×3.2 |
+| Slice Registers | 429 (1.03%) | 1,660 (3.99%) | ×3.9 |
+| Block RAM | 3 × RAMB18E1 | 3 × RAMB18E1 | unchanged |
+| DSPs | 0 | 0 | unchanged |
+| Bonded IOB | 20 | 36 | +16 |
+| WNS | +1.200 ns | +1.230 ns | +0.030 ns |
+| WHS | +0.177 ns | +0.106 ns | −0.071 ns |
+
+Two features landed in between: [#62](https://github.com/rmems/silicon-hdl/issues/62)
+(`SocProtocolFsm` — the 36-byte response serializer holds both an active and a
+pending 16-word Q8.8 snapshot) and
+[#65](https://github.com/rmems/silicon-hdl/issues/65) (`SocStatusLeds` — shared
+stretch prescaler, held status flags, tick counter, plus the `sw` 2FF
+synchronizer).
+
+The **+16 IOBs are directly attributable** to the `sw[15:0]` port added by #65.
+
+## Per-module breakdown
+
+From `utilization_hier.rpt` (`report_utilization -hierarchical`), same routed build:
+
+| Instance | Module | LUTs | % of LUTs | FFs | % of FFs |
+|---|---|---|---:|---:|---:|
+| `u_protocol_fsm` | `SocProtocolFsm` | 543 | 60.9% | 1,129 | 68.0% |
+| `u_lif_array` | `LifNeuronArray` | 236 | 26.5% | 365 | 22.0% |
+| `u_bridge` | `SiliconBridge` | 59 | 6.6% | 59 | 3.6% |
+| `u_status_leds` | `SocStatusLeds` | 49 | 5.5% | 55 | 3.3% |
+| — | top-level glue | 6 | 0.7% | 52 | 3.1% |
+| **Total** | `spikenaut_soc_basys3_top` | **892** | | **1,660** | |
+
+The LUT rows sum to 893 against a design total of **892**. That is expected, not a
+transcription error — `utilization_hier.rpt` carries the explanation as a footnote:
+
+> `* Note: The sum of lower-level cells may be larger than their parent cells total,`
+> `due to cross-hierarchy LUT combining`
+
+Two logic functions from different modules packed into one physical LUT are attributed to
+both rows but counted once in the parent. **892 is the authoritative unique count**, and it
+matches the flat `Slice LUTs` figure in `utilization.rpt`. The flip-flop column has no such
+effect and reconciles exactly (52 + 59 + 365 + 1,129 + 55 = 1,660), so treat the per-module
+LUT split as accurate to about ±1 and the FF split as exact.
+
+Three things this settles:
+
+- **`SocProtocolFsm` dominates**, at ~61% of LUTs and ~68% of flip-flops. That matches
+  its structure: it holds *both* an active and a pending 16-word Q8.8 response snapshot
+  (2 × 16 × 16 = 512 flip-flops of snapshot alone) plus the receive payload buffer. It is
+  the first place to look if the budget ever gets tight, not the neuron array.
+- **`SocStatusLeds` is cheap** — 49 LUTs and 55 flip-flops, ~5% and ~3%. The shared
+  stretch prescaler was chosen over eight independent counters precisely to keep it that
+  way, and the measurement bears that out.
+- The 52 top-level glue flip-flops account for exactly the expected set: the `sw` 2FF
+  synchronizer (32), the `step_cnt` divider (17) and `step_en` (1), plus `stimuli_pending`
+  and `response_armed` (1 each).
+
+`StdpController`, `WeightRam` and the two `NeuronParamRam` instances do not appear as
+separate rows. The RAMs are inferred as the three top-level `RAMB18E1` primitives, and
+`u_stdp` contributes no reportable logic because its writeback ports are still detached
+(the [#70](https://github.com/rmems/silicon-hdl/issues/70) exclusion documented in
+`AGENTS.md`) — so most of it optimizes away. Expect its cost to appear once #70 lands.
+
+WNS variance across recent builds of nearly identical trees has been ±0.2 ns
+(1.200 / 1.323 / 1.405 / 1.230 ns), so treat small movements as placement noise
+rather than as a signal about a particular change.
+
+These figures are a build snapshot. Regenerate `utilization.rpt`,
+`utilization_hier.rpt`, and `timing_summary.rpt` after later RTL or tool changes —
+they are produced by `scripts/build_soc.tcl` and uploaded by the Vivado CI job as
+the `vivado-ci-reports` artifact.
