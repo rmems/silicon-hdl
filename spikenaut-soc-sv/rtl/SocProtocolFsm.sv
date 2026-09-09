@@ -3,18 +3,29 @@
 // Canonical source: spikenaut-soc-sv/rtl
 //
 // Application-layer codec for the SiliconBridge byte transport.  The bridge
-// remains a UART-only module: this FSM owns the 0xAA host frame, response
-// serialization, and back-pressure handling at the SoC boundary.
+// remains a UART-only module: this FSM owns the 0xAA host stimulus frame,
+// the 0xA5 RAM-write frame (#63), response serialization, and back-pressure
+// handling at the SoC boundary.
+//
+// Write frame (5 bytes, distinct sync so it cannot be mistaken for a 33-byte
+// 0xAA stimulus and does not need a parallel HostWriteFsm on the same byte
+// pipe):
+//   [0]    = 0xA5                 write sync
+//   [1]    = target               0=WeightRam, 1=threshold, 2=leak
+//   [2]    = addr                 8-bit RAM address
+//   [3:4]  = Q8.8 data            big-endian, same packing as stimulus words
+// A complete write pulses wr_en for one fabric cycle.  Invalid targets and
+// idle-timeout abandons leave wr_en low.  Writes do not arm a UART response.
 //
 // A response transfer has one active frame and one pending snapshot.  At the
 // Basys 3 default 115200 baud a 36-byte response takes about 3.125 ms, longer
 // than the 1 ms logical tick, so triggers received while a frame is active are
 // deliberately coalesced into the latest single pending snapshot.
 //
-// RX_COLLECT recovers from an abandoned host frame with an inter-byte idle
-// timeout only.  Mid-payload 0xAA is legal Q8.8 data and is never a resync.
-// Hosts that retry a truncated request must idle at least
-// IDLE_TIMEOUT_CYCLES fabric clocks before the next 0xAA.
+// RX_COLLECT and RX_WRITE_COLLECT recover from an abandoned host frame with
+// an inter-byte idle timeout only.  Mid-payload 0xAA / 0xA5 is legal Q8.8
+// data and is never a resync.  Hosts that retry a truncated request must
+// idle at least IDLE_TIMEOUT_CYCLES fabric clocks before the next sync.
 //
 // Status outputs feed SocStatusLeds (docs/led-map.md): rx_busy is high
 // outside RX_WAIT_SYNC, rx_abort pulses on idle-timeout, and
@@ -25,6 +36,9 @@ module SocProtocolFsm #(
     parameter int NUM_NEURONS = 16,
     parameter int WORD_WIDTH  = 16,
     parameter logic [7:0] SYNC_BYTE = 8'hAA,
+    // Distinct from SYNC_BYTE: a shared 0xAA would make a 5-byte write look
+    // like a truncated stimulus (or steal the first bytes of a real one).
+    parameter logic [7:0] WRITE_SYNC_BYTE = 8'hA5,
     // Four 10-bit UART character times at 100 MHz / 115200 (CLKS_PER_BIT=868).
     parameter int IDLE_TIMEOUT_CYCLES = 4 * 10 * (100_000_000 / 115_200)
 )(
@@ -47,6 +61,14 @@ module SocProtocolFsm #(
     input  logic [WORD_WIDTH-1:0]                aux_state,
     input  logic                                 frame_send,
 
+    // Host RAM write path (#63).  wr_en is a one-cycle strobe after a
+    // complete 0xA5 frame with target 0/1/2.  The SoC muxes these onto the
+    // RAM write ports and returns addr to the PE read path when wr_en is low.
+    output logic                                 wr_en,
+    output logic [1:0]                           wr_target,
+    output logic [7:0]                           wr_addr,
+    output logic [WORD_WIDTH-1:0]                wr_data,
+
     // Status outputs for SocStatusLeds (docs/led-map.md).  tx_frame_active
     // mirrors tx_active; do not name this port tx_busy (that is an input).
     output logic                                 rx_busy,
@@ -56,18 +78,28 @@ module SocProtocolFsm #(
 
     localparam int BYTES_PER_WORD = WORD_WIDTH / 8;
     localparam int PAYLOAD_BYTES  = NUM_NEURONS * BYTES_PER_WORD;
+    localparam int WRITE_PAYLOAD_BYTES = 4;
+    localparam logic [7:0] WR_TARGET_MAX = 8'd2;
     localparam int FRAME_BYTES    = PAYLOAD_BYTES + (2 * BYTES_PER_WORD);
     localparam int RX_COUNT_WIDTH = (PAYLOAD_BYTES > 1) ? $clog2(PAYLOAD_BYTES) : 1;
     localparam int TX_COUNT_WIDTH = (FRAME_BYTES > 1) ? $clog2(FRAME_BYTES) : 1;
     localparam int IDLE_COUNT_WIDTH = (IDLE_TIMEOUT_CYCLES > 1)
         ? $clog2(IDLE_TIMEOUT_CYCLES + 1) : 1;
 
-    typedef enum logic [1:0] {RX_WAIT_SYNC, RX_COLLECT, RX_COMMIT} rx_state_t;
+    typedef enum logic [1:0] {
+        RX_WAIT_SYNC,
+        RX_COLLECT,
+        RX_COMMIT,
+        RX_WRITE_COLLECT
+    } rx_state_t;
     rx_state_t rx_state;
 
     logic [RX_COUNT_WIDTH-1:0] rx_byte_count;
     logic [IDLE_COUNT_WIDTH-1:0] rx_idle_count;
     logic [NUM_NEURONS*WORD_WIDTH-1:0] rx_payload;
+    logic [7:0] wr_target_byte;
+    logic [7:0] wr_addr_byte;
+    logic [7:0] wr_data_hi;
 
     // The active response frame is held in word form so byte serialization is
     // unambiguous and all source values are sampled atomically at frame start.
@@ -94,6 +126,10 @@ module SocProtocolFsm #(
             $error("SocProtocolFsm: NUM_NEURONS (%0d) must not exceed WORD_WIDTH (%0d)", NUM_NEURONS, WORD_WIDTH);
         if (IDLE_TIMEOUT_CYCLES < 1)
             $error("SocProtocolFsm: IDLE_TIMEOUT_CYCLES (%0d) must be at least one", IDLE_TIMEOUT_CYCLES);
+        if (WRITE_SYNC_BYTE == SYNC_BYTE)
+            $error("SocProtocolFsm: WRITE_SYNC_BYTE must differ from SYNC_BYTE");
+        if (WORD_WIDTH < 16)
+            $error("SocProtocolFsm: WORD_WIDTH (%0d) must be at least 16 for Q8.8 writes", WORD_WIDTH);
     endgenerate
 
     // Receive 0xAA followed by NUM_NEURONS big-endian words.  RX_COLLECT
@@ -111,9 +147,17 @@ module SocProtocolFsm #(
             rx_payload     <= '0;
             stimuli_out    <= '0;
             stimuli_valid  <= 1'b0;
+            wr_en          <= 1'b0;
+            wr_target      <= '0;
+            wr_addr        <= '0;
+            wr_data        <= '0;
+            wr_target_byte <= '0;
+            wr_addr_byte   <= '0;
+            wr_data_hi     <= '0;
             rx_abort       <= 1'b0;
         end else begin
             stimuli_valid <= 1'b0;
+            wr_en         <= 1'b0;
             rx_abort      <= 1'b0;
 
             case (rx_state)
@@ -122,6 +166,10 @@ module SocProtocolFsm #(
                         rx_byte_count <= '0;
                         rx_idle_count <= '0;
                         rx_state      <= RX_COLLECT;
+                    end else if (rx_valid && (rx_data == WRITE_SYNC_BYTE)) begin
+                        rx_byte_count <= '0;
+                        rx_idle_count <= '0;
+                        rx_state      <= RX_WRITE_COLLECT;
                     end
                 end
 
@@ -153,6 +201,40 @@ module SocProtocolFsm #(
                     stimuli_out   <= rx_payload;
                     stimuli_valid <= 1'b1;
                     rx_state      <= RX_WAIT_SYNC;
+                end
+
+                // Collect target, addr, data_hi, data_lo.  Mid-payload 0xAA
+                // or 0xA5 is legal data, never a resync.  The last byte both
+                // assembles wr_* and pulses wr_en when the target is 0/1/2.
+                RX_WRITE_COLLECT: begin
+                    if (rx_valid) begin
+                        rx_idle_count <= '0;
+                        if (rx_byte_count == '0)
+                            wr_target_byte <= rx_data;
+                        else if (rx_byte_count == 1)
+                            wr_addr_byte <= rx_data;
+                        else if (rx_byte_count == 2)
+                            wr_data_hi <= rx_data;
+
+                        if (rx_byte_count == WRITE_PAYLOAD_BYTES - 1) begin
+                            wr_addr   <= wr_addr_byte;
+                            wr_target <= wr_target_byte[1:0];
+                            wr_data   <= WORD_WIDTH'({wr_data_hi, rx_data});
+                            if (wr_target_byte <= WR_TARGET_MAX)
+                                wr_en <= 1'b1;
+                            rx_byte_count <= '0;
+                            rx_state      <= RX_WAIT_SYNC;
+                        end else begin
+                            rx_byte_count <= rx_byte_count + 1'b1;
+                        end
+                    end else if (rx_idle_count == IDLE_COUNT_WIDTH'(IDLE_TIMEOUT_CYCLES - 1)) begin
+                        rx_byte_count <= '0;
+                        rx_idle_count <= '0;
+                        rx_state      <= RX_WAIT_SYNC;
+                        rx_abort      <= 1'b1;
+                    end else begin
+                        rx_idle_count <= rx_idle_count + 1'b1;
+                    end
                 end
 
                 default: rx_state <= RX_WAIT_SYNC;

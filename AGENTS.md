@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-06 -->
+<!-- Last updated: 2026-09-09 -->
 # AGENTS.md
 
 Companion agent guidance for `silicon-hdl`. Claude Code loads this file via `@AGENTS.md` from
@@ -100,8 +100,8 @@ verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD
 Notes for editing it:
 
 - It observes `step_en`, `step_cnt`, `stimuli_pending`, `protocol_stimuli`, `response_armed`,
-  `frame_send`, and the PE membrane register file by hierarchical reference, so the synthesized
-  top needs no debug ports. Renaming those nets breaks the TB.
+  `frame_send`, RAM `we`/`addr`/`mem`, and the PE membrane register file by hierarchical
+  reference, so the synthesized top needs no debug ports. Renaming those nets breaks the TB.
 - `step_en` is a **register**: it is set at posedge P and the cores consume it at posedge P+1.
   Sample post-tick state via `wait_tick_applied()`, not `wait_for_tick()`.
 - Tick period and pulse width are checked by a free-running monitor on every tick; absolute

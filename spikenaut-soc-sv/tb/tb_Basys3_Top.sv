@@ -21,6 +21,8 @@
 //   8. LED bitmap        — every committed N=16 spike bit is preserved (SW=0).
 //   9. SW15 status mux   — 2FF sync latency, then status word from primitive
 //                          refs; synchronized sw is published as aux.
+//  11. Runtime RAM write — a 0xA5 host frame overwrites one INIT_FILE weight
+//                          and one leak param; RAM we is not hard-tied 0.
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
@@ -185,6 +187,23 @@ module tb_spikenaut_soc_basys3_top #(
     // Host contract: 0xAA followed by 16 Q8.8 big-endian words.  One selected
     // lane carries 0x0001 and all others zero, making the SoC's binary-event
     // / input-column selection policy observable without a raw rx_valid hook.
+    // Host write contract (#63): 0xA5 + target + addr + Q8.8 big-endian word.
+    // Target 0=weight, 1=threshold, 2=leak. Distinct sync from the 0xAA
+    // stimulus frame so the protocol FSM can share one byte pipe.
+    task automatic uart_send_write_frame(
+        input logic [7:0] target,
+        input logic [7:0] addr,
+        input logic [15:0] data
+    );
+        begin
+            uart_send_byte(8'hA5);
+            uart_send_byte(target);
+            uart_send_byte(addr);
+            uart_send_byte(data[15:8]);
+            uart_send_byte(data[7:0]);
+        end
+    endtask
+
     task automatic uart_send_stimulus_frame(input int active_lane);
         begin
             uart_send_byte(8'hAA);
@@ -255,6 +274,34 @@ module tb_spikenaut_soc_basys3_top #(
         begin
             wait_for_tick();
             @(negedge clk);
+        end
+    endtask
+
+    // Sample the one-cycle host write strobe mid-cycle while the UART
+    // frame is still on the wire.  After uart_send_write_frame returns the
+    // strobe has already fallen, so a later peek cannot prove we toggled.
+    task automatic wait_for_host_write(
+        input logic [1:0] expected_target,
+        input string msg
+    );
+        int unsigned waited;
+        begin
+            waited = 0;
+            forever begin
+                @(negedge clk);
+                waited++;
+                if (dut.host_wr_en === 1'b1) begin
+                    check(dut.host_wr_target === expected_target,
+                          {msg, ": wr_target must match the frame"});
+                    check(dut.weight_we === (expected_target == 2'd0),
+                          {msg, ": weight we must follow target 0"});
+                    check(dut.leak_we === (expected_target == 2'd2),
+                          {msg, ": leak we must follow target 2"});
+                    break;
+                end
+                if (waited > (5 * 11 * CLKS_PER_BIT + SEQ_SLACK))
+                    $fatal(1, "%s: host_wr_en not seen within %0d cycles", msg, waited);
+            end
         end
     endtask
 
@@ -621,6 +668,61 @@ module tb_spikenaut_soc_basys3_top #(
         wait_for_stimuli_pending();
         check(led[3] === 1'b0,
               "test 10: an accepted host frame must clear the sticky abort bit");
+
+        // ------------------------------------------------------------
+        // Test 11: host runtime write (#63)
+        //
+        // Drain the pending stimulus from test 10 so the PE is idle, then
+        // overwrite a weight and a leak that earlier merged_v2 checks do
+        // not depend on.  INIT_FILE cold-start stays in place; we is muxed
+        // from SocProtocolFsm rather than tied to 0.
+        // ------------------------------------------------------------
+        wait_tick_applied();
+        wait_lif_sweep_done();
+        check(dut.u_lif_array.sweep_state === 2'd0,
+              "test 11: PE must be idle before the host write");
+        check(dut.u_wram.we === 1'b0,
+              "test 11: weight we must be low while the PE owns the address");
+        check(dut.u_wram.addr === dut.weight_addr,
+              "test 11: idle RAM addr must follow the PE read path");
+
+        begin
+            localparam logic [7:0] WRITE_WEIGHT_ADDR = 8'h01;
+            localparam logic [7:0] WRITE_LEAK_ADDR   = 8'h0F;
+            localparam logic [15:0] WRITE_WEIGHT_DATA = 16'hBEEF;
+            localparam logic [15:0] WRITE_LEAK_DATA   = 16'h00A5;
+            logic [15:0] weight_before;
+            logic [15:0] leak_before;
+
+            weight_before = dut.u_wram.mem[WRITE_WEIGHT_ADDR];
+            leak_before   = dut.u_npram_leak.mem[WRITE_LEAK_ADDR];
+            check(weight_before !== WRITE_WEIGHT_DATA,
+                  "test 11: INIT_FILE weight must differ from the overwrite value");
+            check(leak_before !== WRITE_LEAK_DATA,
+                  "test 11: INIT_FILE leak must differ from the overwrite value");
+
+            fork
+                uart_send_write_frame(8'h00, WRITE_WEIGHT_ADDR, WRITE_WEIGHT_DATA);
+                wait_for_host_write(2'd0, "test 11 weight");
+            join
+            check(dut.u_wram.mem[WRITE_WEIGHT_ADDR] === WRITE_WEIGHT_DATA,
+                  "test 11: host must overwrite one INIT_FILE weight at runtime");
+            check(dut.u_wram.we === 1'b0,
+                  "test 11: weight we must return low after the one-cycle strobe");
+            check(dut.u_wram.addr === dut.weight_addr,
+                  "test 11: weight addr must return to the PE path after the write");
+
+            fork
+                uart_send_write_frame(8'h02, WRITE_LEAK_ADDR, WRITE_LEAK_DATA);
+                wait_for_host_write(2'd2, "test 11 leak");
+            join
+            check(dut.u_npram_leak.mem[WRITE_LEAK_ADDR] === WRITE_LEAK_DATA,
+                  "test 11: host must overwrite one INIT_FILE leak at runtime");
+            check(dut.u_npram_leak.we === 1'b0,
+                  "test 11: leak we must return low after the one-cycle strobe");
+            check(dut.u_npram_leak.addr === dut.leak_addr,
+                  "test 11: leak addr must return to the PE path after the write");
+        end
 
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");
 

@@ -169,8 +169,9 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     // Per NeuronParamRam contract (gh-14 5u3.6/5u3.7): stores ONE param per addr.
     // Multiple param types (threshold/leak) require separate RAM instances.
-    // E2: $readmemh from merged_v2; host UART rewrite remains a later path.
-    // we=0: the PE owns read addressing while #63 owns runtime host writes.
+    // E2: $readmemh from merged_v2 remains the cold-start path.  #63 drives
+    // we/addr/din from SocProtocolFsm for one-cycle host writes; when wr_en
+    // is low the PE keeps the read address.  STDP writeback stays open (#70).
     // The time-multiplexed LIF PE sweeps the 16 parameter entries on each
     // logical tick; its address outputs account for registered RAM read latency.
     // Timestep: LifNeuronArray / StdpController update only on step_en (1 ms).
@@ -179,6 +180,18 @@ module spikenaut_soc_basys3_top #(
     logic [PARAM_WIDTH-1:0] leak_param;
     logic [NEURON_ADDR_W-1:0] threshold_addr;
     logic [NEURON_ADDR_W-1:0] leak_addr;
+    logic        host_wr_en;
+    logic [1:0]  host_wr_target;
+    logic [7:0]  host_wr_addr;
+    logic [DATA_WIDTH-1:0] host_wr_data;
+    logic        weight_we;
+    logic        thresh_we;
+    logic        leak_we;
+
+    // Target encoding matches SocProtocolFsm: 0=weight, 1=threshold, 2=leak.
+    assign weight_we = host_wr_en && (host_wr_target == 2'd0);
+    assign thresh_we = host_wr_en && (host_wr_target == 2'd1);
+    assign leak_we   = host_wr_en && (host_wr_target == 2'd2);
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),
@@ -187,9 +200,9 @@ module spikenaut_soc_basys3_top #(
     ) u_npram_threshold (
         .clk  (clk),
         .rst_n (rst),
-        .we   (1'b0),
-        .addr (threshold_addr),
-        .din  ('0),
+        .we   (thresh_we),
+        .addr (thresh_we ? host_wr_addr[NEURON_ADDR_W-1:0] : threshold_addr),
+        .din  (host_wr_data),
         .dout (threshold_param)
     );
 
@@ -200,9 +213,9 @@ module spikenaut_soc_basys3_top #(
     ) u_npram_leak (
         .clk  (clk),
         .rst_n (rst),
-        .we   (1'b0),
-        .addr (leak_addr),
-        .din  ('0),
+        .we   (leak_we),
+        .addr (leak_we ? host_wr_addr[NEURON_ADDR_W-1:0] : leak_addr),
+        .din  (host_wr_data),
         .dout (leak_param)
     );
 
@@ -219,9 +232,9 @@ module spikenaut_soc_basys3_top #(
     ) u_wram (
         .clk  (clk),
         .rst_n (rst),
-        .we   (1'b0),
-        .addr (weight_addr),
-        .din  ('0),
+        .we   (weight_we),
+        .addr (weight_we ? host_wr_addr[WEIGHT_ADDR_W-1:0] : weight_addr),
+        .din  (host_wr_data),
         .dout (weight_dout)
     );
 
@@ -305,6 +318,10 @@ module spikenaut_soc_basys3_top #(
         .spike_flags     (spike_bitmap),
         .aux_state       (sw_sync_1),
         .frame_send      (frame_send),
+        .wr_en           (host_wr_en),
+        .wr_target       (host_wr_target),
+        .wr_addr         (host_wr_addr),
+        .wr_data         (host_wr_data),
         .rx_busy         (rx_busy),
         .rx_abort        (rx_abort),
         .tx_frame_active (tx_frame_active)
