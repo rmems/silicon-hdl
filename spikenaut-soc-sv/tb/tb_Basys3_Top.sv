@@ -75,6 +75,9 @@ module tb_spikenaut_soc_basys3_top #(
     // the mid-window sample outside the idle window and quietly stop
     // discriminating rx_abort from rx_busy.
     localparam int IDLE_TIMEOUT_CYCLES = 4 * 10 * CLKS_PER_BIT;
+    // Mirror SocProtocolFsm's default write sync.  Bound to the DUT at the
+    // top of the run so a parameter change cannot silently desync this TB.
+    localparam logic [7:0] WRITE_SYNC_BYTE = 8'hA5;
 
     // Ticks are at most STEP_DIV cycles apart, so any wait that exceeds this
     // bound means the divider is broken. Fail loudly with a cycle count
@@ -95,6 +98,12 @@ module tb_spikenaut_soc_basys3_top #(
     logic [NUM_NEURONS-1:0] seen_leak_addr;
     logic [NUM_NEURONS-1:0] seen_weight_row;
     logic [$clog2(NUM_NEURONS)-1:0] expected_input_index;
+
+    // Static copies for inject_host_strobe.  XSim rejects force/assign of
+    // automatic task arguments (VRFC 10-3142); Verilator does not.
+    logic [1:0]  force_host_wr_target;
+    logic [7:0]  force_host_wr_addr;
+    logic [15:0] force_host_wr_data;
 
     spikenaut_soc_basys3_top #(
         .WEIGHT_INIT_FILE (WEIGHT_INIT),
@@ -200,11 +209,14 @@ module tb_spikenaut_soc_basys3_top #(
         input logic [15:0] data
     );
         begin
+            force_host_wr_target = target;
+            force_host_wr_addr   = addr;
+            force_host_wr_data   = data;
             @(negedge clk);
             force dut.host_wr_en     = 1'b1;
-            force dut.host_wr_target = target;
-            force dut.host_wr_addr   = addr;
-            force dut.host_wr_data   = data;
+            force dut.host_wr_target = force_host_wr_target;
+            force dut.host_wr_addr   = force_host_wr_addr;
+            force dut.host_wr_data   = force_host_wr_data;
             @(negedge clk);
             release dut.host_wr_en;
             release dut.host_wr_target;
@@ -219,7 +231,7 @@ module tb_spikenaut_soc_basys3_top #(
         input logic [15:0] data
     );
         begin
-            uart_send_byte(8'hA5);
+            uart_send_byte(WRITE_SYNC_BYTE);
             uart_send_byte(target);
             uart_send_byte(addr);
             uart_send_byte(data[15:8]);
@@ -361,6 +373,8 @@ module tb_spikenaut_soc_basys3_top #(
 
         check_int(dut.u_protocol_fsm.IDLE_TIMEOUT_CYCLES, IDLE_TIMEOUT_CYCLES,
                   "TB idle-timeout mirror must match the DUT parameter");
+        check(dut.u_protocol_fsm.WRITE_SYNC_BYTE === WRITE_SYNC_BYTE,
+              "TB write-sync mirror must match the DUT parameter");
         check(dut.step_en === 1'b0,       "reset: step_en must be low");
         check(dut.step_cnt === '0,        "reset: step_cnt must be cleared");
         check(dut.stimuli_pending === 1'b0,

@@ -17,6 +17,7 @@ module tb_SocProtocolFsm;
     localparam int WAIT_BOUND  = 32;
     // Short timeout so the abandon-path case stays cheap in Verilator.
     localparam int IDLE_TIMEOUT_CYCLES = 16;
+    localparam logic [7:0] WRITE_SYNC_BYTE = 8'hA5;
 
     logic clk;
     logic rst_n;
@@ -50,6 +51,7 @@ module tb_SocProtocolFsm;
     SocProtocolFsm #(
         .NUM_NEURONS           (NUM_NEURONS),
         .WORD_WIDTH            (WORD_WIDTH),
+        .WRITE_SYNC_BYTE       (WRITE_SYNC_BYTE),
         .IDLE_TIMEOUT_CYCLES   (IDLE_TIMEOUT_CYCLES)
     ) dut (
         .clk           (clk),
@@ -87,6 +89,7 @@ module tb_SocProtocolFsm;
     SocProtocolFsm #(
         .NUM_NEURONS         (1),
         .WORD_WIDTH          (WORD_WIDTH),
+        .WRITE_SYNC_BYTE     (WRITE_SYNC_BYTE),
         .IDLE_TIMEOUT_CYCLES (IDLE_TIMEOUT_CYCLES)
     ) dut_n1 (
         .clk           (clk),
@@ -177,7 +180,7 @@ module tb_SocProtocolFsm;
         input logic [WORD_WIDTH-1:0] data
     );
         begin
-            send_rx_byte(8'hA5);
+            send_rx_byte(WRITE_SYNC_BYTE);
             send_rx_byte(target);
             send_rx_byte(addr);
             send_rx_byte(data[15:8]);
@@ -484,10 +487,10 @@ module tb_SocProtocolFsm;
             check(stimuli_valid_pulses === baseline_pulses,
                   "invalid write target must not publish a stimulus frame");
 
-            // Mid-payload 0xA5 in a stimulus frame is data, not a write sync.
+            // Mid-payload WRITE_SYNC_BYTE in a stimulus frame is data, not a write sync.
             baseline_writes = wr_en_pulses;
             send_rx_byte(8'hAA);
-            send_rx_byte(8'hA5);
+            send_rx_byte(WRITE_SYNC_BYTE);
             send_rx_byte(8'h5A);
             for (int lane = 1; lane < NUM_NEURONS; lane++) begin
                 send_rx_byte(8'(8'h50 + lane));
@@ -495,16 +498,16 @@ module tb_SocProtocolFsm;
             end
             @(negedge clk);
             check(stimuli_valid === 1'b1,
-                  "stimulus with mid-payload 0xA5 must still commit");
-            check_word(stimuli_out[15:0], 16'hA55A,
-                       "lane 0 must keep 0xA5 as Q8.8 data, not a write opcode");
+                  "stimulus with mid-payload WRITE_SYNC_BYTE must still commit");
+            check_word(stimuli_out[15:0], {WRITE_SYNC_BYTE, 8'h5A},
+                       "lane 0 must keep WRITE_SYNC_BYTE as Q8.8 data, not a write opcode");
             check(wr_en_pulses === baseline_writes,
-                  "mid-payload 0xA5 must not create a RAM write");
+                  "mid-payload WRITE_SYNC_BYTE must not create a RAM write");
 
             // Abandoned write uses the same idle timeout as stimulus RX.
             baseline_writes = wr_en_pulses;
             baseline_aborts = rx_abort_pulses;
-            send_rx_byte(8'hA5);
+            send_rx_byte(WRITE_SYNC_BYTE);
             send_rx_byte(8'h00);
             send_rx_byte(8'h02);
             repeat (IDLE_TIMEOUT_CYCLES + 4) @(negedge clk);
@@ -528,7 +531,7 @@ module tb_SocProtocolFsm;
         end
 
         // NUM_NEURONS=1 must still complete a 4-byte write payload.
-        send_n1_rx_byte(8'hA5);
+        send_n1_rx_byte(WRITE_SYNC_BYTE);
         send_n1_rx_byte(8'h00);
         send_n1_rx_byte(8'h09);
         send_n1_rx_byte(8'h12);
