@@ -79,9 +79,12 @@ module SocProtocolFsm #(
     localparam int BYTES_PER_WORD = WORD_WIDTH / 8;
     localparam int PAYLOAD_BYTES  = NUM_NEURONS * BYTES_PER_WORD;
     localparam int WRITE_PAYLOAD_BYTES = 4;
+    localparam int MAX_RX_PAYLOAD_BYTES =
+        (PAYLOAD_BYTES > WRITE_PAYLOAD_BYTES) ? PAYLOAD_BYTES : WRITE_PAYLOAD_BYTES;
     localparam logic [7:0] WR_TARGET_MAX = 8'd2;
     localparam int FRAME_BYTES    = PAYLOAD_BYTES + (2 * BYTES_PER_WORD);
-    localparam int RX_COUNT_WIDTH = (PAYLOAD_BYTES > 1) ? $clog2(PAYLOAD_BYTES) : 1;
+    localparam int RX_COUNT_WIDTH = (MAX_RX_PAYLOAD_BYTES > 1)
+        ? $clog2(MAX_RX_PAYLOAD_BYTES) : 1;
     localparam int TX_COUNT_WIDTH = (FRAME_BYTES > 1) ? $clog2(FRAME_BYTES) : 1;
     localparam int IDLE_COUNT_WIDTH = (IDLE_TIMEOUT_CYCLES > 1)
         ? $clog2(IDLE_TIMEOUT_CYCLES + 1) : 1;
@@ -128,8 +131,8 @@ module SocProtocolFsm #(
             $error("SocProtocolFsm: IDLE_TIMEOUT_CYCLES (%0d) must be at least one", IDLE_TIMEOUT_CYCLES);
         if (WRITE_SYNC_BYTE == SYNC_BYTE)
             $error("SocProtocolFsm: WRITE_SYNC_BYTE must differ from SYNC_BYTE");
-        if (WORD_WIDTH < 16)
-            $error("SocProtocolFsm: WORD_WIDTH (%0d) must be at least 16 for Q8.8 writes", WORD_WIDTH);
+        if (WORD_WIDTH != 16)
+            $error("SocProtocolFsm: WORD_WIDTH (%0d) must be 16; the 0xA5 write frame is two Q8.8 bytes", WORD_WIDTH);
     endgenerate
 
     // Receive 0xAA followed by NUM_NEURONS big-endian words.  RX_COLLECT

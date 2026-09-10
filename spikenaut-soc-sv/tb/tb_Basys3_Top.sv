@@ -190,6 +190,29 @@ module tb_spikenaut_soc_basys3_top #(
     // Host write contract (#63): 0xA5 + target + addr + Q8.8 big-endian word.
     // Target 0=weight, 1=threshold, 2=leak. Distinct sync from the 0xAA
     // stimulus frame so the protocol FSM can share one byte pipe.
+    // One-cycle host write strobe while the PE is busy.  Fabric-rate force
+    // on the FSM outputs (same style as the LED bitmap force in test 8)
+    // so the hold path can be tested inside the ~18-cycle sweep; UART
+    // cannot finish a 5-byte frame in that window.
+    task automatic inject_host_strobe(
+        input logic [1:0] target,
+        input logic [7:0] addr,
+        input logic [15:0] data
+    );
+        begin
+            @(negedge clk);
+            force dut.host_wr_en     = 1'b1;
+            force dut.host_wr_target = target;
+            force dut.host_wr_addr   = addr;
+            force dut.host_wr_data   = data;
+            @(negedge clk);
+            release dut.host_wr_en;
+            release dut.host_wr_target;
+            release dut.host_wr_addr;
+            release dut.host_wr_data;
+        end
+    endtask
+
     task automatic uart_send_write_frame(
         input logic [7:0] target,
         input logic [7:0] addr,
@@ -722,6 +745,68 @@ module tb_spikenaut_soc_basys3_top #(
                   "test 11: leak we must return low after the one-cycle strobe");
             check(dut.u_npram_leak.addr === dut.leak_addr,
                   "test 11: leak addr must return to the PE path after the write");
+        end
+
+        // ------------------------------------------------------------
+        // Test 12: host writes that land mid-sweep are held until idle.
+        // Force a one-cycle wr_en during PREFETCH/SWEEP; UART is too slow
+        // to finish a 5-byte frame in that window.
+        // ------------------------------------------------------------
+        begin
+            localparam logic [7:0] SWEEP_WEIGHT_ADDR = 8'h02;
+            localparam logic [7:0] SWEEP_THRESH_ADDR = 8'h0E;
+            localparam logic [7:0] SWEEP_LEAK_ADDR   = 8'h0D;
+            localparam logic [15:0] SWEEP_WEIGHT_DATA = 16'hCAFE;
+            localparam logic [15:0] SWEEP_THRESH_DATA = 16'h1111;
+            localparam logic [15:0] SWEEP_LEAK_DATA   = 16'h2222;
+
+            wait_for_tick();
+            @(negedge clk);
+            check(dut.pe_busy === 1'b1,
+                  "test 12: PE must be busy after the tick starts");
+            inject_host_strobe(2'd0, SWEEP_WEIGHT_ADDR, SWEEP_WEIGHT_DATA);
+            check(dut.wr_pending === 1'b1,
+                  "test 12: a mid-sweep weight write must be held");
+            check(dut.weight_we === 1'b0,
+                  "test 12: held weight write must not steal the RAM port");
+            check(dut.u_wram.addr === dut.weight_addr,
+                  "test 12: weight addr must stay on the PE path during the sweep");
+            check(dut.u_wram.mem[SWEEP_WEIGHT_ADDR] !== SWEEP_WEIGHT_DATA,
+                  "test 12: held weight write must not commit until idle");
+            wait_lif_sweep_done();
+            repeat (4) @(negedge clk);
+            check(dut.u_wram.mem[SWEEP_WEIGHT_ADDR] === SWEEP_WEIGHT_DATA,
+                  "test 12: held weight write must commit after the PE is idle");
+            check(dut.wr_pending === 1'b0,
+                  "test 12: weight pending must clear after the deferred strobe");
+
+            wait_for_tick();
+            @(negedge clk);
+            inject_host_strobe(2'd1, SWEEP_THRESH_ADDR, SWEEP_THRESH_DATA);
+            check(dut.wr_pending === 1'b1,
+                  "test 12: a mid-sweep threshold write must be held");
+            check(dut.thresh_we === 1'b0,
+                  "test 12: held threshold write must not steal the RAM port");
+            check(dut.u_npram_threshold.addr === dut.threshold_addr,
+                  "test 12: threshold addr must stay on the PE path during the sweep");
+            wait_lif_sweep_done();
+            repeat (4) @(negedge clk);
+            check(dut.u_npram_threshold.mem[SWEEP_THRESH_ADDR] === SWEEP_THRESH_DATA,
+                  "test 12: held threshold write must commit after the PE is idle");
+
+            wait_for_tick();
+            @(negedge clk);
+            inject_host_strobe(2'd2, SWEEP_LEAK_ADDR, SWEEP_LEAK_DATA);
+            check(dut.wr_pending === 1'b1,
+                  "test 12: a mid-sweep leak write must be held");
+            check(dut.leak_we === 1'b0,
+                  "test 12: held leak write must not steal the RAM port");
+            check(dut.u_npram_leak.addr === dut.leak_addr,
+                  "test 12: leak addr must stay on the PE path during the sweep");
+            wait_lif_sweep_done();
+            repeat (4) @(negedge clk);
+            check(dut.u_npram_leak.mem[SWEEP_LEAK_ADDR] === SWEEP_LEAK_DATA,
+                  "test 12: held leak write must commit after the PE is idle");
         end
 
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");

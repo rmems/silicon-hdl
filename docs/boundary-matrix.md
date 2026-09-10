@@ -228,10 +228,11 @@ Clarifications:
   repos; RTL changes land only here; host format changes land only in `silicon-bridge`.
 - Today’s Basys 3 SoC demo **does** load Q8.8 `.mem` images at elaboration / bitstream
   init (`INIT_FILE` / `$readmemh`) and implements the #62 host frame/readback codec.
-  RAM `we` remains tied off, the N=16 PE performs its swept read addresses, and STDP
-  writeback remains unconnected. Treat runtime UART configuration and host-board E2E
-  as sequenced work under [#54](https://github.com/rmems/silicon-hdl/issues/54), not as
-  a claim that writes or multi-active-lane accumulation are complete.
+  Runtime `0xA5` RAM writes are on (#63); the N=16 PE performs its swept read
+  addresses, and STDP writeback remains unconnected (#70). Host-board E2E and
+  multi-active-lane accumulation remain sequenced under
+  [#54](https://github.com/rmems/silicon-hdl/issues/54) /
+  [#64](https://github.com/rmems/silicon-hdl/issues/64).
 
 ### vs legacy `Spikenaut-Hardware`
 

@@ -45,8 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rx_abort`, `tx_frame_active`), and SoC-only `constraints/basys3_soc.xdc`.
 - Runtime weight/param RAM write (#63) — `SocProtocolFsm` decodes a 5-byte
   `0xA5` + target + addr + Q8.8 frame and pulses `wr_en` onto `WeightRam` and
-  both `NeuronParamRam` instances. `INIT_FILE` cold-start is unchanged; the PE
-  keeps the read address when idle. STDP writeback stays open (#70).
+  both `NeuronParamRam` instances. Writes that land during a PE sweep are held
+  until idle. `INIT_FILE` cold-start is unchanged; the PE keeps the read
+  address when idle. STDP writeback stays open (#70).
   `tb_SocProtocolFsm` and `tb_spikenaut_soc_basys3_top` prove a host overwrite
   and that `we` is not hard-tied 0.
 
