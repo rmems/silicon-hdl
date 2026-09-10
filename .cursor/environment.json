@@ -1,0 +1,8 @@
+{
+  "name": "silicon-hdl",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "user": "ubuntu",
+  "install": "pip install --break-system-packages --no-warn-script-location -r requirements-dev.txt"
+}
