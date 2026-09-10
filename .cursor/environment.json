@@ -4,5 +4,5 @@
     "dockerfile": "Dockerfile"
   },
   "user": "ubuntu",
-  "install": "pip install --break-system-packages --no-warn-script-location -r requirements-dev.txt"
+  "install": "pip install --user --break-system-packages --no-warn-script-location -r requirements-dev.txt"
 }
