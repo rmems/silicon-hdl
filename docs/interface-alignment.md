@@ -191,7 +191,7 @@ Host → FPGA write (5 bytes, #63):
   [0]      = 0xA5                    // write sync (not 0xAA)
   [1]      = target                  // 0=weight, 1=threshold, 2=leak
   [2]      = addr                    // 8-bit RAM address
-  [3..4]   = Q8.8 data               // i16 big-endian
+  [3..4]   = Q8.8 data               // u16 big-endian; unsigned, same as RAM/LIF math. A host "negative" i16 becomes a large unsigned word.
 ```
 
 | Layer | Owner | Status in this monorepo |

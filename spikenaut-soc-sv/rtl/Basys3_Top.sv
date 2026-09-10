@@ -170,8 +170,10 @@ module spikenaut_soc_basys3_top #(
     // Per NeuronParamRam contract (gh-14 5u3.6/5u3.7): stores ONE param per addr.
     // Multiple param types (threshold/leak) require separate RAM instances.
     // E2: $readmemh from merged_v2 remains the cold-start path.  #63 drives
-    // we/addr/din from SocProtocolFsm for one-cycle host writes; when wr_en
-    // is low the PE keeps the read address.  STDP writeback stays open (#70).
+    // we/addr/din from SocProtocolFsm; the SoC holds a write that lands
+    // during PREFETCH/SWEEP and applies it only while the PE is idle, so
+    // a one-cycle host strobe cannot steal a sweep read.  STDP writeback
+    // stays open (#70).
     // The time-multiplexed LIF PE sweeps the 16 parameter entries on each
     // logical tick; its address outputs account for registered RAM read latency.
     // Timestep: LifNeuronArray / StdpController update only on step_en (1 ms).
@@ -187,11 +189,69 @@ module spikenaut_soc_basys3_top #(
     logic        weight_we;
     logic        thresh_we;
     logic        leak_we;
+    logic                              lif_tick_done;
+    logic        pe_ram_busy;
+    logic        pe_busy;
+    logic        wr_pending;
+    logic        wr_fire;
+    logic [1:0]  wr_pending_target;
+    logic [7:0]  wr_pending_addr;
+    logic [DATA_WIDTH-1:0] wr_pending_data;
+    logic [1:0]  wr_sel_target;
+    logic [7:0]  wr_sel_addr;
+    logic [DATA_WIDTH-1:0] wr_sel_data;
+
+    // Busy from the tick that starts a sweep through the cycle that
+    // completes it.  Include step_en itself so the first registered RAM
+    // sample (addr 0 while still IDLE) is not stolen.
+    always_ff @(posedge clk) begin
+        if (!rst)
+            pe_ram_busy <= 1'b0;
+        else if (step_en)
+            pe_ram_busy <= 1'b1;
+        else if (lif_tick_done)
+            pe_ram_busy <= 1'b0;
+    end
+
+    assign pe_busy = pe_ram_busy || step_en;
+
+    always_ff @(posedge clk) begin
+        if (!rst) begin
+            wr_pending        <= 1'b0;
+            wr_pending_target <= '0;
+            wr_pending_addr   <= '0;
+            wr_pending_data   <= '0;
+        end else if (host_wr_en && pe_busy) begin
+            wr_pending        <= 1'b1;
+            wr_pending_target <= host_wr_target;
+            wr_pending_addr   <= host_wr_addr;
+            wr_pending_data   <= host_wr_data;
+        end else if (wr_fire) begin
+            wr_pending <= 1'b0;
+        end
+    end
+
+    always_comb begin
+        wr_fire       = 1'b0;
+        wr_sel_target = wr_pending_target;
+        wr_sel_addr   = wr_pending_addr;
+        wr_sel_data   = wr_pending_data;
+        if (!pe_busy) begin
+            if (host_wr_en) begin
+                wr_fire       = 1'b1;
+                wr_sel_target = host_wr_target;
+                wr_sel_addr   = host_wr_addr;
+                wr_sel_data   = host_wr_data;
+            end else if (wr_pending) begin
+                wr_fire = 1'b1;
+            end
+        end
+    end
 
     // Target encoding matches SocProtocolFsm: 0=weight, 1=threshold, 2=leak.
-    assign weight_we = host_wr_en && (host_wr_target == 2'd0);
-    assign thresh_we = host_wr_en && (host_wr_target == 2'd1);
-    assign leak_we   = host_wr_en && (host_wr_target == 2'd2);
+    assign weight_we = wr_fire && (wr_sel_target == 2'd0);
+    assign thresh_we = wr_fire && (wr_sel_target == 2'd1);
+    assign leak_we   = wr_fire && (wr_sel_target == 2'd2);
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),
@@ -201,8 +261,8 @@ module spikenaut_soc_basys3_top #(
         .clk  (clk),
         .rst_n (rst),
         .we   (thresh_we),
-        .addr (thresh_we ? host_wr_addr[NEURON_ADDR_W-1:0] : threshold_addr),
-        .din  (host_wr_data),
+        .addr (thresh_we ? wr_sel_addr[NEURON_ADDR_W-1:0] : threshold_addr),
+        .din  (wr_sel_data),
         .dout (threshold_param)
     );
 
@@ -214,8 +274,8 @@ module spikenaut_soc_basys3_top #(
         .clk  (clk),
         .rst_n (rst),
         .we   (leak_we),
-        .addr (leak_we ? host_wr_addr[NEURON_ADDR_W-1:0] : leak_addr),
-        .din  (host_wr_data),
+        .addr (leak_we ? wr_sel_addr[NEURON_ADDR_W-1:0] : leak_addr),
+        .din  (wr_sel_data),
         .dout (leak_param)
     );
 
@@ -233,8 +293,8 @@ module spikenaut_soc_basys3_top #(
         .clk  (clk),
         .rst_n (rst),
         .we   (weight_we),
-        .addr (weight_we ? host_wr_addr[WEIGHT_ADDR_W-1:0] : weight_addr),
-        .din  (host_wr_data),
+        .addr (weight_we ? wr_sel_addr[WEIGHT_ADDR_W-1:0] : weight_addr),
+        .din  (wr_sel_data),
         .dout (weight_dout)
     );
 
@@ -248,7 +308,6 @@ module spikenaut_soc_basys3_top #(
     // column from its completed 16-word host frame.
     logic [NUM_NEURONS-1:0] spike_bitmap;
     logic [NUM_NEURONS*DATA_WIDTH-1:0] membrane_potentials;
-    logic                              lif_tick_done;
 
     LifNeuronArray #(
         .DATA_WIDTH        (DATA_WIDTH),
