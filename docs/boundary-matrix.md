@@ -90,11 +90,11 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 | Capability | On `main` | Tracker |
 |------------|-----------|---------|
 | Elaboration / bitstream `.mem` init | **Wired** — `INIT_FILE` `$readmemh` on `WeightRam` / `NeuronParamRam`; SoC defaults to `spikenaut-core-sv/mem/merged_v2_{weights,thresholds,decay}.mem`; `scripts/build_soc.tcl` overrides with absolute paths | [#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52) (E1/E2) |
-| Runtime RAM write (UART / host rewrite) | **Off** — `we` tied low on all three SoC RAM instances | [#63](https://github.com/rmems/silicon-hdl/issues/63) |
+| Runtime RAM write (UART / host rewrite) | **On** — `SocProtocolFsm` `0xA5` frames pulse `we` on `WeightRam` and both `NeuronParamRam` instances; PE read addr is restored when idle; `INIT_FILE` remains the cold start | [#63](https://github.com/rmems/silicon-hdl/issues/63) |
 | RAM address used by the PE | **Swept** — threshold/leak addresses walk `0..15`; the flattened weight address is `neuron_row * 16 + input_index`. #62 selects the lowest active decoded host lane, so the binary-event SoC path can walk any one input column across all 16 rows | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#62](https://github.com/rmems/silicon-hdl/issues/62) |
 | Neuron count | **N=16** `LifNeuronArray` time-multiplexes one shared datapath across 16 neuron slots and commits a board-agnostic 16-bit `spike_bitmap`; `spikenaut_soc_basys3_top` maps that bitmap to `led[15:0]` in spike mode (SW15=0). SW15 selects the stretched status word. See [`docs/led-map.md`](led-map.md) | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#65](https://github.com/rmems/silicon-hdl/issues/65) |
 | STDP | `StdpController` is instantiated (classical Bi–Poo, [#55](https://github.com/rmems/silicon-hdl/issues/55)) and gated by `step_en`, but **writeback is open**: `weight_we` / `weight_addr_out` / `weight_out` are unconnected; `weight_addr` is `'0` | [#70](https://github.com/rmems/silicon-hdl/issues/70) |
-| Host UART protocol | **Implemented #62** — `SocProtocolFsm` consumes `0xAA` + 32 payload bytes, commits a 16-word big-endian stimulus frame, and holds it until `step_en`; it serializes 16 membrane words, spike flags, and aux state while respecting `tx_busy`. The present PE selects the lowest active binary stimulus lane; it does not yet accumulate multi-active vectors | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#64](https://github.com/rmems/silicon-hdl/issues/64) |
+| Host UART protocol | **Implemented #62 / #63** — `SocProtocolFsm` consumes `0xAA` + 32 payload bytes, commits a 16-word big-endian stimulus frame, and holds it until `step_en`; it serializes 16 membrane words, spike flags, and aux state while respecting `tx_busy`. Distinct `0xA5` write frames pulse RAM `we` for one cycle. The present PE selects the lowest active binary stimulus lane; it does not yet accumulate multi-active vectors | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#63](https://github.com/rmems/silicon-hdl/issues/63) / [#64](https://github.com/rmems/silicon-hdl/issues/64) |
 | Logical timestep | **1 ms** `step_en` (100_000 fabric cycles @ 100 MHz) | [#57](https://github.com/rmems/silicon-hdl/issues/57) / [#60](https://github.com/rmems/silicon-hdl/issues/60); [`docs/timestep-contract.md`](timestep-contract.md) |
 
 ---
@@ -140,8 +140,8 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 
 | Dependency / input | Why | Status today |
 |--------------------|-----|--------------|
-| Parameter `.mem` / hex images from `silicon-bridge` (in-tree copies under `spikenaut-core-sv/mem/`) | Elaboration / bitstream init via `$readmemh`; runtime UART rewrite later | **INIT_FILE wired** (E1/E2). RAMs load when `INIT_FILE` is non-empty and not `"NONE"`; `LifNeuronArray` sweeps threshold/leak `0..15` and weight rows `0, 16, …, 240` for the current input column. SoC `we` remains low: UART/write-port load is **not** on `main` ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
-| UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge`; `SocProtocolFsm` application codec | **0xAA protocol implemented**: 16 Q8.8 words decode atomically and a 36-byte potential/spike/aux response is serialized with `tx_busy` back-pressure safety. Runtime parameter/weight writes remain #63; host-board E2E remains #64 |
+| Parameter `.mem` / hex images from `silicon-bridge` (in-tree copies under `spikenaut-core-sv/mem/`) | Elaboration / bitstream init via `$readmemh`; runtime UART rewrite via `SocProtocolFsm` | **INIT_FILE wired** (E1/E2). RAMs load when `INIT_FILE` is non-empty and not `"NONE"`; `LifNeuronArray` sweeps threshold/leak `0..15` and weight rows `0, 16, …, 240` for the current input column. Host `0xA5` frames overwrite selected entries at runtime ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
+| UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge`; `SocProtocolFsm` application codec | **0xAA stimulus + 0xA5 RAM write implemented**: 16 Q8.8 words decode atomically and a 36-byte potential/spike/aux response is serialized with `tx_busy` back-pressure safety. Host `0xA5` frames pulse RAM `we`. Host-board E2E remains #64 |
 | Xilinx Vivado (optional) | Synthesis, implementation, bitstream for Basys 3 | Available on self-hosted path |
 | Verilator | Free-stack unit simulation of core testbenches | Required free CI path |
 | Board constraints (`constraints/*.xdc`) | Pinout and timing for target FPGAs | Present |
@@ -228,10 +228,11 @@ Clarifications:
   repos; RTL changes land only here; host format changes land only in `silicon-bridge`.
 - Today’s Basys 3 SoC demo **does** load Q8.8 `.mem` images at elaboration / bitstream
   init (`INIT_FILE` / `$readmemh`) and implements the #62 host frame/readback codec.
-  RAM `we` remains tied off, the N=16 PE performs its swept read addresses, and STDP
-  writeback remains unconnected. Treat runtime UART configuration and host-board E2E
-  as sequenced work under [#54](https://github.com/rmems/silicon-hdl/issues/54), not as
-  a claim that writes or multi-active-lane accumulation are complete.
+  Runtime `0xA5` RAM writes are on (#63); the N=16 PE performs its swept read
+  addresses, and STDP writeback remains unconnected (#70). Host-board E2E and
+  multi-active-lane accumulation remain sequenced under
+  [#54](https://github.com/rmems/silicon-hdl/issues/54) /
+  [#64](https://github.com/rmems/silicon-hdl/issues/64).
 
 ### vs legacy `Spikenaut-Hardware`
 
@@ -284,9 +285,11 @@ Clarifications:
    and SoC `INIT_FILE` `$readmemh` (E1/E2).
 2. Implemented under [#54](https://github.com/rmems/silicon-hdl/issues/54): #62's
    16-word protocol parser, deterministic single input-column selector, and TX response.
-   Remaining work is runtime RAM write ([#63](https://github.com/rmems/silicon-hdl/issues/63)), host E2E
-   ([#64](https://github.com/rmems/silicon-hdl/issues/64)), and STDP time-mux/writeback
-   ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
+   Remaining work is host E2E
+   ([#64](https://github.com/rmems/silicon-hdl/issues/64)) and STDP time-mux/writeback
+   ([#70](https://github.com/rmems/silicon-hdl/issues/70)). Runtime RAM write
+   ([#63](https://github.com/rmems/silicon-hdl/issues/63)) is implemented as a
+   `SocProtocolFsm` `0xA5` extension.
 3. Add or extend cross-repo golden vectors (float → Q8.8 → `.mem` → RTL readback) without
    merging repositories.
 4. Only then consider new board tops or extra on-chip features.
@@ -325,7 +328,7 @@ Covered here in prose:
 
 1. **Purpose** — Spikenaut-Hardware / silicon-hdl FPGA SNN RTL role is stated above.
 2. **Owns / does-not-own** — tables under those headings.
-3. **Allowed and forbidden dependencies** — including honest “status today” for `.mem` (`INIT_FILE` wired; runtime write still off) and UART (RX event only; TX off).
+3. **Allowed and forbidden dependencies** — including honest “status today” for `.mem` (`INIT_FILE` wired; runtime `0xA5` write on) and UART (`0xAA` stimulus + TX readback).
 4. **Layer boundaries** — core software vs supervisor/app vs deployment host vs hardware RTL.
 5. **Domain leaks, migration risks, sequencing** — dedicated sections above.
 6. **LIM-9 linkability** — this file path (`docs/boundary-matrix.md`) plus the Related tracking table.

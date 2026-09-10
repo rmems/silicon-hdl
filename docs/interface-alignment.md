@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-06 -->
+<!-- Last updated: 2026-09-09 -->
 # HDL ↔ silicon-bridge interface alignment
 
 Cross-repo contract between **silicon-hdl** (SystemVerilog RTL) and
@@ -21,13 +21,13 @@ either side of the contract changes.
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Widths match. SoC demo loads `merged_v2_weights.mem`, `merged_v2_thresholds.mem`, and `merged_v2_decay.mem` via `INIT_FILE` `$readmemh` ([#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52)); `merged_v2_output_weights.mem` is vendored, not wired. Runtime UART rewrite is still off (`we = 0`) |
+| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Widths match. SoC demo loads `merged_v2_weights.mem`, `merged_v2_thresholds.mem`, and `merged_v2_decay.mem` via `INIT_FILE` `$readmemh` ([#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52)); `merged_v2_output_weights.mem` is vendored, not wired. Runtime UART rewrite is on via `SocProtocolFsm` `0xA5` frames ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
 | SiliconBridge UART framing vs `FpgaBridge` | **Implemented at SoC layer** | `SiliconBridge` remains transport-only (8-bit bytes); canonical `SocProtocolFsm` owns the host multi-byte frames ([#62](https://github.com/rmems/silicon-hdl/issues/62)) |
 | Compatibility table (Rust ↔ SV) | **Documented** | See below |
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
 | Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
 | Logical timestep / `step_en` | **Documented** | [`docs/timestep-contract.md`](timestep-contract.md); SoC 1 ms divider (#57 / #60) |
-| SoC demo maturity (F0 honesty) | **Partial** | `INIT_FILE`, N=16 time-multiplexed LIF, 0xAA frame decode, and UART TX readback are wired. Runtime UART writes, multi-active-lane vector accumulation, STDP writeback, and host E2E remain sequenced work. See [#54](https://github.com/rmems/silicon-hdl/issues/54) |
+| SoC demo maturity (F0 honesty) | **Partial** | `INIT_FILE`, N=16 time-multiplexed LIF, 0xAA frame decode, UART TX readback, and runtime `0xA5` RAM writes are wired. Multi-active-lane vector accumulation, STDP writeback, and host E2E remain sequenced work. See [#54](https://github.com/rmems/silicon-hdl/issues/54) |
 
 Foundational RTL correctness that supports this alignment landed earlier via
 PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
@@ -127,10 +127,12 @@ Threshold and leak walk neuron addresses `0..15`; the weight map is
 SoC protocol mapping selects the lowest-index non-zero decoded stimulus lane
 as the binary-event `input_index`, so each frame can address any column
 `0..15`; a frame with more than one active lane is not vector-accumulated by
-the current shared-event PE. Ports remain `we = 0` because UART/config writes
-are #63 work. This closes the
-N=16 addressing gap in [#61](https://github.com/rmems/silicon-hdl/issues/61),
-not runtime reconfiguration.
+the current shared-event PE. Host `0xA5` write frames from `SocProtocolFsm`
+(#63) pulse `we` for one cycle and steal `addr` only while `wr_en` is high;
+the PE read path is restored when idle. `INIT_FILE` remains the cold start.
+This closes the
+N=16 addressing gap in [#61](https://github.com/rmems/silicon-hdl/issues/61)
+and the runtime rewrite path in [#63](https://github.com/rmems/silicon-hdl/issues/63).
 
 ### 1.4 Width alignment summary
 
@@ -184,12 +186,19 @@ FPGA → Host (36 bytes):
   [0..31]  = 16 × Q8.8 potentials    // i16 big-endian each
   [32..33] = spike flags             // u16 BE, bit i = neuron i spiked
   [34..35] = switch / aux state      // u16 BE, synchronized `sw` sampled at frame_send
+
+Host → FPGA write (5 bytes, #63):
+  [0]      = 0xA5                    // write sync (not 0xAA)
+  [1]      = target                  // 0=weight, 1=threshold, 2=leak
+  [2]      = addr                    // 8-bit RAM address
+  [3..4]   = Q8.8 data               // u16 big-endian; unsigned, same as RAM/LIF math. A host "negative" i16 becomes a large unsigned word.
 ```
 
 | Layer | Owner | Status in this monorepo |
 |-------|-------|-------------------------|
 | 8-bit UART transport | `UartRx` / `UartTx` / `SiliconBridge` | Implemented |
 | 0xAA + multi-word frame codec | `SocProtocolFsm` in `lib_soc` (not in bridge lib) | **Implemented** in `spikenaut_soc_basys3_top`: atomic 32-byte receive decode plus held 36-byte response serialization |
+| 0xA5 RAM-write frame | `SocProtocolFsm` write extension | **Implemented** (#63): one-cycle `wr_en` onto weight / threshold / leak RAMs; PE addr restored when idle |
 | Host client | silicon-bridge `FpgaBridge` (`uart` feature) | Implemented in Rust |
 
 Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
@@ -203,7 +212,10 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   without `rx_valid` (default four 10-bit UART character times at
   100 MHz / 115200) and returns to waiting for `0xAA`. Mid-payload `0xAA` is
   legal Q8.8 data and is not a resync; a retried host frame must idle at least
-  that long before the next sync byte.
+  that long before the next sync byte. A distinct `0xA5` write frame
+  (target, address, big-endian Q8.8) pulses `wr_en` for one cycle and does
+  not publish `stimuli_valid`. Mid-payload `0xA5` inside a stimulus frame is
+  legal Q8.8 data. Writes use the same inter-byte idle timeout.
 - One `LifNeuronArray` time-multiplexes 16 neuron slots. It sweeps threshold
   and leak entries `0..15` and maps `WeightRam` as
   `neuron_row * 16 + input_index`. The current shared-event PE maps the
@@ -226,21 +238,28 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   latest-wins pending snapshot if another consumed-frame trigger arrives while
   UART serialization is still active.
 
-The codec is implemented above the bridge. End-to-end host/board exercise and
-runtime RAM writes remain separately scoped under [#64](https://github.com/rmems/silicon-hdl/issues/64)
-and [#63](https://github.com/rmems/silicon-hdl/issues/63).
+The codec is implemented above the bridge. End-to-end host/board exercise
+remains separately scoped under [#64](https://github.com/rmems/silicon-hdl/issues/64).
+Runtime RAM writes are implemented as a `SocProtocolFsm` extension (#63).
 
 ### 2.3 No opcodes in `SiliconBridge`
 
 There is **no** opcode register map inside `SiliconBridge`. The implemented
-`SocProtocolFsm` owns stimulus/readback framing while preserving the bridge as
-the canonical byte transport. Future commands such as RAM writes belong in a
-separate SoC protocol extension that:
+`SocProtocolFsm` owns stimulus/readback framing and the #63 RAM-write
+extension while preserving the bridge as the canonical byte transport:
 
 1. Consumes `rx_data`/`rx_valid` and respects `tx_busy` when driving `tx_send`.
-2. May drive `WeightRam` / `NeuronParamRam` write ports only when #63 defines
-   their host-write arbitration.
+2. Drives `WeightRam` / `NeuronParamRam` write ports from a 5-byte `0xA5`
+   frame (`target`, `addr`, big-endian Q8.8). Target `0` = weight, `1` =
+   threshold, `2` = leak. `we` is a one-cycle strobe; `addr` returns to the
+   PE read path when idle. `INIT_FILE` remains the cold start. STDP
+   writeback stays unconnected ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
 3. Keeps the 8-bit transport module unchanged (single source of truth).
+
+The write sync is **not** `0xAA`. Reusing the stimulus sync would make a
+5-byte write look like a truncated 33-byte stimulus (idle-timeout abort) or
+steal the first payload bytes of a real host frame. A parallel
+`HostWriteFsm` on the same `rx_valid` pipe would have the same collision.
 
 ---
 
@@ -253,11 +272,12 @@ separate SoC protocol extension that:
 | `FpgaParameters.thresholds` | `NeuronParamRam` (threshold instance) `.din`/`.dout` | 16-bit; separate RAM from leak |
 | `FpgaParameters.decay_rates` | `NeuronParamRam` (leak instance) | Mapped as **leak** in LIF (`membrane -= leak`) |
 | `FpgaParameters.weights` | `WeightRam` `.din`/`.dout` | Flattened 16×16 matrix → `neuron_row * 16 + input_index` |
-| `MemFileWriter` `.mem` lines | SoC `INIT_FILE` `$readmemh` into RAM arrays | **Wired** in demo top (`merged_v2` defaults); host rewrite later (#63) |
+| `MemFileWriter` `.mem` lines | SoC `INIT_FILE` `$readmemh` into RAM arrays | **Wired** in demo top (`merged_v2` defaults); host rewrite via `0xA5` frames (#63) |
 | `EXPORT_FORMAT_VERSION` | Metadata only | No RTL parse |
 | `FpgaBridge` open @ 115200 | `SiliconBridge` `BAUD_RATE=115_200` | Match |
 | UART 8 data bits | `DATA_WIDTH=8` on bridge/UART | Match |
 | Host TX frame `0xAA` + 32 B | `SocProtocolFsm` application layer above bridge | Implemented in SoC; words decode big-endian and commit atomically |
+| Host TX write `0xA5` + 4 B | `SocProtocolFsm` `wr_en` / `wr_target` / `wr_addr` / `wr_data` | Implemented (#63); target 0/1/2 selects weight / threshold / leak |
 | Host RX 36 B response | `SocProtocolFsm` application layer above bridge | Implemented in SoC; 16 potentials, spike word, then aux word; `tx_busy` respected |
 | Spike flag word (16 bits) | `LifNeuronArray.spike_bitmap` / LED bus | `led[i] = neuron i` in spike mode (SW15=0). SW15=1 shows the stretched status word. Bytes 34–35 carry synchronized `sw` sampled at `frame_send`. See [`docs/led-map.md`](led-map.md) |
 | `FpgaMetrics::parse_from_report` (WNS) | Vivado timing summary from SoC build | CI: see §4 |
@@ -322,9 +342,9 @@ acceptance. Clarifying comments only may be added on `SiliconBridge.sv`.
 tracked under finishing epic
 [#54](https://github.com/rmems/silicon-hdl/issues/54), not as a missing mem-init path:
 
-- Runtime RAM writes remain [#63](https://github.com/rmems/silicon-hdl/issues/63).
-  The #62 SoC protocol FSM is implemented; vector accumulation for multiple
-  active stimulus lanes remains outside its binary-event PE mapping.
+- Runtime RAM writes are implemented in `SocProtocolFsm` (#63). Vector
+  accumulation for multiple active stimulus lanes remains outside the
+  binary-event PE mapping.
 - STDP time-multiplexing and writeback into `WeightRam` ([#70](https://github.com/rmems/silicon-hdl/issues/70))
 
 ---

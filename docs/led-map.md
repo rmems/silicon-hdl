@@ -60,7 +60,7 @@ event and cleared on the shared `stretch_tick`. `abort_sticky` clears only on
 | Bit | Name | Source |
 | --- | --- | --- |
 | `[0]` | heartbeat | `tick_cnt[8]` after `step_en` increments (~1.95 Hz) |
-| `[1]` | rx_busy | stretched `SocProtocolFsm.rx_busy` (`rx_state != RX_WAIT_SYNC`) |
+| `[1]` | rx_busy | stretched `SocProtocolFsm.rx_busy` (`rx_state != RX_WAIT_SYNC`; includes `0xA5` write frames) |
 | `[2]` | rx_commit | stretched `stimuli_valid` |
 | `[3]` | rx_abort | sticky `SocProtocolFsm.rx_abort` (idle-timeout pulse) |
 | `[4]` | tx_frame_active | stretched `tx_active` (not the `tx_busy` input) |

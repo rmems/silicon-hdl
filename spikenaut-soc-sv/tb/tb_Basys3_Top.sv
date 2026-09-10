@@ -21,6 +21,8 @@
 //   8. LED bitmap        — every committed N=16 spike bit is preserved (SW=0).
 //   9. SW15 status mux   — 2FF sync latency, then status word from primitive
 //                          refs; synchronized sw is published as aux.
+//  11. Runtime RAM write — a 0xA5 host frame overwrites one INIT_FILE weight
+//                          and one leak param; RAM we is not hard-tied 0.
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
@@ -73,6 +75,9 @@ module tb_spikenaut_soc_basys3_top #(
     // the mid-window sample outside the idle window and quietly stop
     // discriminating rx_abort from rx_busy.
     localparam int IDLE_TIMEOUT_CYCLES = 4 * 10 * CLKS_PER_BIT;
+    // Mirror SocProtocolFsm's default write sync.  Bound to the DUT at the
+    // top of the run so a parameter change cannot silently desync this TB.
+    localparam logic [7:0] WRITE_SYNC_BYTE = 8'hA5;
 
     // Ticks are at most STEP_DIV cycles apart, so any wait that exceeds this
     // bound means the divider is broken. Fail loudly with a cycle count
@@ -93,6 +98,12 @@ module tb_spikenaut_soc_basys3_top #(
     logic [NUM_NEURONS-1:0] seen_leak_addr;
     logic [NUM_NEURONS-1:0] seen_weight_row;
     logic [$clog2(NUM_NEURONS)-1:0] expected_input_index;
+
+    // Static copies for inject_host_strobe.  XSim rejects force/assign of
+    // automatic task arguments (VRFC 10-3142); Verilator does not.
+    logic [1:0]  force_host_wr_target;
+    logic [7:0]  force_host_wr_addr;
+    logic [15:0] force_host_wr_data;
 
     spikenaut_soc_basys3_top #(
         .WEIGHT_INIT_FILE (WEIGHT_INIT),
@@ -185,6 +196,49 @@ module tb_spikenaut_soc_basys3_top #(
     // Host contract: 0xAA followed by 16 Q8.8 big-endian words.  One selected
     // lane carries 0x0001 and all others zero, making the SoC's binary-event
     // / input-column selection policy observable without a raw rx_valid hook.
+    // Host write contract (#63): 0xA5 + target + addr + Q8.8 big-endian word.
+    // Target 0=weight, 1=threshold, 2=leak. Distinct sync from the 0xAA
+    // stimulus frame so the protocol FSM can share one byte pipe.
+    // One-cycle host write strobe while the PE is busy.  Fabric-rate force
+    // on the FSM outputs (same style as the LED bitmap force in test 8)
+    // so the hold path can be tested inside the ~18-cycle sweep; UART
+    // cannot finish a 5-byte frame in that window.
+    task automatic inject_host_strobe(
+        input logic [1:0] target,
+        input logic [7:0] addr,
+        input logic [15:0] data
+    );
+        begin
+            force_host_wr_target = target;
+            force_host_wr_addr   = addr;
+            force_host_wr_data   = data;
+            @(negedge clk);
+            force dut.host_wr_en     = 1'b1;
+            force dut.host_wr_target = force_host_wr_target;
+            force dut.host_wr_addr   = force_host_wr_addr;
+            force dut.host_wr_data   = force_host_wr_data;
+            @(negedge clk);
+            release dut.host_wr_en;
+            release dut.host_wr_target;
+            release dut.host_wr_addr;
+            release dut.host_wr_data;
+        end
+    endtask
+
+    task automatic uart_send_write_frame(
+        input logic [7:0] target,
+        input logic [7:0] addr,
+        input logic [15:0] data
+    );
+        begin
+            uart_send_byte(WRITE_SYNC_BYTE);
+            uart_send_byte(target);
+            uart_send_byte(addr);
+            uart_send_byte(data[15:8]);
+            uart_send_byte(data[7:0]);
+        end
+    endtask
+
     task automatic uart_send_stimulus_frame(input int active_lane);
         begin
             uart_send_byte(8'hAA);
@@ -258,6 +312,34 @@ module tb_spikenaut_soc_basys3_top #(
         end
     endtask
 
+    // Sample the one-cycle host write strobe mid-cycle while the UART
+    // frame is still on the wire.  After uart_send_write_frame returns the
+    // strobe has already fallen, so a later peek cannot prove we toggled.
+    task automatic wait_for_host_write(
+        input logic [1:0] expected_target,
+        input string msg
+    );
+        int unsigned waited;
+        begin
+            waited = 0;
+            forever begin
+                @(negedge clk);
+                waited++;
+                if (dut.host_wr_en === 1'b1) begin
+                    check(dut.host_wr_target === expected_target,
+                          {msg, ": wr_target must match the frame"});
+                    check(dut.weight_we === (expected_target == 2'd0),
+                          {msg, ": weight we must follow target 0"});
+                    check(dut.leak_we === (expected_target == 2'd2),
+                          {msg, ": leak we must follow target 2"});
+                    break;
+                end
+                if (waited > (5 * 11 * CLKS_PER_BIT + SEQ_SLACK))
+                    $fatal(1, "%s: host_wr_en not seen within %0d cycles", msg, waited);
+            end
+        end
+    endtask
+
     // `step_en` starts the PE; its registered RAM read and 16 slots complete
     // shortly afterward.  Bound this wait so a bad sub-cycle FSM does not
     // turn the free CI test into a silent timeout.
@@ -291,6 +373,8 @@ module tb_spikenaut_soc_basys3_top #(
 
         check_int(dut.u_protocol_fsm.IDLE_TIMEOUT_CYCLES, IDLE_TIMEOUT_CYCLES,
                   "TB idle-timeout mirror must match the DUT parameter");
+        check(dut.u_protocol_fsm.WRITE_SYNC_BYTE === WRITE_SYNC_BYTE,
+              "TB write-sync mirror must match the DUT parameter");
         check(dut.step_en === 1'b0,       "reset: step_en must be low");
         check(dut.step_cnt === '0,        "reset: step_cnt must be cleared");
         check(dut.stimuli_pending === 1'b0,
@@ -621,6 +705,123 @@ module tb_spikenaut_soc_basys3_top #(
         wait_for_stimuli_pending();
         check(led[3] === 1'b0,
               "test 10: an accepted host frame must clear the sticky abort bit");
+
+        // ------------------------------------------------------------
+        // Test 11: host runtime write (#63)
+        //
+        // Drain the pending stimulus from test 10 so the PE is idle, then
+        // overwrite a weight and a leak that earlier merged_v2 checks do
+        // not depend on.  INIT_FILE cold-start stays in place; we is muxed
+        // from SocProtocolFsm rather than tied to 0.
+        // ------------------------------------------------------------
+        wait_tick_applied();
+        wait_lif_sweep_done();
+        check(dut.u_lif_array.sweep_state === 2'd0,
+              "test 11: PE must be idle before the host write");
+        check(dut.u_wram.we === 1'b0,
+              "test 11: weight we must be low while the PE owns the address");
+        check(dut.u_wram.addr === dut.weight_addr,
+              "test 11: idle RAM addr must follow the PE read path");
+
+        begin
+            localparam logic [7:0] WRITE_WEIGHT_ADDR = 8'h01;
+            localparam logic [7:0] WRITE_LEAK_ADDR   = 8'h0F;
+            localparam logic [15:0] WRITE_WEIGHT_DATA = 16'hBEEF;
+            localparam logic [15:0] WRITE_LEAK_DATA   = 16'h00A5;
+            logic [15:0] weight_before;
+            logic [15:0] leak_before;
+
+            weight_before = dut.u_wram.mem[WRITE_WEIGHT_ADDR];
+            leak_before   = dut.u_npram_leak.mem[WRITE_LEAK_ADDR];
+            check(weight_before !== WRITE_WEIGHT_DATA,
+                  "test 11: INIT_FILE weight must differ from the overwrite value");
+            check(leak_before !== WRITE_LEAK_DATA,
+                  "test 11: INIT_FILE leak must differ from the overwrite value");
+
+            fork
+                uart_send_write_frame(8'h00, WRITE_WEIGHT_ADDR, WRITE_WEIGHT_DATA);
+                wait_for_host_write(2'd0, "test 11 weight");
+            join
+            check(dut.u_wram.mem[WRITE_WEIGHT_ADDR] === WRITE_WEIGHT_DATA,
+                  "test 11: host must overwrite one INIT_FILE weight at runtime");
+            check(dut.u_wram.we === 1'b0,
+                  "test 11: weight we must return low after the one-cycle strobe");
+            check(dut.u_wram.addr === dut.weight_addr,
+                  "test 11: weight addr must return to the PE path after the write");
+
+            fork
+                uart_send_write_frame(8'h02, WRITE_LEAK_ADDR, WRITE_LEAK_DATA);
+                wait_for_host_write(2'd2, "test 11 leak");
+            join
+            check(dut.u_npram_leak.mem[WRITE_LEAK_ADDR] === WRITE_LEAK_DATA,
+                  "test 11: host must overwrite one INIT_FILE leak at runtime");
+            check(dut.u_npram_leak.we === 1'b0,
+                  "test 11: leak we must return low after the one-cycle strobe");
+            check(dut.u_npram_leak.addr === dut.leak_addr,
+                  "test 11: leak addr must return to the PE path after the write");
+        end
+
+        // ------------------------------------------------------------
+        // Test 12: host writes that land mid-sweep are held until idle.
+        // Force a one-cycle wr_en during PREFETCH/SWEEP; UART is too slow
+        // to finish a 5-byte frame in that window.
+        // ------------------------------------------------------------
+        begin
+            localparam logic [7:0] SWEEP_WEIGHT_ADDR = 8'h02;
+            localparam logic [7:0] SWEEP_THRESH_ADDR = 8'h0E;
+            localparam logic [7:0] SWEEP_LEAK_ADDR   = 8'h0D;
+            localparam logic [15:0] SWEEP_WEIGHT_DATA = 16'hCAFE;
+            localparam logic [15:0] SWEEP_THRESH_DATA = 16'h1111;
+            localparam logic [15:0] SWEEP_LEAK_DATA   = 16'h2222;
+
+            wait_for_tick();
+            @(negedge clk);
+            check(dut.pe_busy === 1'b1,
+                  "test 12: PE must be busy after the tick starts");
+            inject_host_strobe(2'd0, SWEEP_WEIGHT_ADDR, SWEEP_WEIGHT_DATA);
+            check(dut.wr_pending === 1'b1,
+                  "test 12: a mid-sweep weight write must be held");
+            check(dut.weight_we === 1'b0,
+                  "test 12: held weight write must not steal the RAM port");
+            check(dut.u_wram.addr === dut.weight_addr,
+                  "test 12: weight addr must stay on the PE path during the sweep");
+            check(dut.u_wram.mem[SWEEP_WEIGHT_ADDR] !== SWEEP_WEIGHT_DATA,
+                  "test 12: held weight write must not commit until idle");
+            wait_lif_sweep_done();
+            repeat (4) @(negedge clk);
+            check(dut.u_wram.mem[SWEEP_WEIGHT_ADDR] === SWEEP_WEIGHT_DATA,
+                  "test 12: held weight write must commit after the PE is idle");
+            check(dut.wr_pending === 1'b0,
+                  "test 12: weight pending must clear after the deferred strobe");
+
+            wait_for_tick();
+            @(negedge clk);
+            inject_host_strobe(2'd1, SWEEP_THRESH_ADDR, SWEEP_THRESH_DATA);
+            check(dut.wr_pending === 1'b1,
+                  "test 12: a mid-sweep threshold write must be held");
+            check(dut.thresh_we === 1'b0,
+                  "test 12: held threshold write must not steal the RAM port");
+            check(dut.u_npram_threshold.addr === dut.threshold_addr,
+                  "test 12: threshold addr must stay on the PE path during the sweep");
+            wait_lif_sweep_done();
+            repeat (4) @(negedge clk);
+            check(dut.u_npram_threshold.mem[SWEEP_THRESH_ADDR] === SWEEP_THRESH_DATA,
+                  "test 12: held threshold write must commit after the PE is idle");
+
+            wait_for_tick();
+            @(negedge clk);
+            inject_host_strobe(2'd2, SWEEP_LEAK_ADDR, SWEEP_LEAK_DATA);
+            check(dut.wr_pending === 1'b1,
+                  "test 12: a mid-sweep leak write must be held");
+            check(dut.leak_we === 1'b0,
+                  "test 12: held leak write must not steal the RAM port");
+            check(dut.u_npram_leak.addr === dut.leak_addr,
+                  "test 12: leak addr must stay on the PE path during the sweep");
+            wait_lif_sweep_done();
+            repeat (4) @(negedge clk);
+            check(dut.u_npram_leak.mem[SWEEP_LEAK_ADDR] === SWEEP_LEAK_DATA,
+                  "test 12: held leak write must commit after the PE is idle");
+        end
 
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");
 
