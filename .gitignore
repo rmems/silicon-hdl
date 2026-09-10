@@ -10,8 +10,10 @@
 # Keep hooks tracked
 !.beads/hooks/
 
-# Ignore AI directories tools
-.cursor/
+# Ignore AI directories tools (but track the Cloud Agent environment config)
+.cursor/*
+!.cursor/environment.json
+!.cursor/Dockerfile
 .codacy/
 .mimocode/
 .opencode/
