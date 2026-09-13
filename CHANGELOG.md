@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- README maturity table for what actually works on `main` (addresses #67): core
+  primitives, Basys SoC demo, STDP, host UART protocol, output-class LEDs
+  (`status_word[15:13]`), and `.mem` INIT banks, each with works / partial / not
+  wired plus evidence PRs. Explicit non-goals: Stage-1 axons 5–15, STDP
+  writeback on the demo path, FPGA↔Julia spike/action parity, extending
+  `FRAME_BYTES`, inventing weights. Live bank pin: Spikenaut-SNN#47 / exp-025.
+
 ### Changed
 
 - `docs/interface-alignment.md` now records the host-side `.mem` encoder as **signed**
