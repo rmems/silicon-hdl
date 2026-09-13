@@ -141,7 +141,9 @@ module tb_SocFrameGolden #(
 
     // Free-running monitors. A golden replay must never abort a frame or look
     // like a 0xA5 RAM write, even though mid-payload 0xAA / 0xA5 bytes are
-    // legal Q8.8 data and do appear in these vectors.
+    // legal Q8.8 data. The sync_valued_payload case exists to make that a real
+    // statement rather than a vacuous one; the sync_coverage_guard below
+    // refuses to run if the committed stream ever stops containing them.
     always @(negedge clk) begin
         if (rst_n === 1'b1) begin
             if (stimuli_valid === 1'b1) stimuli_valid_pulses++;
@@ -365,6 +367,26 @@ module tb_SocFrameGolden #(
                 if (soc_rx_mem[b] != '0) saw_response = 1'b1;
             if (!saw_request || !saw_response)
                 $fatal(1, "TB_SOC_FRAME_GOLDEN: golden frame images look empty or unloaded -- run from the repo root and regenerate with scripts/gen_golden_frame_vectors.py");
+        end
+
+        // The wr_en / rx_abort assertions at the end claim a golden replay is
+        // never mistaken for a 0xA5 RAM write or an abandoned frame. That claim
+        // is only worth anything if some payload actually carries a
+        // sync-valued byte -- and no payload did until the sync_valued_payload
+        // case was added, because every other case encodes a small magnitude.
+        // Fail loudly if a future regeneration drops that coverage, rather than
+        // letting the assertions quietly pass on nothing.
+        begin : sync_coverage_guard
+            automatic int sync_bytes_in_payload = 0;
+            for (int c = 0; c < n_cases; c++)
+                // Byte 0 of each request is the sync byte itself; skip it.
+                for (int b = 1; b < REQUEST_BYTES; b++)
+                    if (host_tx_mem[c*REQUEST_BYTES + b] == 8'hAA ||
+                        host_tx_mem[c*REQUEST_BYTES + b] == 8'hA5)
+                        sync_bytes_in_payload++;
+            if (sync_bytes_in_payload == 0)
+                $fatal(1, "TB_SOC_FRAME_GOLDEN: no golden request payload contains a 0xAA or 0xA5 byte, so the 'never mistaken for a RAM write' assertions would pass vacuously -- regenerate with scripts/gen_golden_frame_vectors.py (the sync_valued_payload case supplies this coverage)");
+            $display("TB_SOC_FRAME_GOLDEN: %0d sync-valued bytes appear mid-payload", sync_bytes_in_payload);
         end
 
         $display("TB_SOC_FRAME_GOLDEN: replaying %0d golden frame pairs (%0d-byte request, %0d-byte response)",

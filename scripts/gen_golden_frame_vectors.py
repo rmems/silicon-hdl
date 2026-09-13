@@ -314,6 +314,31 @@ def build_cases(bank: Bank) -> list[Case]:
             origin="synthetic clamp edge",
         ),
         Case(
+            name="sync_valued_payload",
+            source="synthetic",
+            why=(
+                "Payload bytes equal to the 0xAA stimulus sync and the 0xA5 write sync "
+                "(GH#63), in both the high and low byte of a word. Mid-payload sync "
+                "values are legal Q8.8 data and must never be treated as a new command: "
+                "an FSM that resynced on them would corrupt this frame, and one that "
+                "started a RAM write would pulse wr_en. No other case reaches these byte "
+                "values -- every other payload encodes a small magnitude -- so without "
+                "this case the replay's 'never mistaken for a 0xA5 RAM write' assertion "
+                "passes vacuously."
+            ),
+            stimuli_f32=[q88.q88_signed_to_f32(q88.hex_to_raw(w)) for w in (
+                "AAAA", "A5A5", "AA00", "00AA", "A500", "00A5", "AAA5", "A5AA",
+                "01AA", "01A5", "AA01", "A501", "7FAA", "7FA5", "FFAA", "FFA5",
+            )],
+            potentials_f32=[q88.q88_signed_to_f32(q88.hex_to_raw(w)) for w in (
+                "A5AA", "AAA5", "00A5", "A500", "00AA", "AA00", "A5A5", "AAAA",
+                "A501", "AA01", "01A5", "01AA", "7FA5", "7FAA", "FFA5", "FFAA",
+            )],
+            spike_word=0xAAA5,
+            aux_word=0xA5AA,
+            origin="synthetic sync-valued byte coverage",
+        ),
+        Case(
             name="bank_decay_thresholds",
             source="exp-025",
             why=(

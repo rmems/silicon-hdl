@@ -111,6 +111,7 @@ python3 scripts/gen_golden_frame_vectors.py --check
 | `all_ones` | synthetic | `0xFFFF` spike and aux words as *bit patterns*, not the Q8.8 value −1/256 |
 | `all_zeros` | synthetic | The all-zero frame is still 36 bytes |
 | `clamp_saturation` | synthetic | ±127.99 lands on `0x7FFD` / `0x8003`, so the clamp stays on the unscaled `f32` |
+| `sync_valued_payload` | synthetic | Payload bytes equal to the `0xAA` and `0xA5` syncs, in both byte positions — mid-payload sync values are data, never a resync |
 | `bank_decay_thresholds` | exp-025 | Real bank words with `0xAAAA`, the complement of `clamp_saturation`'s bitmap |
 
 Cases tagged **exp-025** take every `f32` from a decode of a word already
@@ -217,10 +218,24 @@ steps) and the `silicon-bridge` crate checked out.
    unsigned-magnitude `encode_q88_unsigned`, which flattens every inhibitory
    input to `0`.
 
-5. **Read the board against the response.** With SW15 high, `status_word[12:8]`
-   is `$countones(spike_hold)` and should agree with the population count of the
-   spike word you just parsed. `status_word[15:13]` is the output-layer argmax
-   and is *not* in the frame — exactly one of LD15/LD14/LD13 should be lit.
+5. **Read the board against the response — carefully.** With SW15 high,
+   `status_word[12:8]` is `$countones(spike_hold)`, and `spike_hold` is
+   **OR-latched across the whole ~64 ms stretch window**, cleared only on
+   `stretch_tick` (`SocStatusLeds.sv`). The spike word in the frame is a single
+   `frame_send` snapshot of one 1 ms tick. So the LED count is the *union* of
+   every neuron that fired during the window — roughly 64 ticks' worth — and is
+   an **upper bound** on any one frame's population count, not a value to
+   compare for equality. They coincide only when nothing else fired in the
+   window, which on a live board is the exception.
+
+   Treat `status_word[12:8]` as an activity indicator: zero when the population
+   is silent, non-zero when it is not. The frame bytes are the authoritative
+   per-tick answer, and `tb_Basys3_Top` test 13b is what checks them.
+
+   `status_word[15:13]` is the output-layer argmax and is *not* in the frame —
+   exactly one of LD15/LD14/LD13 should be lit, and unlike `[12:8]` it is
+   replaced as a whole vector each tick rather than accumulated, so it does
+   track the current tick.
 
 6. **Confirm the frame length on the wire.** If the host ever blocks in
    `read_exact`, or returns data that looks shifted by a byte or two, the frame

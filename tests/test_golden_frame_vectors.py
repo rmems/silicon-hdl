@@ -513,6 +513,37 @@ def test_treating_the_aux_word_as_a_potential_is_detectable(cases: list[dict], c
     assert any(word != "0000" for word in aux_words)
 
 
+def test_some_request_payload_carries_sync_valued_bytes(committed_frames) -> None:
+    """Mid-payload 0xAA / 0xA5 must actually occur somewhere in the stream.
+
+    ``SocProtocolFsm`` treats a payload byte equal to either sync value as
+    ordinary Q8.8 data -- it never resyncs mid-frame. ``tb_SocFrameGolden``
+    asserts a golden replay is never mistaken for a 0xA5 RAM write, but that
+    assertion is vacuous unless some payload reaches those byte values. Every
+    case except ``sync_valued_payload`` encodes a small magnitude and never
+    does, so this guards the one case that supplies the coverage.
+    """
+    host_tx, _ = committed_frames
+    found = {0xAA: 0, 0xA5: 0}
+    for index in range(len(host_tx) // gen.REQUEST_BYTES):
+        # Byte 0 of each request is the sync byte itself; skip it.
+        for byte in request_of(committed_frames, index)[1:]:
+            if byte in found:
+                found[byte] += 1
+    assert found[0xAA] > 0, "no golden request payload contains a 0xAA byte"
+    assert found[0xA5] > 0, "no golden request payload contains a 0xA5 byte"
+
+
+def test_sync_valued_case_places_them_in_both_byte_positions(cases: list[dict]) -> None:
+    """High and low byte alike, or only one half of the hazard is covered."""
+    case = next(c for c in cases if c["name"] == "sync_valued_payload")
+    highs = {word[:2] for word in case["stimuli_q88"]}
+    lows = {word[2:] for word in case["stimuli_q88"]}
+    for half, name in ((highs, "high"), (lows, "low")):
+        assert "AA" in half, f"no stimulus word has 0xAA in its {name} byte"
+        assert "A5" in half, f"no stimulus word has 0xA5 in its {name} byte"
+
+
 def test_spike_words_cover_both_halves_and_both_polarities(cases: list[dict]) -> None:
     """Coverage guard on the bitmap, so a stuck spike byte cannot pass."""
     words = [int(case["spike_word"], 16) for case in cases]
