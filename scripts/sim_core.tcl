@@ -93,10 +93,6 @@ foreach tb_top $core_tb_tops {
     set_property top $tb_top [get_filesets sim_1]
     set_property top_lib xil_defaultlib [get_filesets sim_1]
 
-    # Unit TBs finish well inside 10us. The SoC TB spans several 1 ms ticks,
-    # so it needs a longer window; it calls $finish, so this is only a cap.
-    set run_time 10us
-
     # INIT TBs: XSim CWD is the sim run directory, so pass absolute INIT paths
     # (repo-root-relative defaults work for Verilator only).
     if {$tb_top eq "tb_WeightRam_init"} {
@@ -144,7 +140,6 @@ foreach tb_top $core_tb_tops {
             "LEAK_INIT=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
             "OUTPUT_WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_output_weights.mem]]" \
         ] [get_filesets sim_1]
-        set run_time 20ms
     } elseif {$tb_top eq "tb_LifNeuronArray"} {
         # #92 bank-data regression $readmemh's the shipped bank directly.
         set_property generic [list \
@@ -162,7 +157,18 @@ foreach tb_top $core_tb_tops {
     # catch() guards the first iteration where the run may not exist yet.
     catch {reset_run sim_1}
     launch_simulation
-    run $run_time
+    # run -all, NOT a fixed window.  Every TB top in core_tb_tops terminates
+    # itself with exactly one $finish (or aborts on $fatal), so -all always
+    # returns.  A fixed cap is actively unsafe here: XSim stops at the cap
+    # without any error, so a TB that needs longer than the window is silently
+    # truncated mid-run and the job still reports success.  That happened --
+    # tb_SocFrameGolden needs 23.7us and was cut off by the previous 10us cap
+    # after printing only its opening banner, so its assertions never ran under
+    # Vivado while CI stayed green.  Sizing per-TB caps by hand just moves the
+    # trap to the next testbench.  If a future TB does hang, -all fails loudly
+    # against the job timeout instead of passing quietly, and the Verilator job
+    # on the same PR catches it far sooner.
+    run -all
     close_sim
 }
 
