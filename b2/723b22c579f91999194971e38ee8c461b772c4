@@ -1,0 +1,23 @@
+scripts/q88.py
+  s_2b6c8e7994c681::t_dc1ffb1a1e46d9 157-165
+scripts/gen_golden_lif_vectors.py
+  s_2b6c8e7994c681::t_866f1d6e3ab678 122-127,129-136,323-327,330-332,549
+tests/test_golden_lif_vectors.py
+  s_2b6c8e7994c681::t_866f1d6e3ab678 62-63,374-377,379,386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b2723b22c579f91999194971e38ee8c461b772c4",
+  "prompts": {},
+  "sessions": {
+    "s_2b6c8e7994c681": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "714215e4-211b-4ef1-bc42-6455f1bf48e9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
