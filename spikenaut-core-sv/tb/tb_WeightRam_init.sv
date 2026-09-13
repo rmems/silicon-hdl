@@ -75,15 +75,15 @@ module tb_WeightRam_init #(
         rst_n = 1'b1;
         @(negedge clk);
 
-        // merged_v2_weights.mem: line0=00C0, line1=00C1, line3=00C3
+        // exp-025 bank (GH#73): merged_v2_weights.mem: line0=0134, line1=000E, line3=0001
         read_addr(8'd0, q);
-        check(q === 16'h00C0, "mem[0] should be 00C0 after $readmemh");
+        check(q === 16'h0134, "mem[0] should be 0134 after $readmemh");
 
         read_addr(8'd1, q);
-        check(q === 16'h00C1, "mem[1] should be 00C1 after $readmemh");
+        check(q === 16'h000E, "mem[1] should be 000E after $readmemh");
 
         read_addr(8'd3, q);
-        check(q === 16'h00C3, "mem[3] should be 00C3 after $readmemh");
+        check(q === 16'h0001, "mem[3] should be 0001 after $readmemh");
 
         // Runtime write still works over init (write on this posedge via setup at negedge)
         @(negedge clk);

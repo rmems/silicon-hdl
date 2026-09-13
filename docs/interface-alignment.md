@@ -87,8 +87,12 @@ Example line: `0100` loads as 16'h0100 (Q8.8 value 1.0).
 
 ### 1.3 RTL storage and arithmetic (silicon-hdl)
 
-RTL does **not** implement fixed-point multiply/shift. Modules store and
-operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
+RTL does **not** implement fixed-point multiply/shift. Modules store opaque
+16-bit words; `WeightRam`/`NeuronParamRam` are agnostic to sign, but as of
+[#73](https://github.com/rmems/silicon-hdl/issues/73) `LifNeuron`/`LifNeuronArray`
+read weight, membrane, and threshold as **signed two's-complement Q8.8**, not
+unsigned (see §1.3.1 below) — the host-side encoder has not been updated to
+match (see the compatibility gap called out there).
 
 | Module | Path | Default width | Depth (default) | Role |
 |--------|------|---------------|-----------------|------|
@@ -98,12 +102,15 @@ operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
 | `LifNeuronArray` | `spikenaut-core-sv/rtl/LifNeuronArray.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16`, `NUM_NEURONS = 16` | 16 membrane words + one shared datapath | Time-multiplexed N=16 LIF PE; commits a 16-bit bitmap and exports packed membrane readback after each sweep |
 | `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; unsigned saturate (#55). `WINDOW_WIDTH` is in logical ticks; traces update only on `step_en`. |
 
-**LIF semantics vs Q8.8 (unsigned):**
+**LIF semantics vs Q8.8 (signed as of #73):**
 
-- `membrane -= leak` (floor at 0), then on `spike_in` add `weight` with saturate to all-ones.
-- Spike when integrated membrane `>= threshold`: on that **enabled** clock edge (`step_en = 1`)
-  `spike_out` goes high while `membrane_potential` still holds the **threshold-crossing**
-  value (`next_mem`).
+- `membrane` decays toward the 0 resting potential by `leak` from either side (a positive
+  membrane floors at 0 draining down; a negative/inhibited membrane ceilings at 0 recovering
+  up), then on `spike_in` adds `weight` with saturation at the signed extremes
+  (`16'h7FFF` / `16'h8000`) instead of wrapping.
+- Spike when integrated membrane `>= threshold`, compared **signed**: on that **enabled**
+  clock edge (`step_en = 1`) `spike_out` goes high while `membrane_potential` still holds the
+  **threshold-crossing** value (`next_mem`).
 - **Refractory (next tick):** when the previous `spike_out` is observed, the FSM forces
   `next_mem = 0` and clears `spike_out` on the following **enabled** edge — so membrane reset
   is **one tick after** the spike pulse is generated, not simultaneous with it. A future
@@ -112,9 +119,32 @@ operate on opaque 16-bit words whose host interpretation is unsigned Q8.8.
   holds `spike_out`, so in the SoC (1 kHz tick) a spike stays asserted for up to 100_000
   fabric cycles until the next enabled edge. Only in the unit TBs — which drive `step_en = 1`
   every cycle — do a tick and a fabric cycle coincide.
-- These ops are consistent with **non-negative** Q8.8 words from
-  `FixedPointEncode`. Negative host values must not be written into these RAMs
-  via the export path.
+
+#### 1.3.1 Host-encoder compatibility gap opened by #73
+
+`FixedPointEncode` (§1.1) still clamps to **unsigned** `u16` Q8.8
+(0.0 … 255.996) and the `0xA5` write-frame contract below (§2.3) still
+documents write data as unsigned. Neither has been updated for #73. Two
+concrete consequences until they are:
+
+- A weight/threshold/leak word in `0x8000..0xFFFF` written by that unsigned
+  encoder is now read as **negative** by `LifNeuronArray` — e.g. an intended
+  unsigned value like `0xC880` (≈200.5 under the old encoding) now reads as
+  ≈ −55.5. A negative *threshold* in particular can make an otherwise-idle
+  neuron spike continuously, since almost any signed membrane satisfies
+  `next_mem >= threshold` once `threshold` is negative.
+  `LifNeuronArray`/`Basys3_Top` do not currently reject such a write —
+  raised in PR [#91](https://github.com/rmems/silicon-hdl/pull/91) review,
+  deliberately not fixed there to keep that PR's threshold handling
+  unsigned-shaped, and not yet tracked by its own issue.
+- Negative weights encoded by a signed-aware producer (e.g. the exp-025
+  Distill sidecar bank, which does not go through `FixedPointEncode`) cannot
+  currently round-trip through `FixedPointEncode`/`MemFileWriter` — that
+  encoder clamps negative `f32` input to `0x0000`, so it cannot itself
+  produce the inhibitory words #73 now interprets correctly.
+
+The exp-025 `.mem` images shipped from #73 onward come from that separate
+Distill sidecar export, not from `FixedPointEncode`.
 
 **SoC demo note (`spikenaut_soc_basys3_top`):** `INIT_FILE` is wired. Weight,
 threshold, and leak RAMs load `merged_v2_weights.mem`, `merged_v2_thresholds.mem`,
@@ -191,7 +221,9 @@ Host → FPGA write (5 bytes, #63):
   [0]      = 0xA5                    // write sync (not 0xAA)
   [1]      = target                  // 0=weight, 1=threshold, 2=leak
   [2]      = addr                    // 8-bit RAM address
-  [3..4]   = Q8.8 data               // u16 big-endian; unsigned, same as RAM/LIF math. A host "negative" i16 becomes a large unsigned word.
+  [3..4]   = Q8.8 data               // signed two's-complement, big-endian, since #73 -- same as RAM/LIF math.
+                                      // The host-side encoder (FixedPointEncode) has not been
+                                      // updated to emit signed words yet; see §1.3.1.
 ```
 
 | Layer | Owner | Status in this monorepo |

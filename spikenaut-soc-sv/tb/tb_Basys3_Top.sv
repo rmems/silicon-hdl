@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // tb_Basys3_Top.sv
+// Canonical source: spikenaut-soc-sv/tb
 // SoC-level testbench for spikenaut-soc-sv/rtl/Basys3_Top.sv
 // (top module spikenaut_soc_basys3_top).
 //
@@ -540,22 +541,29 @@ module tb_spikenaut_soc_basys3_top #(
             // logic exactly -- an I row's negative membrane (e.g. exp-025's
             // -1.0 Q8.8 rows) now decays back *up* toward 0, not just a
             // positive membrane decaying down.
-            automatic logic signed [15:0] mem1 =
+            // Mirrors LifNeuronArray's own wide-domain arithmetic exactly
+            // (sign-selected add/subtract + sign-flip clamp) rather than a
+            // magnitude compare with a plain 16-bit negation: negating
+            // 16'h8000 (the most-negative Q8.8 value) in 16 bits overflows
+            // back to itself, which would silently diverge from the RTL for
+            // a future bank containing that exact word. The RTL never hits
+            // this because its own decay arithmetic is done in one extra
+            // guard bit; give the reference model here the same guard bit.
+            automatic logic signed [16:0] mem1_wide =
                 $signed(dut.u_wram.mem[neuron * NUM_NEURONS]);
-            automatic logic signed [15:0] lk =
+            automatic logic signed [16:0] lk_wide =
                 $signed(dut.u_npram_leak.mem[neuron]);
+            automatic logic signed [16:0] expected_wide;
             automatic logic signed [15:0] expected_mem2;
 
             if (expected_first_spikes[neuron]) begin
                 check(dut.u_lif_array.membrane_potential[neuron] === '0,
                       "a prior spike must reset that row on the next tick");
             end else begin
-                if (mem1 > 0)
-                    expected_mem2 = (mem1 > lk) ? (mem1 - lk) : 0;
-                else if (mem1 < 0)
-                    expected_mem2 = (-mem1 > lk) ? (mem1 + lk) : 0;
-                else
-                    expected_mem2 = 0;
+                expected_wide = mem1_wide[16] ? (mem1_wide + lk_wide) : (mem1_wide - lk_wide);
+                if (expected_wide[16] != mem1_wide[16])
+                    expected_wide = '0;
+                expected_mem2 = expected_wide[15:0];
                 check(dut.u_lif_array.membrane_potential[neuron] == expected_mem2,
                       "each non-spiking row must apply its own row's signed, symmetric leak");
             end
