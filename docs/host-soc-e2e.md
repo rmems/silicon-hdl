@@ -218,12 +218,46 @@ steps) and the `silicon-bridge` crate checked out.
 
 6. **Confirm the frame length on the wire.** If the host ever blocks in
    `read_exact`, or returns data that looks shifted by a byte or two, the frame
-   length is the first thing to check — not the network. Capture raw bytes and
-   count them:
+   length is the first thing to check — not the network.
+
+   Two things this has to get right, and both are easy to get wrong:
+
+   - **You must send a request.** Idle 1 ms ticks deliberately emit nothing, so
+     a reader started against a quiet board blocks forever and tells you
+     nothing. Arm a response first.
+   - **Do not cap the read at 36 bytes.** A `head -c 36` truncates by
+     construction and so can never see the 37th byte you are looking for. Read
+     until the line goes idle, *then* count.
+
+   Configure the port once. `-hupcl` keeps closing the fd from toggling the
+   modem lines, which some boards see as a reset:
 
    ```bash
-   stty -F /dev/ttyUSB0 115200 raw -echo && head -c 36 /dev/ttyUSB0 | xxd
+   stty -F /dev/ttyUSB0 115200 raw -echo -hupcl
    ```
+
+   Start the reader **before** sending, let it end on its own idle timeout, then
+   send an all-zero 33-byte request (`0xAA` + 32 zero bytes — the same shape as
+   the `all_zeros` golden case):
+
+   ```bash
+   timeout 2 cat /dev/ttyUSB0 > /tmp/soc-response.bin & sleep 0.3; { printf '\xAA'; printf '\x00%.0s' $(seq 32); } > /dev/ttyUSB0; wait
+   ```
+
+   Now count and inspect. **Exactly 36** is the pass condition — 37 or more is
+   the desynchronizing bug, and fewer means the response was cut short or never
+   armed:
+
+   ```bash
+   wc -c < /tmp/soc-response.bin && od -Ad -tx1 /tmp/soc-response.bin
+   ```
+
+   (`od` is coreutils and always present; `xxd -g1` gives nicer output if you
+   have it, but it ships with vim rather than with the base system.)
+
+   In the dump, bytes `32`–`33` are the spike word and `34`–`35` echo the switch
+   bus, so a recognisable switch pattern from step 3 confirms you are looking at
+   a real response and not at noise.
 
 ## Troubleshooting
 

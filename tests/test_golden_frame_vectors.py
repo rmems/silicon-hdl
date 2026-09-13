@@ -256,9 +256,45 @@ def test_byte_images_reject_a_16_bit_word(tmp_path: Path) -> None:
         q88.read_bytes(path)
 
 
+@pytest.mark.parametrize("token", ["-1", "+F", "-0", "+0"])
+def test_byte_images_reject_a_signed_token(token: str, tmp_path: Path) -> None:
+    """A signed token is two characters long and parses fine as hex.
+
+    ``int("-1", 16)`` returns ``-1``, so a length-only check let it through and
+    ``read_bytes`` handed back a negative "byte" that no ``logic [7:0]`` image
+    can hold. The validator has to match characters, not count them.
+    """
+    path = tmp_path / f"signed_{abs(hash(token))}.mem"
+    path.write_text(f"// SPDX-License-Identifier: MIT OR Apache-2.0\nAA\n{token}\n")
+    with pytest.raises(ValueError, match="2-digit hex byte"):
+        q88.read_bytes(path)
+
+
+def test_read_bytes_accepts_both_hex_cases(tmp_path: Path) -> None:
+    """``$readmemh`` is case-insensitive, so the reader must be too."""
+    path = tmp_path / "mixed.mem"
+    path.write_text("// SPDX-License-Identifier: MIT OR Apache-2.0\nab\nCD\neF\n")
+    assert q88.read_bytes(path) == [0xAB, 0xCD, 0xEF]
+
+
 def test_byte_writer_rejects_out_of_range(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="does not fit in 8 bits"):
         q88.write_bytes(tmp_path / "x.mem", [0x100])
+
+
+def test_committed_byte_images_survive_a_write_read_round_trip(tmp_path: Path) -> None:
+    """Every committed byte fits in 8 bits and comes back identical.
+
+    Pairs the reader with the writer: the writer's range check is what would
+    have caught a negative byte on the way out, so this closes the loop on the
+    signed-token bug above.
+    """
+    for name in ("frame_golden_host_tx.mem", "frame_golden_soc_rx.mem"):
+        original = q88.read_bytes(GOLDEN_DIR / name)
+        assert all(0 <= b <= 0xFF for b in original), name
+        echo = tmp_path / name
+        q88.write_bytes(echo, original)
+        assert q88.read_bytes(echo) == original, name
 
 
 # --------------------------------------------------------------------------

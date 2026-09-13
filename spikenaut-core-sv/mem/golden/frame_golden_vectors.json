@@ -52,7 +52,7 @@
   },
   "frames": {
     "testbench": "spikenaut-soc-sv/tb/tb_SocFrameGolden.sv",
-    "wire_level_testbench": "spikenaut-soc-sv/tb/tb_Basys3_Top.sv (test 12)",
+    "wire_level_testbench": "spikenaut-soc-sv/tb/tb_Basys3_Top.sv (tests 13a / 13b)",
     "host_model_test": "tests/test_golden_frame_vectors.py",
     "runbook": "docs/host-soc-e2e.md",
     "case_count": 8,

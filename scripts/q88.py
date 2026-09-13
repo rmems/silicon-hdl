@@ -209,16 +209,27 @@ def write_words(path: str | Path, words: list[int], *, header: str | None = None
 #: the target array element, so a byte image must not carry 4-digit words.
 BYTE_HEX_DIGITS = 2
 
+#: A byte token is exactly two hex digits and nothing else. Matching the
+#: characters rather than measuring the length matters: ``int("-1", 16)`` is a
+#: valid call returning ``-1``, so a length-only check would let a signed token
+#: through and hand back a *negative* byte.
+_BYTE_TOKEN_RE = re.compile(r"[0-9A-Fa-f]{2}\Z")
+
 
 def read_bytes(path: str | Path) -> list[int]:
     """Read a ``.mem`` image as a list of **8-bit** values.
 
     Counterpart of :func:`write_bytes`, for wire-protocol frame images whose
     ``$readmemh`` target is a ``logic [7:0]`` array (GH#64). Rejects any token
-    that is not exactly two hex digits: a 4-digit word here would be silently
-    truncated to its low byte by ``$readmemh``, so the whole frame would shift
-    and the mismatch would surface as a confusing byte-offset error instead of
-    a load error.
+    that is not exactly two hex digits, for two different reasons:
+
+    * A 4-digit word would be silently truncated to its low byte by
+      ``$readmemh``, shifting the whole frame, so the mismatch would surface as
+      a confusing byte-offset error instead of a load error.
+    * A signed token such as ``-1`` or ``+F`` is two characters long and parses
+      fine under ``int(token, 16)`` -- ``-1`` comes back as ``-1``, a negative
+      "byte" that no ``logic [7:0]`` image can hold. Character matching, not
+      length, is what excludes those.
     """
     values: list[int] = []
     for lineno, line in enumerate(Path(path).read_text().splitlines(), start=1):
@@ -226,16 +237,12 @@ def read_bytes(path: str | Path) -> list[int]:
         if not stripped:
             continue
         for token in stripped.split():
-            if len(token) != BYTE_HEX_DIGITS:
+            if _BYTE_TOKEN_RE.match(token) is None:
                 raise ValueError(
                     f"{path}:{lineno}: '{token}' is not a {BYTE_HEX_DIGITS}-digit "
-                    "hex byte; byte images must not carry 16-bit words"
+                    "hex byte; byte images must not carry 16-bit words or signs"
                 )
-            try:
-                value = int(token, 16)
-            except ValueError as exc:
-                raise ValueError(f"{path}:{lineno}: '{token}' is not hex") from exc
-            values.append(value)
+            values.append(int(token, 16))
     return values
 
 
