@@ -1,0 +1,800 @@
+{
+  "generated_by": "scripts/gen_golden_lif_vectors.py",
+  "issue": "GH#66 / RM-281",
+  "do_not_edit": "Regenerate with: python3 scripts/gen_golden_lif_vectors.py",
+  "q88": {
+    "convention": "signed two's-complement Q8.8 (GH#73)",
+    "codec": "scripts/q88.py, mirroring silicon-bridge encode_q88_signed",
+    "clamp_f32": [
+      -127.99,
+      127.99
+    ],
+    "rounding": "truncate toward zero"
+  },
+  "bank": {
+    "source": "rmems/Spikenaut-SNN dataset/merged_v2 (exp-025 Dale health-PASS bank, PR #47)",
+    "commit": "6965e12a",
+    "images": [
+      "spikenaut-core-sv/mem/merged_v2_weights.mem",
+      "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
+      "spikenaut-core-sv/mem/merged_v2_decay.mem",
+      "spikenaut-core-sv/mem/merged_v2_output_weights.mem"
+    ]
+  },
+  "lif": {
+    "dut": "spikenaut-core-sv/rtl/LifNeuron.sv",
+    "testbench": "spikenaut-core-sv/tb/tb_LifNeuron_golden.sv",
+    "reference_model": "scripts/lif_reference.py",
+    "tick_count": 48,
+    "scenarios": [
+      {
+        "name": "dale_i_subtracts",
+        "source": "exp-025",
+        "why": "0xFF00 (-1.0) on a real Dale-I row must drive the membrane negative and never fire; an unsigned misread saturates positive and fires on tick 1.",
+        "first_tick": 0,
+        "tick_count": 6,
+        "ticks": [
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n6][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FF00",
+            "expect_membrane_f32": -1.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n6][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FEDA",
+            "expect_membrane_f32": -1.1484375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n6][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FEB4",
+            "expect_membrane_f32": -1.296875,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n6][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FE8E",
+            "expect_membrane_f32": -1.4453125,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n6][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FE68",
+            "expect_membrane_f32": -1.59375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n6][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FE42",
+            "expect_membrane_f32": -1.7421875,
+            "expect_spike": false
+          }
+        ]
+      },
+      {
+        "name": "dale_i_leak_recovery",
+        "source": "exp-025",
+        "why": "After real inhibition, the real decay word must recover the membrane toward 0 and clamp; a one-sided leak pushes it further negative.",
+        "first_tick": 6,
+        "tick_count": 6,
+        "ticks": [
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n6][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FF00",
+            "expect_membrane_f32": -1.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n6][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FEDA",
+            "expect_membrane_f32": -1.1484375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.0,
+            "weight_q88": "0000",
+            "weight_origin": "none (leak-only, n6)",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": false,
+            "expect_membrane_q88": "FFB4",
+            "expect_membrane_f32": -0.296875,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.0,
+            "weight_q88": "0000",
+            "weight_origin": "none (leak-only, n6)",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": false,
+            "expect_membrane_q88": "0000",
+            "expect_membrane_f32": 0.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.0,
+            "weight_q88": "0000",
+            "weight_origin": "none (leak-only, n6)",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": false,
+            "expect_membrane_q88": "0000",
+            "expect_membrane_f32": 0.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.0,
+            "weight_q88": "0000",
+            "weight_origin": "none (leak-only, n6)",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": false,
+            "expect_membrane_q88": "0000",
+            "expect_membrane_f32": 0.0,
+            "expect_spike": false
+          }
+        ]
+      },
+      {
+        "name": "exc_crosses_threshold",
+        "source": "exp-025",
+        "why": "Real excitatory weight/threshold/decay: the leak delays the crossing to tick 3, so a wrong leak magnitude shifts the spike tick. Also pins the single-tick pulse and the refractory clear.",
+        "first_tick": 12,
+        "tick_count": 6,
+        "ticks": [
+          {
+            "weight_f32": 1.203125,
+            "weight_q88": "0134",
+            "weight_origin": "weights[n0][ch0]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "0134",
+            "expect_membrane_f32": 1.203125,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 1.203125,
+            "weight_q88": "0134",
+            "weight_origin": "weights[n0][ch0]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "018E",
+            "expect_membrane_f32": 1.5546875,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 1.203125,
+            "weight_q88": "0134",
+            "weight_origin": "weights[n0][ch0]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "01E8",
+            "expect_membrane_f32": 1.90625,
+            "expect_spike": true
+          },
+          {
+            "weight_f32": 1.203125,
+            "weight_q88": "0134",
+            "weight_origin": "weights[n0][ch0]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "0000",
+            "expect_membrane_f32": 0.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 1.203125,
+            "weight_q88": "0134",
+            "weight_origin": "weights[n0][ch0]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "0134",
+            "expect_membrane_f32": 1.203125,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 1.203125,
+            "weight_q88": "0134",
+            "weight_origin": "weights[n0][ch0]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "018E",
+            "expect_membrane_f32": 1.5546875,
+            "expect_spike": false
+          }
+        ]
+      },
+      {
+        "name": "mixed_sign_alternating",
+        "source": "exp-025",
+        "why": "One real row alternating its inhibitory (ch0, -1.0) and excitatory (ch3, +0.309) words: the membrane must cross zero in both directions.",
+        "first_tick": 18,
+        "tick_count": 8,
+        "ticks": [
+          {
+            "weight_f32": 0.30859375,
+            "weight_q88": "004F",
+            "weight_origin": "weights[n7][ch3]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "004F",
+            "expect_membrane_f32": 0.30859375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n7][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FF00",
+            "expect_membrane_f32": -1.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.30859375,
+            "weight_q88": "004F",
+            "weight_origin": "weights[n7][ch3]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "0029",
+            "expect_membrane_f32": 0.16015625,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.30859375,
+            "weight_q88": "004F",
+            "weight_origin": "weights[n7][ch3]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "004F",
+            "expect_membrane_f32": 0.30859375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n7][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FF00",
+            "expect_membrane_f32": -1.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.30859375,
+            "weight_q88": "004F",
+            "weight_origin": "weights[n7][ch3]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "0029",
+            "expect_membrane_f32": 0.16015625,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.30859375,
+            "weight_q88": "004F",
+            "weight_origin": "weights[n7][ch3]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "004F",
+            "expect_membrane_f32": 0.30859375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n7][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FF00",
+            "expect_membrane_f32": -1.0,
+            "expect_spike": false
+          }
+        ]
+      },
+      {
+        "name": "inhibit_from_positive",
+        "source": "exp-025",
+        "why": "Real -1/256 (0xFFFF) subtracting from an already-positive membrane on a real row. Misread unsigned it is +65535: it would saturate and fire.",
+        "first_tick": 26,
+        "tick_count": 5,
+        "ticks": [
+          {
+            "weight_f32": 1.58203125,
+            "weight_q88": "0195",
+            "weight_origin": "weights[n15][ch2]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "0195",
+            "expect_membrane_f32": 1.58203125,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -0.00390625,
+            "weight_q88": "FFFF",
+            "weight_origin": "weights[n15][ch3]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "00BA",
+            "expect_membrane_f32": 0.7265625,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -0.00390625,
+            "weight_q88": "FFFF",
+            "weight_origin": "weights[n15][ch3]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FFFF",
+            "expect_membrane_f32": -0.00390625,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 1.58203125,
+            "weight_q88": "0195",
+            "weight_origin": "weights[n15][ch2]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "0195",
+            "expect_membrane_f32": 1.58203125,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -0.00390625,
+            "weight_q88": "FFFF",
+            "weight_origin": "weights[n15][ch3]",
+            "threshold_q88": "019A",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "00BA",
+            "expect_membrane_f32": 0.7265625,
+            "expect_spike": false
+          }
+        ]
+      },
+      {
+        "name": "dale_i_row_spike_and_recover",
+        "source": "exp-025",
+        "why": "One real Dale row walked through fire -> refractory clear -> real inhibition -> leak recovery, all with its own bank threshold and decay.",
+        "first_tick": 31,
+        "tick_count": 5,
+        "ticks": [
+          {
+            "weight_f32": 0.66796875,
+            "weight_q88": "00AB",
+            "weight_origin": "weights[n8][ch1]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "00AB",
+            "expect_membrane_f32": 0.66796875,
+            "expect_spike": true
+          },
+          {
+            "weight_f32": 0.66796875,
+            "weight_q88": "00AB",
+            "weight_origin": "weights[n8][ch1]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "0000",
+            "expect_membrane_f32": 0.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n8][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FF00",
+            "expect_membrane_f32": -1.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -1.0,
+            "weight_q88": "FF00",
+            "weight_origin": "weights[n8][ch0]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "FEDA",
+            "expect_membrane_f32": -1.1484375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.66796875,
+            "weight_q88": "00AB",
+            "weight_origin": "weights[n8][ch1]",
+            "threshold_q88": "0073",
+            "leak_q88": "00DA",
+            "spike_in": true,
+            "expect_membrane_q88": "005F",
+            "expect_membrane_f32": 0.37109375,
+            "expect_spike": false
+          }
+        ]
+      },
+      {
+        "name": "saturate_positive",
+        "source": "synthetic",
+        "why": "Two +100.0 ticks overflow the 16-bit datapath: the membrane must pin at 0x7FFF and fire there, not wrap to a negative value and stay silent.",
+        "first_tick": 36,
+        "tick_count": 3,
+        "ticks": [
+          {
+            "weight_f32": 100.0,
+            "weight_q88": "6400",
+            "weight_origin": "synthetic +100.0",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "6400",
+            "expect_membrane_f32": 100.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 100.0,
+            "weight_q88": "6400",
+            "weight_origin": "synthetic +100.0",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "7FFF",
+            "expect_membrane_f32": 127.99609375,
+            "expect_spike": true
+          },
+          {
+            "weight_f32": 100.0,
+            "weight_q88": "6400",
+            "weight_origin": "synthetic +100.0",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "0000",
+            "expect_membrane_f32": 0.0,
+            "expect_spike": false
+          }
+        ]
+      },
+      {
+        "name": "saturate_negative",
+        "source": "synthetic",
+        "why": "Mirror of saturate_positive: the membrane must pin at 0x8000 and never fire. A wrapping datapath aliases to a large positive and fires.",
+        "first_tick": 39,
+        "tick_count": 3,
+        "ticks": [
+          {
+            "weight_f32": -100.0,
+            "weight_q88": "9C00",
+            "weight_origin": "synthetic -100.0",
+            "threshold_q88": "0080",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "9C00",
+            "expect_membrane_f32": -100.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -100.0,
+            "weight_q88": "9C00",
+            "weight_origin": "synthetic -100.0",
+            "threshold_q88": "0080",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "8000",
+            "expect_membrane_f32": -128.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -100.0,
+            "weight_q88": "9C00",
+            "weight_origin": "synthetic -100.0",
+            "threshold_q88": "0080",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "8000",
+            "expect_membrane_f32": -128.0,
+            "expect_spike": false
+          }
+        ]
+      },
+      {
+        "name": "f32_truncation",
+        "source": "synthetic",
+        "why": "f32 values chosen to pin truncate-toward-zero on both signs (+/-0.999 -> +/-255) and the 1/256 LSB quantum.",
+        "first_tick": 42,
+        "tick_count": 6,
+        "ticks": [
+          {
+            "weight_f32": 0.999,
+            "weight_q88": "00FF",
+            "weight_origin": "synthetic 0.999",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "00FF",
+            "expect_membrane_f32": 0.99609375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.999,
+            "weight_q88": "00FF",
+            "weight_origin": "synthetic 0.999",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "01FE",
+            "expect_membrane_f32": 1.9921875,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -0.999,
+            "weight_q88": "FF01",
+            "weight_origin": "synthetic -0.999",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "00FF",
+            "expect_membrane_f32": 0.99609375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.00390625,
+            "weight_q88": "0001",
+            "weight_origin": "synthetic 0.00390625",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "0100",
+            "expect_membrane_f32": 1.0,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": -0.00390625,
+            "weight_q88": "FFFF",
+            "weight_origin": "synthetic -0.00390625",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "00FF",
+            "expect_membrane_f32": 0.99609375,
+            "expect_spike": false
+          },
+          {
+            "weight_f32": 0.9999,
+            "weight_q88": "00FF",
+            "weight_origin": "synthetic 0.9999",
+            "threshold_q88": "7FFD",
+            "leak_q88": "0000",
+            "spike_in": true,
+            "expect_membrane_q88": "01FE",
+            "expect_membrane_f32": 1.9921875,
+            "expect_spike": false
+          }
+        ]
+      }
+    ]
+  },
+  "output_layer": {
+    "dut": "spikenaut-core-sv/rtl/OutputLayer.sv",
+    "testbench": "spikenaut-core-sv/tb/tb_OutputLayer_golden.sv",
+    "weight_image": "spikenaut-core-sv/mem/merged_v2_output_weights.mem",
+    "addressing": "addr = neuron * NUM_CLASSES + class",
+    "tie_break": "lowest class index wins",
+    "vectors": [
+      {
+        "spike_bitmap": "0000",
+        "scores_q88": [
+          "0000",
+          "0000",
+          "0000"
+        ],
+        "scores_f32": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "argmax_class": 0,
+        "result_onehot": "0001"
+      },
+      {
+        "spike_bitmap": "0001",
+        "scores_q88": [
+          "0060",
+          "0048",
+          "0019"
+        ],
+        "scores_f32": [
+          0.375,
+          0.28125,
+          0.09765625
+        ],
+        "argmax_class": 0,
+        "result_onehot": "0001"
+      },
+      {
+        "spike_bitmap": "0040",
+        "scores_q88": [
+          "0006",
+          "0007",
+          "0004"
+        ],
+        "scores_f32": [
+          0.0234375,
+          0.02734375,
+          0.015625
+        ],
+        "argmax_class": 1,
+        "result_onehot": "0002"
+      },
+      {
+        "spike_bitmap": "0100",
+        "scores_q88": [
+          "0004",
+          "0001",
+          "000D"
+        ],
+        "scores_f32": [
+          0.015625,
+          0.00390625,
+          0.05078125
+        ],
+        "argmax_class": 2,
+        "result_onehot": "0004"
+      },
+      {
+        "spike_bitmap": "0007",
+        "scores_q88": [
+          "0121",
+          "00D9",
+          "004C"
+        ],
+        "scores_f32": [
+          1.12890625,
+          0.84765625,
+          0.296875
+        ],
+        "argmax_class": 0,
+        "result_onehot": "0001"
+      },
+      {
+        "spike_bitmap": "03C0",
+        "scores_q88": [
+          "0033",
+          "0026",
+          "002D"
+        ],
+        "scores_f32": [
+          0.19921875,
+          0.1484375,
+          0.17578125
+        ],
+        "argmax_class": 0,
+        "result_onehot": "0001"
+      },
+      {
+        "spike_bitmap": "F000",
+        "scores_q88": [
+          "0000",
+          "FFDA",
+          "FFA2"
+        ],
+        "scores_f32": [
+          0.0,
+          -0.1484375,
+          -0.3671875
+        ],
+        "argmax_class": 0,
+        "result_onehot": "0001"
+      },
+      {
+        "spike_bitmap": "FFFF",
+        "scores_q88": [
+          "0331",
+          "0246",
+          "009B"
+        ],
+        "scores_f32": [
+          3.19140625,
+          2.2734375,
+          0.60546875
+        ],
+        "argmax_class": 0,
+        "result_onehot": "0001"
+      },
+      {
+        "spike_bitmap": "8001",
+        "scores_q88": [
+          "0060",
+          "003F",
+          "0002"
+        ],
+        "scores_f32": [
+          0.375,
+          0.24609375,
+          0.0078125
+        ],
+        "argmax_class": 0,
+        "result_onehot": "0001"
+      },
+      {
+        "spike_bitmap": "AAAA",
+        "scores_q88": [
+          "01A8",
+          "012E",
+          "0053"
+        ],
+        "scores_f32": [
+          1.65625,
+          1.1796875,
+          0.32421875
+        ],
+        "argmax_class": 0,
+        "result_onehot": "0001"
+      }
+    ]
+  }
+}

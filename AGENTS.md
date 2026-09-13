@@ -64,6 +64,8 @@ symbols or tops conflict.
 | `tb_NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam.sv` |
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
 | `tb_OutputLayer` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer.sv` |
+| `tb_LifNeuron_golden` | `spikenaut-core-sv/rtl/LifNeuron.sv` + `spikenaut-core-sv/tb/tb_LifNeuron_golden.sv` |
+| `tb_OutputLayer_golden` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer_golden.sv` |
 | `tb_UartRx` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/tb/tb_UartRx.sv` |
 | `tb_UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/tb/tb_UartTx.sv` |
 | `tb_SiliconBridge` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/rtl/SiliconBridge.sv` + `spikenaut-bridge-sv/tb/tb_SiliconBridge.sv` |
@@ -71,7 +73,9 @@ symbols or tops conflict.
 | `tb_SocStatusLeds` | `spikenaut-soc-sv/rtl/SocStatusLeds.sv` + `spikenaut-soc-sv/tb/tb_SocStatusLeds.sv` |
 
 Testbenches call `$fatal` on failure and are self-checking (look for an `errors` counter and
-`$display` summary at the end). Bridge TBs use a fast integer baud (`CLK_FREQ=1_000_000`,
+`$display` summary at the end). The two `*_golden` testbenches additionally read their stimulus
+*and* their expectations from `spikenaut-core-sv/mem/golden/` and must be run from the repo root
+(those paths are repo-root relative); see the Golden vectors section below. Bridge TBs use a fast integer baud (`CLK_FREQ=1_000_000`,
 `BAUD_RATE=100_000`) so a byte is tens of clocks, not a 100 MHz / 115200 bit time.
 
 ### SoC-level testbench
@@ -134,6 +138,24 @@ Run before committing any RTL change:
 python scripts/dedup_guardian.py            # exits non-zero on strict duplicate violations
 python scripts/dedup_guardian.py --radar radar.md --threshold 0.85   # near-dup "Dupe Radar" report
 ```
+
+### Golden vectors (GH#66)
+
+`spikenaut-core-sv/mem/golden/` holds **generated** f32 -> Q8.8 -> `.mem` vectors that pin the
+signed LIF datapath and the GH#72 output layer against the pinned exp-025 bank. Do not hand-edit
+them.
+
+```bash
+python3 scripts/gen_golden_lif_vectors.py            # regenerate
+python3 scripts/gen_golden_lif_vectors.py --check    # drift gate; exits non-zero if stale
+```
+
+`--check` runs in `scripts/quality.sh`, in `.github/workflows/sim.yml`, and from
+`tests/test_golden_lif_vectors.py`. A red `tb_LifNeuron_golden` / `tb_OutputLayer_golden` normally
+means the **RTL** changed behaviour, not that the vectors are stale — regenerate only when the
+semantics change is intended, and in the same commit as the RTL change. `scripts/q88.py` is the
+single Q8.8 codec; do not add a second one. Full rationale, scenario table, and the Spikenaut bank
+pin: [`docs/golden-lif-vectors.md`](docs/golden-lif-vectors.md).
 
 ## Architecture notes
 

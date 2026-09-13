@@ -83,9 +83,11 @@ foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_OutputLayer tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
 
-set mem_dir [file join $repo_root spikenaut-core-sv mem]
+set mem_dir    [file join $repo_root spikenaut-core-sv mem]
+# GH#66 golden vectors (generated; see docs/golden-lif-vectors.md).
+set golden_dir [file join $mem_dir golden]
 
 foreach tb_top $core_tb_tops {
     set_property top $tb_top [get_filesets sim_1]
@@ -104,6 +106,26 @@ foreach tb_top $core_tb_tops {
     } elseif {$tb_top eq "tb_OutputLayer"} {
         # #72 output-weight bank regression $readmemh's the shipped bank directly.
         set_property generic "INIT_FILE=[file normalize [file join $mem_dir merged_v2_output_weights.mem]]" [get_filesets sim_1]
+    } elseif {$tb_top eq "tb_LifNeuron_golden"} {
+        # GH#66 golden vectors. Every image is read by absolute path because
+        # XSim's CWD is the sim run dir, not the repo root.
+        set_property generic [list \
+            "WEIGHT_FILE=[file normalize [file join $golden_dir lif_golden_weights.mem]]" \
+            "THRESHOLD_FILE=[file normalize [file join $golden_dir lif_golden_thresholds.mem]]" \
+            "LEAK_FILE=[file normalize [file join $golden_dir lif_golden_leaks.mem]]" \
+            "SPIKE_IN_FILE=[file normalize [file join $golden_dir lif_golden_spike_in.mem]]" \
+            "RESET_FILE=[file normalize [file join $golden_dir lif_golden_reset.mem]]" \
+            "EXP_MEM_FILE=[file normalize [file join $golden_dir lif_golden_exp_membrane.mem]]" \
+            "EXP_SPIKE_FILE=[file normalize [file join $golden_dir lif_golden_exp_spike.mem]]" \
+            "COUNT_FILE=[file normalize [file join $golden_dir lif_golden_count.mem]]" \
+        ] [get_filesets sim_1]
+    } elseif {$tb_top eq "tb_OutputLayer_golden"} {
+        set_property generic [list \
+            "INIT_FILE=[file normalize [file join $mem_dir merged_v2_output_weights.mem]]" \
+            "BITMAP_FILE=[file normalize [file join $golden_dir outlayer_golden_bitmap.mem]]" \
+            "RESULT_FILE=[file normalize [file join $golden_dir outlayer_golden_exp_result.mem]]" \
+            "COUNT_FILE=[file normalize [file join $golden_dir outlayer_golden_count.mem]]" \
+        ] [get_filesets sim_1]
     } elseif {$tb_top eq "tb_spikenaut_soc_basys3_top"} {
         set_property generic [list \
             "WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_weights.mem]]" \

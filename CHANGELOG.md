@@ -31,6 +31,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Golden f32 → Q8.8 → `.mem` → Verilator LIF vectors (addresses #66).
+  - `spikenaut-core-sv/mem/golden/` holds generated stimulus and expected traces derived from
+    the pinned exp-025 Dale bank (Spikenaut-SNN#47 @ `6965e12a`) — no weight is authored by
+    hand, and the generator asserts the f32 round trip returns the identical bank word.
+  - New `tb_LifNeuron_golden` and `tb_OutputLayer_golden` replay those traces tick-for-tick
+    against the real signed `LifNeuron` datapath and the #72 `OutputLayer` argmax path.
+  - `scripts/gen_golden_lif_vectors.py --check` is a drift gate wired into `scripts/quality.sh`,
+    `.github/workflows/sim.yml`, and `tests/test_golden_lif_vectors.py`: committed vectors that
+    no longer regenerate byte-identically fail CI.
+  - `tests/test_golden_lif_vectors.py` additionally replays the vectors through deliberately
+    wrong LIF variants (unsigned misread, one-sided leak, wrapping instead of saturating) and
+    fails if any of them reproduces the golden trace — so the vectors are shown to discriminate
+    the signed path, not merely to be reproducible.
+  - `scripts/q88.py` is the single signed Q8.8 codec, mirroring silicon-bridge's
+    `encode_q88_signed` (whose own test vectors are re-asserted against it). silicon-bridge's
+    `MemFileWriter` was not reused: it encodes through the *unsigned* `encode_q88`, which clamps
+    negatives to `0` and cannot express a Dale-I word. See
+    [`docs/golden-lif-vectors.md`](docs/golden-lif-vectors.md).
+
 - Signed output-layer weights wired into the SoC (addresses #72).
   - New `OutputLayer` (`spikenaut-core-sv/rtl/OutputLayer.sv`) reduces one tick's
     `spike_bitmap` into 3 signed Q8.8 class scores against

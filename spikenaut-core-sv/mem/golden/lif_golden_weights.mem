@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// GENERATED FILE -- do not edit by hand.
+// Regenerate: python3 scripts/gen_golden_lif_vectors.py
+// Source bank: rmems/Spikenaut-SNN dataset/merged_v2 (exp-025 Dale health-PASS bank, PR #47)
+// Pinned at Spikenaut-SNN commit 6965e12a
+// See docs/golden-lif-vectors.md (GH#66).
+FF00
+FF00
+FF00
+FF00
+FF00
+FF00
+FF00
+FF00
+0000
+0000
+0000
+0000
+0134
+0134
+0134
+0134
+0134
+0134
+004F
+FF00
+004F
+004F
+FF00
+004F
+004F
+FF00
+0195
+FFFF
+FFFF
+0195
+FFFF
+00AB
+00AB
+FF00
+FF00
+00AB
+6400
+6400
+6400
+9C00
+9C00
+9C00
+00FF
+00FF
+FF01
+0001
+FFFF
+00FF
