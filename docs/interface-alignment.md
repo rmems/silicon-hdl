@@ -165,14 +165,22 @@ vendored only). Vivado: `build_soc.tcl` `-generic` absolute paths so `$readmemh`
 resolves. `LifNeuronArray` starts a 16-slot sweep on each `step_en` and pipelines
 the RAM address one fabric cycle ahead of its registered `dout` consumption.
 Threshold and leak walk neuron addresses `0..15`; the weight map is
-`flat_addr = neuron_row * 16 + input_index` over the 256-word image. The
-SoC protocol mapping selects the lowest-index non-zero decoded stimulus lane
-as the binary-event `input_index`, so each frame can address any column
-`0..15`; a frame with more than one active lane is not vector-accumulated by
-the current shared-event PE. Host `0xA5` write frames from `SocProtocolFsm`
-(#63) pulse `we` for one cycle and steal `addr` only while `wr_en` is high;
-the PE read path is restored when idle. `INIT_FILE` remains the cold start.
-This closes the
+`flat_addr = neuron_row * 16 + input_index` over the 256-word image, where
+`neuron_row` is the neuron being updated and `input_index` selects one of 16
+**external input channels** for that neuron's own row — not another neuron's
+index. There is no neuron-to-neuron recurrence: `input_index` is decoded
+purely from the host's stimulus frame, never from the PE's own
+`spike_bitmap`. Per the exp-025 bank's metadata (`legal_columns` /
+`unused_axons` in its `snn_model.json`), only 5 of the 16 channels carry
+telemetry today; the remaining 11 are structurally zero for every neuron.
+See [`docs/lif-array-connectivity-model.md`](lif-array-connectivity-model.md)
+(#92) for the full rationale. The SoC protocol mapping selects the
+lowest-index non-zero decoded stimulus lane as the binary-event `input_index`,
+so each frame can address any channel `0..15`; a frame with more than one
+active lane is not vector-accumulated by the current shared-event PE. Host
+`0xA5` write frames from `SocProtocolFsm` (#63) pulse `we` for one cycle and
+steal `addr` only while `wr_en` is high; the PE read path is restored when
+idle. `INIT_FILE` remains the cold start. This closes the
 N=16 addressing gap in [#61](https://github.com/rmems/silicon-hdl/issues/61)
 and the runtime rewrite path in [#63](https://github.com/rmems/silicon-hdl/issues/63).
 

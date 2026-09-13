@@ -11,6 +11,12 @@
 // an inhibitory weight subtracts instead of misreading as a large positive
 // integer. Mirrors LifNeuron.sv's signed leak/integrate/compare exactly (see
 // that file's header for the saturation and symmetric-leak rationale).
+//
+// Connectivity model (#92): the weight lookup is a per-neuron-row lookup
+// against one shared external input channel selected by input_index, not
+// neuron-to-neuron recurrent routing -- there is no path from spike_bitmap
+// back into input_index anywhere in this design. See
+// docs/lif-array-connectivity-model.md.
 
 module LifNeuronArray #(
     parameter int DATA_WIDTH        = 16,
@@ -132,8 +138,12 @@ module LifNeuronArray #(
         weight_addr    = '0;
         threshold_addr = address_neuron;
         leak_addr      = address_neuron;
-        // Flattened matrix policy: address = output-neuron row * input count
-        //                                  + selected input channel.
+        // Flattened matrix policy: row = the neuron currently being updated
+        // (address_neuron), column = the selected external input channel
+        // (address_input). See docs/lif-array-connectivity-model.md (#92):
+        // this is a per-neuron-row lookup against a shared external channel,
+        // not neuron-to-neuron routing -- address_input never carries
+        // another neuron's index.
         weight_addr = WEIGHT_ADDR_WIDTH'((address_neuron * NUM_NEURONS) + address_input);
     end
 

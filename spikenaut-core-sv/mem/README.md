@@ -31,6 +31,18 @@ anywhere in the leak/integrate/threshold path. The host runtime-write path
 same contract: a host writing a weight/threshold/leak word at runtime must
 send signed two's-complement Q8.8, not an unsigned magnitude.
 
+**Weight matrix layout (#92):** `merged_v2_weights.mem` is row-major,
+`row = neuron`, `column = external input channel` — **not** a neuron-to-neuron
+connectivity matrix. Row *n*'s 16 words are neuron *n*'s own incoming weights
+from 16 external channels, matching `LifNeuronArray`'s
+`weight_addr = neuron_row * 16 + input_index` addressing exactly (`input_index`
+selects a channel, never another neuron). Per the exp-025 bank's own
+`legal_columns` / `unused_axons` metadata (`_incoming/snn_model.json`), only
+columns 0-4 carry real telemetry weights; columns 5-15 are structurally zero
+for every row, Dale-inhibitory rows included — see
+[`docs/lif-array-connectivity-model.md`](../../docs/lif-array-connectivity-model.md)
+for the full rationale. This doesn't change the signed Q8.8 contract above.
+
 **RTL default:** `parameter string INIT_FILE = "NONE"`. Prefer typed `string`
 over bare untyped string parameters: some tools size untyped defaults
 narrowly and path overrides misbehave (saw this on free-runner Verilator).
