@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-09 -->
+<!-- Last updated: 2026-09-13 -->
 # HDL ↔ silicon-bridge interface alignment
 
 Cross-repo contract between **silicon-hdl** (SystemVerilog RTL) and
@@ -128,10 +128,11 @@ match (see the compatibility gap called out there).
 `FixedPointEncode` (§1.1) still clamps to **unsigned** `u16` Q8.8
 (0.0 … 255.996) and has not been updated for #73 — it is the one part of this
 gap still open. The `0xA5` write-frame *wire contract* itself (§2.2) is
-signed two's-complement Q8.8, and `spikenaut_soc_basys3_top` rejects a
-sign-bit-set weight/threshold/leak word written through `FixedPointEncode`
-where doing so protects against a false spike (see below) — but the encoder
-producing that wire data still can't emit one on purpose. Concretely:
+signed two's-complement Q8.8: `spikenaut_soc_basys3_top` rejects a
+sign-bit-set *threshold or leak* write instead of storing it (weight is not
+guarded — a negative weight is the valid Dale-inhibitory case), but
+`FixedPointEncode` itself still can't produce a signed word on purpose, for
+any of the three. Concretely:
 
 - A weight/threshold/leak word in `0x8000..0xFFFF` written by the still-
   unsigned `FixedPointEncode` is read as **negative** by `LifNeuronArray` —
