@@ -5,37 +5,37 @@ This is the **single** Q8.8 codec in this repository (GH#66). Everything that
 turns host ``f32`` values into ``.mem`` words — the golden-vector generator,
 its tests — goes through here. Do not add a second one.
 
-Why this exists at all instead of calling silicon-bridge's ``MemFileWriter``
------------------------------------------------------------------------------
-silicon-bridge ships two Q8.8 conventions, and neither one *as wired today*
-writes the file this repo's RTL reads:
+Why this exists at all instead of calling silicon-bridge's exporter
+-------------------------------------------------------------------
+silicon-hdl's ``.mem`` contract is **signed two's-complement Q8.8** (GH#73, see
+``spikenaut-core-sv/mem/README.md``): ``0xFF00`` is ``-1.0``, not ``65280``.
+silicon-bridge exposes two Q8.8 conventions, and only one can express a Dale-I
+word:
 
 ===========================  ===========  ================================
 silicon-bridge item          Convention   Can express a Dale-I word?
 ===========================  ===========  ================================
-``FixedPointEncode::         unsigned     No — negatives clamp to ``0``
-encode_q88`` (the one
-``MemFileWriter::
-write_mem_files`` uses)
 ``encode_q88_signed``        signed i16   Yes (``-1.0`` -> ``0xFF00``)
+``encode_q88_unsigned``      unsigned     No — negatives clamp to ``0``
 ===========================  ===========  ================================
 
-silicon-hdl's ``.mem`` contract is **signed two's-complement Q8.8** (GH#73,
-see ``spikenaut-core-sv/mem/README.md``): ``0xFF00`` is ``-1.0``, not
-``65280``. So the ``.mem`` writer in silicon-bridge is on the wrong side of
-that contract and would silently flatten every inhibitory weight to zero.
+As of silicon-bridge #60 (``e201514``), ``FpgaParameterExporter``'s
+``FixedPointEncode::encode_q88`` — the one ``write_mem_files`` goes through —
+encodes with ``encode_q88_signed``, so that crate and this contract now agree.
+``encode_q88_unsigned`` is still public, but nothing in the crate builds
+hardware images with it.
 
-This module therefore mirrors silicon-bridge's **signed** function,
-``encode_q88_signed`` / ``q88_signed_to_f32`` (``silicon-bridge/src/
-fpga_export.rs``), bit for bit — same clamp bounds, same truncate-toward-zero,
-same NaN handling. ``tests/test_golden_lif_vectors.py`` re-asserts that crate's
-own unit-test vectors against this implementation, so the two cannot drift
-apart silently.
+  *Correction:* an earlier revision of this docstring said the ``.mem`` writer
+  was still on the unsigned encoder and called that "the wrong side of the
+  contract". That was accurate when GH#66 landed and is no longer accurate.
 
-Whether silicon-bridge's ``.mem`` writer should move to the signed encoder is a
-question for that repo and is out of scope for GH#66. It is not tracked there
-yet; the closest existing work is silicon-bridge GH#22 / RM-300 (MemFileWriter
-``.mem`` round-trip tests), which would surface the mismatch.
+This module exists because silicon-hdl's tooling is Python and cannot call into
+the crate: reaching for it would make every golden-vector regeneration depend on
+a Rust toolchain and a cross-repo checkout. So it mirrors ``encode_q88_signed``
+/ ``q88_signed_to_f32`` (``silicon-bridge/src/fpga_export.rs``) bit for bit
+— same clamp bounds, same truncate-toward-zero, same NaN handling.
+``tests/test_golden_lif_vectors.py`` re-asserts that crate's own unit-test
+vectors against this implementation, so the two cannot drift apart silently.
 """
 
 from __future__ import annotations

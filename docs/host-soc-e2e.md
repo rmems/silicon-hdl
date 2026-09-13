@@ -235,7 +235,7 @@ steps) and the `silicon-bridge` crate checked out.
 | Spike bits are mirrored | Bit order. Bit 0 is neuron 0; `lane_walk` (`0x0001`) and `lane15_only` (`0x8000`) are the pair that separates the two conventions. |
 | Responses drift out of sync over a session | An extra or missing byte. One stray byte desynchronizes every later `read_exact(36)` permanently — `tb_Basys3_Top` test 13b is the check that catches this in simulation. |
 | `status_word[3]` is lit | Sticky `rx_abort`: a host request was abandoned mid-frame and the inter-byte idle timeout fired. Idle the link before retrying. |
-| Inhibitory weights have no effect | The `.mem` export path, not the UART path. `MemFileWriter` uses the unsigned encoder; see `scripts/q88.py`'s module docstring and silicon-bridge [#23](https://github.com/rmems/silicon-bridge/issues/23) / [#22](https://github.com/rmems/silicon-bridge/issues/22). |
+| Inhibitory weights have no effect *in a bank you exported yourself* | Not the UART path. Check the encoder the export used: `encode_q88_unsigned` flattens every negative to `0`. As of silicon-bridge [#60](https://github.com/rmems/silicon-bridge/pull/60) (`e201514`) `FpgaParameterExporter` encodes `.mem` images through `encode_q88_signed`, so a current crate is correct here; an older export is not. |
 
 ## Out of scope
 
