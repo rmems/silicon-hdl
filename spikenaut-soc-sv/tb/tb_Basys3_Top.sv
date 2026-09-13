@@ -24,6 +24,13 @@
 //                          refs; synchronized sw is published as aux.
 //  11. Runtime RAM write — a 0xA5 host frame overwrites one INIT_FILE weight
 //                          and one leak param; RAM we is not hard-tied 0.
+//  12. Deferred writes   — a write landing mid-sweep is held until the PE is
+//                          idle and does not steal the RAM port.
+//  13. Wire-level frame  — (a) status_word[15:13] carries the OutputLayer's
+//                          live one-hot result, by value, not by mirroring the
+//                          hold register that drives it; (b) the real uart_tx
+//                          line delivers exactly 36 bytes and then stops
+//                          (GH#64, docs/host-soc-e2e.md).
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
@@ -85,6 +92,32 @@ module tb_spikenaut_soc_basys3_top #(
     // bound means the divider is broken. Fail loudly with a cycle count
     // instead of hanging until an external job timeout with no diagnostic.
     localparam int TICK_WAIT_BOUND   = STEP_DIV + SEQ_SLACK;
+
+    // ----------------------------------------------------------------
+    // Wire-level response capture (test 13, GH#64).
+    //
+    // The response frame is 36 bytes and GH#64 does not move that: GH#72's
+    // output-class flags are LED-only (status_word[15:13], docs/led-map.md).
+    // tb_SocFrameGolden.sv pins the byte *layout* against the committed golden
+    // vectors at the SocProtocolFsm boundary; what only this level can prove is
+    // that the assembled chain -- FSM, SiliconBridge, UartTx, the serial line
+    // itself -- delivers exactly those 36 bytes and then stops.
+    // ----------------------------------------------------------------
+    localparam int RESPONSE_BYTES = 36;
+    // 8N1: start + 8 data + stop.
+    localparam int UART_BITS_PER_BYTE = 10;
+    localparam int UART_BYTE_CLKS     = UART_BITS_PER_BYTE * CLKS_PER_BIT;
+    // Generous bound for the first start bit of a frame; within a frame the FSM
+    // relaunches immediately, so this is slack, not a schedule.
+    localparam int UART_START_BOUND   = 4 * UART_BYTE_CLKS;
+    // How long the line must stay idle-high to call the frame finished. Longer
+    // than one byte time, so "no 37th byte" is a stronger claim than "we did
+    // not wait long enough to see one".
+    localparam int UART_QUIET_CLKS    = 2 * UART_BYTE_CLKS;
+    // OutputLayer sweeps NUM_NEURONS x NUM_CLASSES pairs plus pipeline
+    // fill/drain; 80 is the bound tb_OutputLayer.sv uses.
+    localparam int OUTPUT_CLASS_BOUND = 80;
+
     logic        clk;
     logic        btn_rst;        // drives the active-high rst_n port
     logic        uart_rx_line;
@@ -106,6 +139,17 @@ module tb_spikenaut_soc_basys3_top #(
     logic [1:0]  force_host_wr_target;
     logic [7:0]  force_host_wr_addr;
     logic [15:0] force_host_wr_data;
+
+    // Test 13 (GH#64): the demodulated response frame, plus the SoC-side
+    // sources sampled on the same negedge the FSM's capture posedge sees. The
+    // expectations are taken from the top-level nets (membrane_potentials,
+    // spike_bitmap, sw_sync_1) and not from the FSM's own hold registers, so
+    // this compares the wire against the design rather than against the
+    // serializer's copy of itself.
+    logic [7:0]  captured_frame [0:RESPONSE_BYTES-1];
+    logic [NUM_NEURONS*16-1:0] expected_wire_potentials;
+    logic [NUM_NEURONS-1:0]    expected_wire_spikes;
+    logic [15:0]               expected_wire_aux;
 
     spikenaut_soc_basys3_top #(
         .WEIGHT_INIT_FILE (WEIGHT_INIT),
@@ -360,6 +404,122 @@ module tb_spikenaut_soc_basys3_top #(
             end
         end
     endtask
+
+    // ----------------------------------------------------------------
+    // Test 13 helpers (GH#64): demodulate the real serial line.
+    // ----------------------------------------------------------------
+
+    // Block until the transmit line has been continuously idle-high for a full
+    // quiet window.  Earlier tests leave a ~3.1 ms response in flight, so a
+    // wire-level capture has to start from a known-idle line or it would latch
+    // onto the tail of the previous frame.
+    task automatic wait_uart_line_idle();
+        int unsigned quiet;
+        int unsigned waited;
+        begin
+            quiet  = 0;
+            waited = 0;
+            while (quiet < UART_QUIET_CLKS) begin
+                @(negedge clk);
+                waited++;
+                if (uart_tx_line === 1'b1 && dut.u_protocol_fsm.tx_active === 1'b0)
+                    quiet++;
+                else
+                    quiet = 0;
+                // Two whole frames plus the quiet window: long enough for any
+                // legitimate in-flight response to drain.
+                if (waited > (2 * RESPONSE_BYTES * UART_BYTE_CLKS + UART_QUIET_CLKS))
+                    $fatal(1, "wait_uart_line_idle: transmit line never went idle (%0d cycles)", waited);
+            end
+        end
+    endtask
+
+    // Receive one 8N1 character: find the start bit, then sample each data bit
+    // at its midpoint, LSB first.  UartTx registers `tx`, so the start bit is
+    // one fabric cycle wider than a data bit; sampling mid-cell leaves ~half a
+    // bit time of margin, so that skew cannot move a sample into a neighbour.
+    task automatic uart_capture_byte(output logic [7:0] value, output bit ok);
+        int unsigned waited;
+        begin
+            value = '0;
+            ok    = 1'b0;
+
+            waited = 0;
+            while (uart_tx_line !== 1'b0 && waited < UART_START_BOUND) begin
+                @(negedge clk);
+                waited++;
+            end
+            if (uart_tx_line !== 1'b0)
+                return;
+
+            // Midpoint of the start bit, then confirm it is still low: a
+            // one-cycle glitch on an idle line is not a frame.
+            repeat (CLKS_PER_BIT / 2) @(negedge clk);
+            if (uart_tx_line !== 1'b0) begin
+                errors++;
+                $display("FAIL: test 13: start bit did not hold low to its midpoint");
+                return;
+            end
+
+            for (int bit_index = 0; bit_index < 8; bit_index++) begin
+                repeat (CLKS_PER_BIT) @(negedge clk);
+                value[bit_index] = uart_tx_line;
+            end
+
+            repeat (CLKS_PER_BIT) @(negedge clk);
+            if (uart_tx_line !== 1'b1) begin
+                errors++;
+                $display("FAIL: test 13: stop bit was not high for byte 0x%02h", value);
+                return;
+            end
+            ok = 1'b1;
+        end
+    endtask
+
+    // The output layer starts on lif_tick_done and needs a bounded sweep before
+    // its one-hot result is committed and latched into status_word[15:13].
+    task automatic wait_output_class_done();
+        int unsigned waited;
+        begin
+            waited = 0;
+            while (dut.output_class_valid !== 1'b1 && waited < OUTPUT_CLASS_BOUND) begin
+                @(negedge clk);
+                waited++;
+            end
+            if (dut.output_class_valid !== 1'b1)
+                $fatal(1, "wait_output_class_done: no output_class_valid within %0d cycles", OUTPUT_CLASS_BOUND);
+        end
+    endtask
+
+    // Byte `index` of the response frame, derived from the snapshot taken on the
+    // FSM's capture edge.  Layout (docs/host-soc-e2e.md, GH#64):
+    //   [0..31]  16 potentials, signed Q8.8, lane 0 first, big-endian per word
+    //   [32..33] spike-flag word, big-endian, bit i = neuron i
+    //   [34..35] aux word (synchronized switch bus), big-endian
+    function automatic logic [7:0] expected_wire_byte(input int index);
+        int lane;
+        // The FSM widens spike_flags to WORD_WIDTH before serializing it; with
+        // NUM_NEURONS == WORD_WIDTH that is the identity, but naming the widened
+        // word keeps this function correct if NUM_NEURONS is ever narrowed.
+        logic [15:0] spike_word;
+        begin
+            spike_word = 16'(expected_wire_spikes);
+            if (index < 2 * NUM_NEURONS) begin
+                lane = index / 2;
+                expected_wire_byte = (index % 2 == 0)
+                    ? expected_wire_potentials[lane*16 + 8 +: 8]
+                    : expected_wire_potentials[lane*16 +: 8];
+            end else if (index == 2 * NUM_NEURONS) begin
+                expected_wire_byte = spike_word[15:8];
+            end else if (index == 2 * NUM_NEURONS + 1) begin
+                expected_wire_byte = spike_word[7:0];
+            end else if (index == 2 * NUM_NEURONS + 2) begin
+                expected_wire_byte = expected_wire_aux[15:8];
+            end else begin
+                expected_wire_byte = expected_wire_aux[7:0];
+            end
+        end
+    endfunction
 
     initial begin
         // ------------------------------------------------------------
@@ -933,6 +1093,106 @@ module tb_spikenaut_soc_basys3_top #(
             repeat (4) @(negedge clk);
             check(dut.u_npram_leak.mem[SWEEP_LEAK_ADDR] === SWEEP_LEAK_DATA,
                   "test 12: held leak write must commit after the PE is idle");
+        end
+
+        // ------------------------------------------------------------
+        // Test 13a: GH#72's output class reaches status_word[15:13] by VALUE.
+        //
+        // Test 9 can only mirror led[15:13] against u_status_leds'
+        // output_class_hold, which moves with it under a wrong Basys3_Top
+        // binding.  This compares the LED field against the OutputLayer's own
+        // live result instead, and asserts the one-hot property docs/led-map.md
+        // claims.  No UART is involved: the output layer runs on every
+        // lif_tick_done, armed frame or not.
+        //
+        // SW15 is still 1 from test 9 (sw = 16'hA5A5), so the LED bus is the
+        // status word here, not the spike bitmap.
+        // ------------------------------------------------------------
+        check(dut.sw_sync_1[15] === 1'b1,
+              "test 13a: SW15 must still select status mode for the [15:13] check");
+        wait_for_tick();
+        wait_lif_sweep_done();
+        wait_output_class_done();
+        @(negedge clk);   // let output_class_hold latch the committed vector
+        check($countones(led[15:13]) === 1,
+              "test 13a: status[15:13] must be one-hot -- argmax always picks a winner (GH#72)");
+        check(led[15:13] === dut.u_output_layer.result,
+              "test 13a: status[15:13] must carry the OutputLayer's live one-hot result, not a stale or mis-bound field");
+
+        // ------------------------------------------------------------
+        // Test 13b: the real serial line carries exactly 36 bytes (GH#64).
+        //
+        // Every other response check in this file reads the FSM's internal
+        // snapshot registers by hierarchical reference.  This one demodulates
+        // uart_tx, so the assembled SocProtocolFsm -> SiliconBridge -> UartTx
+        // chain and its 8N1 framing are in the loop -- the same bytes
+        // rmems/silicon-bridge's host reads with read_exact(36)
+        // (src/fpga_bridge.rs).  Expectations come from the top-level
+        // membrane_potentials / spike_bitmap / sw_sync_1 nets sampled on the
+        // FSM's capture edge, not from the serializer's own hold buffer.
+        //
+        // The 37th-byte check is the one that keeps "36-byte parsers intact"
+        // honest: an extra byte would desynchronize every later host read
+        // permanently, and no existing test would see it.
+        // ------------------------------------------------------------
+        begin
+            logic [7:0] captured;
+            bit         byte_ok;
+            int         mismatches;
+
+            wait_uart_line_idle();
+
+            uart_send_stimulus_frame(SPIKE_TEST_NEURON);
+            wait_for_stimuli_pending();
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            check(dut.frame_send === 1'b1,
+                  "test 13b: consumed host frame must arm the response to capture");
+
+            // Sampled on the negedge whose following posedge is the FSM's
+            // capture edge, so these are the values the frame must carry.
+            expected_wire_potentials = dut.membrane_potentials;
+            expected_wire_spikes     = dut.spike_bitmap;
+            expected_wire_aux        = dut.sw_sync_1;
+
+            mismatches = 0;
+            for (int b = 0; b < RESPONSE_BYTES; b++) begin
+                uart_capture_byte(captured, byte_ok);
+                if (!byte_ok) begin
+                    errors++;
+                    $display("FAIL: test 13b: no framed byte %0d of %0d on uart_tx",
+                             b, RESPONSE_BYTES);
+                    mismatches++;
+                    break;
+                end
+                captured_frame[b] = captured;
+                if (captured !== expected_wire_byte(b)) begin
+                    errors++;
+                    mismatches++;
+                    $display("FAIL: test 13b: response byte %0d is 0x%02h, expected 0x%02h",
+                             b, captured, expected_wire_byte(b));
+                end
+            end
+
+            if (mismatches == 0)
+                $display("TB_BASYS3_TOP: test 13b captured %0d response bytes off uart_tx (potentials, spike word %04h, aux %04h)",
+                         RESPONSE_BYTES, expected_wire_spikes, expected_wire_aux);
+
+            // No 37th byte.  Bytes 34-35 were the aux word above, so GH#72's
+            // class flags demonstrably did not extend the frame.
+            begin : no_extra_byte
+                automatic int unsigned quiet = 0;
+                while (quiet < UART_QUIET_CLKS) begin
+                    @(negedge clk);
+                    if (uart_tx_line === 1'b0) begin
+                        errors++;
+                        $display("FAIL: test 13b: a %0dth byte started %0d cycles after the frame ended -- the frame is no longer %0d bytes",
+                                 RESPONSE_BYTES + 1, quiet, RESPONSE_BYTES);
+                        break;
+                    end
+                    quiet++;
+                end
+            end
         end
 
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");

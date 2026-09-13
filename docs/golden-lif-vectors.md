@@ -212,3 +212,4 @@ the closest existing work is silicon-bridge GH#22 / RM-300 (`MemFileWriter`
 - [`docs/timestep-contract.md`](timestep-contract.md) — what one `step_en` tick is
 - [`docs/lif-array-connectivity-model.md`](lif-array-connectivity-model.md) — the row/column meaning of the weight bank (#92)
 - [`spikenaut-core-sv/mem/README.md`](../spikenaut-core-sv/mem/README.md) — the signed Q8.8 `.mem` contract (GH#73)
+- [`docs/host-soc-e2e.md`](host-soc-e2e.md) — the sibling GH#64 golden vectors, which pin the UART **wire framing** rather than network behaviour

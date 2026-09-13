@@ -5,37 +5,37 @@ This is the **single** Q8.8 codec in this repository (GH#66). Everything that
 turns host ``f32`` values into ``.mem`` words — the golden-vector generator,
 its tests — goes through here. Do not add a second one.
 
-Why this exists at all instead of calling silicon-bridge's ``MemFileWriter``
------------------------------------------------------------------------------
-silicon-bridge ships two Q8.8 conventions, and neither one *as wired today*
-writes the file this repo's RTL reads:
+Why this exists at all instead of calling silicon-bridge's exporter
+-------------------------------------------------------------------
+silicon-hdl's ``.mem`` contract is **signed two's-complement Q8.8** (GH#73, see
+``spikenaut-core-sv/mem/README.md``): ``0xFF00`` is ``-1.0``, not ``65280``.
+silicon-bridge exposes two Q8.8 conventions, and only one can express a Dale-I
+word:
 
 ===========================  ===========  ================================
 silicon-bridge item          Convention   Can express a Dale-I word?
 ===========================  ===========  ================================
-``FixedPointEncode::         unsigned     No — negatives clamp to ``0``
-encode_q88`` (the one
-``MemFileWriter::
-write_mem_files`` uses)
 ``encode_q88_signed``        signed i16   Yes (``-1.0`` -> ``0xFF00``)
+``encode_q88_unsigned``      unsigned     No — negatives clamp to ``0``
 ===========================  ===========  ================================
 
-silicon-hdl's ``.mem`` contract is **signed two's-complement Q8.8** (GH#73,
-see ``spikenaut-core-sv/mem/README.md``): ``0xFF00`` is ``-1.0``, not
-``65280``. So the ``.mem`` writer in silicon-bridge is on the wrong side of
-that contract and would silently flatten every inhibitory weight to zero.
+As of silicon-bridge #60 (``e201514``), ``FpgaParameterExporter``'s
+``FixedPointEncode::encode_q88`` — the one ``write_mem_files`` goes through —
+encodes with ``encode_q88_signed``, so that crate and this contract now agree.
+``encode_q88_unsigned`` is still public, but nothing in the crate builds
+hardware images with it.
 
-This module therefore mirrors silicon-bridge's **signed** function,
-``encode_q88_signed`` / ``q88_signed_to_f32`` (``silicon-bridge/src/
-fpga_export.rs``), bit for bit — same clamp bounds, same truncate-toward-zero,
-same NaN handling. ``tests/test_golden_lif_vectors.py`` re-asserts that crate's
-own unit-test vectors against this implementation, so the two cannot drift
-apart silently.
+  *Correction:* an earlier revision of this docstring said the ``.mem`` writer
+  was still on the unsigned encoder and called that "the wrong side of the
+  contract". That was accurate when GH#66 landed and is no longer accurate.
 
-Whether silicon-bridge's ``.mem`` writer should move to the signed encoder is a
-question for that repo and is out of scope for GH#66. It is not tracked there
-yet; the closest existing work is silicon-bridge GH#22 / RM-300 (MemFileWriter
-``.mem`` round-trip tests), which would surface the mismatch.
+This module exists because silicon-hdl's tooling is Python and cannot call into
+the crate: reaching for it would make every golden-vector regeneration depend on
+a Rust toolchain and a cross-repo checkout. So it mirrors ``encode_q88_signed``
+/ ``q88_signed_to_f32`` (``silicon-bridge/src/fpga_export.rs``) bit for bit
+— same clamp bounds, same truncate-toward-zero, same NaN handling.
+``tests/test_golden_lif_vectors.py`` re-asserts that crate's own unit-test
+vectors against this implementation, so the two cannot drift apart silently.
 """
 
 from __future__ import annotations
@@ -203,3 +203,83 @@ def write_words(path: str | Path, words: list[int], *, header: str | None = None
             raise ValueError(f"word {word} does not fit in 16 bits")
         lines.append(f"{word:04X}")
     Path(path).write_text("\n".join(lines) + "\n")
+
+
+#: Hex digits per byte-stream ``.mem`` word. ``$readmemh`` sizes each token by
+#: the target array element, so a byte image must not carry 4-digit words.
+BYTE_HEX_DIGITS = 2
+
+#: A byte token is exactly two hex digits and nothing else. Matching the
+#: characters rather than measuring the length matters: ``int("-1", 16)`` is a
+#: valid call returning ``-1``, so a length-only check would let a signed token
+#: through and hand back a *negative* byte.
+_BYTE_TOKEN_RE = re.compile(r"[0-9A-Fa-f]{2}\Z")
+
+
+def read_bytes(path: str | Path) -> list[int]:
+    """Read a ``.mem`` image as a list of **8-bit** values.
+
+    Counterpart of :func:`write_bytes`, for wire-protocol frame images whose
+    ``$readmemh`` target is a ``logic [7:0]`` array (GH#64). Rejects any token
+    that is not exactly two hex digits, for two different reasons:
+
+    * A 4-digit word would be silently truncated to its low byte by
+      ``$readmemh``, shifting the whole frame, so the mismatch would surface as
+      a confusing byte-offset error instead of a load error.
+    * A signed token such as ``-1`` or ``+F`` is two characters long and parses
+      fine under ``int(token, 16)`` -- ``-1`` comes back as ``-1``, a negative
+      "byte" that no ``logic [7:0]`` image can hold. Character matching, not
+      length, is what excludes those.
+    """
+    values: list[int] = []
+    for lineno, line in enumerate(Path(path).read_text().splitlines(), start=1):
+        stripped = _COMMENT_RE.sub("", line).strip()
+        if not stripped:
+            continue
+        for token in stripped.split():
+            if _BYTE_TOKEN_RE.match(token) is None:
+                raise ValueError(
+                    f"{path}:{lineno}: '{token}' is not a {BYTE_HEX_DIGITS}-digit "
+                    "hex byte; byte images must not carry 16-bit words or signs"
+                )
+            values.append(int(token, 16))
+    return values
+
+
+def write_bytes(path: str | Path, values: list[int], *, header: str | None = None) -> None:
+    """Write 8-bit values as a ``$readmemh`` image, one byte per line.
+
+    Used for the GH#64 golden UART frame images. Kept separate from
+    :func:`write_words` because the element width is part of the contract: the
+    testbench reads these into ``logic [7:0]``.
+    """
+    lines = ["// SPDX-License-Identifier: MIT OR Apache-2.0"]
+    if header:
+        lines.extend(f"// {line}" if line else "//" for line in header.splitlines())
+    for value in values:
+        if not (0 <= value <= 0xFF):
+            raise ValueError(f"byte {value} does not fit in 8 bits")
+        lines.append(f"{value:02X}")
+    Path(path).write_text("\n".join(lines) + "\n")
+
+
+def q88_to_be_bytes(raw: int) -> tuple[int, int]:
+    """Split a signed raw Q8.8 word into the wire's (high, low) byte pair.
+
+    The SiliconBridge v3.0 wire protocol is big-endian per word in both
+    directions (``silicon-bridge`` ``fpga_bridge.rs``: ``q8_8.to_be_bytes()``
+    on TX, ``i16::from_be_bytes`` on RX).
+    """
+    if not (Q88_RAW_MIN <= raw <= Q88_RAW_MAX):
+        raise ValueError(f"raw {raw} is outside signed Q8.8 range")
+    unsigned = raw & 0xFFFF
+    return (unsigned >> 8) & 0xFF, unsigned & 0xFF
+
+
+def q88_from_be_bytes(high: int, low: int) -> int:
+    """Reassemble a signed raw Q8.8 word from the wire's (high, low) byte pair."""
+    for name, value in (("high", high), ("low", low)):
+        if not (0 <= value <= 0xFF):
+            raise ValueError(f"{name} byte {value} does not fit in 8 bits")
+    unsigned = (high << 8) | low
+    return unsigned - (1 << WORD_BITS) if unsigned & 0x8000 else unsigned

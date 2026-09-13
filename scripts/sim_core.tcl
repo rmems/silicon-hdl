@@ -83,7 +83,7 @@ foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
 
 set mem_dir    [file join $repo_root spikenaut-core-sv mem]
 # GH#66 golden vectors (generated; see docs/golden-lif-vectors.md).
@@ -92,10 +92,6 @@ set golden_dir [file join $mem_dir golden]
 foreach tb_top $core_tb_tops {
     set_property top $tb_top [get_filesets sim_1]
     set_property top_lib xil_defaultlib [get_filesets sim_1]
-
-    # Unit TBs finish well inside 10us. The SoC TB spans several 1 ms ticks,
-    # so it needs a longer window; it calls $finish, so this is only a cap.
-    set run_time 10us
 
     # INIT TBs: XSim CWD is the sim run directory, so pass absolute INIT paths
     # (repo-root-relative defaults work for Verilator only).
@@ -126,6 +122,17 @@ foreach tb_top $core_tb_tops {
             "RESULT_FILE=[file normalize [file join $golden_dir outlayer_golden_exp_result.mem]]" \
             "COUNT_FILE=[file normalize [file join $golden_dir outlayer_golden_count.mem]]" \
         ] [get_filesets sim_1]
+    } elseif {$tb_top eq "tb_SocFrameGolden"} {
+        # GH#64 golden UART frame vectors, absolute for the same reason.
+        set_property generic [list \
+            "COUNT_FILE=[file normalize [file join $golden_dir frame_golden_count.mem]]" \
+            "HOST_TX_FILE=[file normalize [file join $golden_dir frame_golden_host_tx.mem]]" \
+            "SOC_RX_FILE=[file normalize [file join $golden_dir frame_golden_soc_rx.mem]]" \
+            "STIMULI_FILE=[file normalize [file join $golden_dir frame_golden_stimuli.mem]]" \
+            "POTENTIALS_FILE=[file normalize [file join $golden_dir frame_golden_potentials.mem]]" \
+            "SPIKES_FILE=[file normalize [file join $golden_dir frame_golden_spikes.mem]]" \
+            "AUX_FILE=[file normalize [file join $golden_dir frame_golden_aux.mem]]" \
+        ] [get_filesets sim_1]
     } elseif {$tb_top eq "tb_spikenaut_soc_basys3_top"} {
         set_property generic [list \
             "WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_weights.mem]]" \
@@ -133,7 +140,6 @@ foreach tb_top $core_tb_tops {
             "LEAK_INIT=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
             "OUTPUT_WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_output_weights.mem]]" \
         ] [get_filesets sim_1]
-        set run_time 20ms
     } elseif {$tb_top eq "tb_LifNeuronArray"} {
         # #92 bank-data regression $readmemh's the shipped bank directly.
         set_property generic [list \
@@ -151,7 +157,18 @@ foreach tb_top $core_tb_tops {
     # catch() guards the first iteration where the run may not exist yet.
     catch {reset_run sim_1}
     launch_simulation
-    run $run_time
+    # run -all, NOT a fixed window.  Every TB top in core_tb_tops terminates
+    # itself with exactly one $finish (or aborts on $fatal), so -all always
+    # returns.  A fixed cap is actively unsafe here: XSim stops at the cap
+    # without any error, so a TB that needs longer than the window is silently
+    # truncated mid-run and the job still reports success.  That happened --
+    # tb_SocFrameGolden needs 23.7us and was cut off by the previous 10us cap
+    # after printing only its opening banner, so its assertions never ran under
+    # Vivado while CI stayed green.  Sizing per-TB caps by hand just moves the
+    # trap to the next testbench.  If a future TB does hang, -all fails loudly
+    # against the job timeout instead of passing quietly, and the Verilator job
+    # on the same PR catches it far sooner.
+    run -all
     close_sim
 }
 

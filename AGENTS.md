@@ -70,12 +70,14 @@ symbols or tops conflict.
 | `tb_UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/tb/tb_UartTx.sv` |
 | `tb_SiliconBridge` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/rtl/SiliconBridge.sv` + `spikenaut-bridge-sv/tb/tb_SiliconBridge.sv` |
 | `tb_SocProtocolFsm` | `spikenaut-soc-sv/rtl/SocProtocolFsm.sv` + `spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv` |
+| `tb_SocFrameGolden` | `spikenaut-soc-sv/rtl/SocProtocolFsm.sv` + `spikenaut-soc-sv/tb/tb_SocFrameGolden.sv` |
 | `tb_SocStatusLeds` | `spikenaut-soc-sv/rtl/SocStatusLeds.sv` + `spikenaut-soc-sv/tb/tb_SocStatusLeds.sv` |
 
 Testbenches call `$fatal` on failure and are self-checking (look for an `errors` counter and
-`$display` summary at the end). The two `*_golden` testbenches additionally read their stimulus
-*and* their expectations from `spikenaut-core-sv/mem/golden/` and must be run from the repo root
-(those paths are repo-root relative); see the Golden vectors section below. Bridge TBs use a fast integer baud (`CLK_FREQ=1_000_000`,
+`$display` summary at the end). The three golden testbenches (`tb_LifNeuron_golden`,
+`tb_OutputLayer_golden`, `tb_SocFrameGolden`) additionally read their stimulus *and* their
+expectations from `spikenaut-core-sv/mem/golden/` and must be run from the repo root
+(those paths are repo-root relative); see the Golden vectors sections below. Bridge TBs use a fast integer baud (`CLK_FREQ=1_000_000`,
 `BAUD_RATE=100_000`) so a byte is tens of clocks, not a 100 MHz / 115200 bit time.
 
 ### SoC-level testbench
@@ -156,6 +158,28 @@ means the **RTL** changed behaviour, not that the vectors are stale — regenera
 semantics change is intended, and in the same commit as the RTL change. `scripts/q88.py` is the
 single Q8.8 codec; do not add a second one. Full rationale, scenario table, and the Spikenaut bank
 pin: [`docs/golden-lif-vectors.md`](docs/golden-lif-vectors.md).
+
+### Golden UART frame vectors (GH#64)
+
+`spikenaut-core-sv/mem/golden/frame_golden_*.mem` are **generated** request / response byte
+streams that pin the **SiliconBridge v3.0 wire framing** — the contract this repo shares with
+the [`rmems/silicon-bridge`](https://github.com/rmems/silicon-bridge) host crate. Do not
+hand-edit them.
+
+```bash
+python3 scripts/gen_golden_frame_vectors.py --check
+```
+
+The request frame is **33 bytes** (`0xAA` + 16 big-endian Q8.8 words) and the response frame is
+**36 bytes** (16 potentials + spike-flag word + aux word). **Neither length moves.** GH#72's
+output-class flags are LED-only (`status_word[15:13]`); anything that needs the class over UART
+is a protocol version bump, not a field appended to the response. `tb_SocFrameGolden` asserts
+both lengths at elaboration, and `tests/test_golden_frame_vectors.py` asserts them against the
+values the Rust host hardcodes.
+
+These vectors pin **framing only** — byte count, byte order, lane order, spike bit order, and
+signedness. What the network computes is pinned by the GH#66 goldens above. Full byte layout,
+case table, and the board-in-loop runbook: [`docs/host-soc-e2e.md`](docs/host-soc-e2e.md).
 
 ## Architecture notes
 

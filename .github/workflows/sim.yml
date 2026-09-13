@@ -47,6 +47,13 @@ jobs:
           # vector set is reported as such, rather than as an RTL mismatch.
           python3 scripts/gen_golden_lif_vectors.py --check
 
+      - name: Check golden frame vectors are not stale
+        run: |
+          # GH#64 drift gate for the UART framing vectors. Same reasoning as
+          # above: a stale frame vector set would make tb_SocFrameGolden check
+          # the wire framing against a trace that no longer describes it.
+          python3 scripts/gen_golden_frame_vectors.py --check
+
       - name: Run tb_LifNeuron_golden
         run: |
           rm -rf obj_dir
@@ -198,6 +205,20 @@ jobs:
             spikenaut-soc-sv/rtl/SocStatusLeds.sv \
             spikenaut-soc-sv/tb/tb_SocStatusLeds.sv
           ./obj_dir/Vtb_SocStatusLeds
+
+      - name: Run tb_SocFrameGolden
+        run: |
+          rm -rf obj_dir
+          # GH#64: replays the committed golden 33-byte request / 36-byte
+          # response frame pairs through the real SocProtocolFsm, pinning the
+          # byte layout rmems/silicon-bridge's host parses.
+          # Golden .mem paths are repo-root relative.
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_SocFrameGolden \
+            -Ispikenaut-soc-sv/rtl \
+            spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+            spikenaut-soc-sv/tb/tb_SocFrameGolden.sv
+          ./obj_dir/Vtb_SocFrameGolden
 
       - name: Run tb_spikenaut_soc_basys3_top
         run: |

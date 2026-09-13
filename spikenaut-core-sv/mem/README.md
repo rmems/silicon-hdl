@@ -56,6 +56,12 @@ per image, so changing any of the four images above without updating `BANK_DIGES
 rather than silently regenerating vectors against new weights. See
 [`docs/golden-lif-vectors.md`](../../docs/golden-lif-vectors.md) for the retrain procedure.
 
+**Golden UART frame vectors (GH#64):** `golden/frame_golden_*.mem` share this directory but pin a
+different contract — the 33-byte request / 36-byte response SiliconBridge v3.0 **wire framing**,
+not network behaviour. Regenerate with `python3 scripts/gen_golden_frame_vectors.py`. It pins the
+same bank commit with the same digests, so a retrain means updating `BANK_DIGESTS` in **both**
+generators. See [`docs/host-soc-e2e.md`](../../docs/host-soc-e2e.md).
+
 **Canonical vault path:** `~/Spikenaut-Vault/Spikenaut-SNN/dataset/merged_v2/`  
 (also HF `rmems/Spikenaut-SNN`). Re-copy from vault after retrain; do not invent hex by hand.
 
