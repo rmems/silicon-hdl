@@ -1,0 +1,78 @@
+AGENTS.md
+  s_22b20043609b27::t_fdedb41596dbec 66
+  s_22b20043609b27::t_163019fcdc5967 95
+spikenaut-core-sv/tb/tb_OutputLayer.sv
+  s_22b20043609b27::t_390c350b4c80b7 189
+  s_22b20043609b27::t_2d328a7b338ccd 1-150,166-188,190-208
+  s_22b20043609b27::t_0e14c21267219c 151-165
+scripts/build_soc.tcl
+  s_22b20043609b27::t_08c3ccddae1fe2 33-34
+  s_22b20043609b27::t_0d7beca41a9db0 65
+  s_22b20043609b27::t_1b93b0aa0c8049 90,92,97,101
+  s_22b20043609b27::t_2960ef75b395ce 117-118
+docs/interface-alignment.md
+  s_22b20043609b27::t_68e1cd259d18a2 163-167
+  s_22b20043609b27::t_07b2c0755d56e0 24
+scripts/sim_core.tcl
+  s_22b20043609b27::t_2bbda24c295b28 51
+  s_22b20043609b27::t_4f50037a58954c 104-106,112
+  s_22b20043609b27::t_628523372b8d23 86
+.github/workflows/sim.yml
+  s_22b20043609b27::t_ffb06b6f9b6000 189
+  s_22b20043609b27::t_1bee6e067d0d51 96-107
+spikenaut-core-sv/rtl/OutputLayer.sv
+  s_22b20043609b27::t_865855906aa7d1 1-172
+spikenaut-soc-sv/rtl/SocStatusLeds.sv
+  s_22b20043609b27::t_27da876a0a4964 28-31
+  s_22b20043609b27::t_7dc3efaf606e6e 97
+  s_22b20043609b27::t_8a616b12f4f119 161
+  s_22b20043609b27::t_d807612a579868 66
+  s_22b20043609b27::t_00f65090f58d6c 133-139
+spikenaut-core-sv/mem/README.md
+  s_22b20043609b27::t_41d8717868d7a3 58,60-61
+  s_22b20043609b27::t_c9413e0dad98e8 21-23
+  s_22b20043609b27::t_a80df6cd32b9e1 63,69,71-75
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_22b20043609b27::t_6f69f6993ef800 54-55
+  s_22b20043609b27::t_fde60faf63ca8c 661-662
+  s_22b20043609b27::t_40472e6147c0f6 113-114
+CLAUDE.md
+  s_22b20043609b27::t_b6b8774c8bad4c 49
+spikenaut-soc-sv/rtl/Basys3_Top.sv
+  s_22b20043609b27::t_65f54d049520d4 356-365,367-383,385-396
+  s_22b20043609b27::t_b696f5886df84f 19
+  s_22b20043609b27::t_c4448259c5e1c5 384
+  s_22b20043609b27::t_16f25b4e5531f1 58-60
+  s_22b20043609b27::t_7d79815db31c10 366
+  s_22b20043609b27::t_38905489b187d0 491
+  s_22b20043609b27::t_210cd176303124 31-32,35-37
+spikenaut-soc-sv/tb/tb_SocStatusLeds.sv
+  s_22b20043609b27::t_3653bfe4940683 30
+  s_22b20043609b27::t_63235f7b64d9f9 52
+  s_22b20043609b27::t_b24a9df9a14c5b 80
+  s_22b20043609b27::t_bc43e1f20d1d36 269-283
+docs/led-map.md
+  s_22b20043609b27::t_dc3713f08173d2 56-58,71-81
+  s_22b20043609b27::t_fcfaff2b16e772 2
+CHANGELOG.md
+  s_22b20043609b27::t_83236d2d68e9c6 34-53
+docs/resource-budget-n16.md
+  s_22b20043609b27::t_d340461788179c 161-206
+  s_22b20043609b27::t_602f1b7208a22d 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0d3536de0ece11ea43e864277392b95abb9f571b",
+  "prompts": {},
+  "sessions": {
+    "s_22b20043609b27": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eca96895-ccb2-45af-8e74-71aaa6a9d45b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
