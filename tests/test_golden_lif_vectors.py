@@ -59,8 +59,8 @@ def golden_ticks() -> list[tuple]:
     weights = q88.read_mem(GOLDEN_DIR / "lif_golden_weights.mem")
     thresholds = q88.read_mem(GOLDEN_DIR / "lif_golden_thresholds.mem")
     leaks = q88.read_mem(GOLDEN_DIR / "lif_golden_leaks.mem")
-    spike_ins = q88.read_mem(GOLDEN_DIR / "lif_golden_spike_in.mem")
-    resets = q88.read_mem(GOLDEN_DIR / "lif_golden_reset.mem")
+    spike_ins = q88.read_words(GOLDEN_DIR / "lif_golden_spike_in.mem")
+    resets = q88.read_words(GOLDEN_DIR / "lif_golden_reset.mem")
     return [
         (w, t, lk, bool(si), bool(r))
         for w, t, lk, si, r in zip(weights, thresholds, leaks, spike_ins, resets)
@@ -371,18 +371,19 @@ def test_wrapping_datapath_fails_the_saturation_vectors(manifest, golden_ticks):
 def test_output_layer_vectors_match_an_independent_argmax(manifest: dict) -> None:
     """Recompute the expected argmax straight from the bank, not from the generator."""
     weights = q88.read_mem(BANK_DIR / "merged_v2_output_weights.mem")
-    bitmaps = q88.read_mem(GOLDEN_DIR / "outlayer_golden_bitmap.mem")
-    results = q88.read_mem(GOLDEN_DIR / "outlayer_golden_exp_result.mem")
+    # Bitmaps and one-hot results are bit patterns, not Q8.8 numbers: read_mem
+    # would hand back the all-lanes-spiking bitmap 0xFFFF as -1.
+    bitmaps = q88.read_words(GOLDEN_DIR / "outlayer_golden_bitmap.mem")
+    results = q88.read_words(GOLDEN_DIR / "outlayer_golden_exp_result.mem")
 
-    for bitmap, onehot, entry in zip(bitmaps, results, manifest["output_layer"]["vectors"]):
-        pattern = bitmap & 0xFFFF
+    for pattern, onehot, entry in zip(bitmaps, results, manifest["output_layer"]["vectors"]):
         scores = [0, 0, 0]
         for neuron in range(gen.NUM_NEURONS):
             if (pattern >> neuron) & 1:
                 for klass in range(gen.NUM_CLASSES):
                     scores[klass] += weights[neuron * gen.NUM_CLASSES + klass]
         best = max(range(gen.NUM_CLASSES), key=lambda c: (scores[c], -c))
-        assert (onehot & 0xFFFF) == 1 << best
+        assert onehot == 1 << best
         assert entry["argmax_class"] == best
 
 

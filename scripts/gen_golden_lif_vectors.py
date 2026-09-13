@@ -119,8 +119,21 @@ class Bank:
                 )
 
     def weight_f32(self, neuron: int, channel: int) -> tuple[float, str]:
+        """Decode one committed weight to f32, proving the round trip is exact.
+
+        This is the assertion that makes the ``f32 -> Q8.8`` leg of the golden
+        path real: if re-encoding did not return the very word that was read,
+        the vectors would ship a weight the FPGA never sees.
+        """
         raw = self.weights[neuron * NUM_CHANNELS + channel]
-        return q88.q88_signed_to_f32(raw), f"weights[n{neuron}][ch{channel}]"
+        value = q88.q88_signed_to_f32(raw)
+        if q88.encode_q88_signed(value) != raw:
+            raise SystemExit(
+                f"weights[n{neuron}][ch{channel}] = {q88.raw_to_hex(raw)} does not survive "
+                f"the f32 round trip (got {q88.raw_to_hex(q88.encode_q88_signed(value))}). "
+                "Fix the codec -- do not adjust the vector."
+            )
+        return value, f"weights[n{neuron}][ch{channel}]"
 
     def threshold_f32(self, neuron: int) -> float:
         return q88.q88_signed_to_f32(self.thresholds[neuron])
@@ -307,15 +320,16 @@ def encode_scenarios(scenarios: list[Scenario], bank: Bank) -> dict:
             raw_threshold = q88.encode_q88_signed(tick.threshold)
             raw_leak = q88.encode_q88_signed(tick.leak)
 
-            # The f32 -> Q8.8 leg must be lossless for anything sourced from
-            # the bank: decoding a committed word and re-encoding it has to
-            # return that exact word, or the vectors would silently ship a
-            # weight the FPGA never sees.
+            # Backstop tripwire. Bank.weight_f32() already proves the round
+            # trip is exact at the point of decode, and
+            # tests/test_golden_lif_vectors.py re-checks every word against its
+            # stated bank address. This only catches a hand-edited scenario
+            # that slipped a foreign constant into an exp-025 block.
             if scenario.source == "exp-025" and raw_weight not in bank_words:
                 raise SystemExit(
-                    f"{scenario.name} tick {position}: re-encoding {tick.weight!r} "
-                    f"gave raw {raw_weight}, which is not a word in the pinned bank. "
-                    "The f32 round-trip is lossy -- fix the codec, do not adjust the vector."
+                    f"{scenario.name} tick {position}: {q88.raw_to_hex(raw_weight)} does not "
+                    "appear anywhere in the pinned bank, so this scenario is not exp-025 data. "
+                    "Tag it 'synthetic' or use a real bank word."
                 )
 
             weights.append(raw_weight)
@@ -532,7 +546,7 @@ def main(argv: list[str] | None = None) -> int:
         emit(GOLDEN_DIR, encoded, output_layer)
         print(
             f"wrote {len(GENERATED_NAMES)} files to {GOLDEN_DIR.relative_to(REPO_ROOT)}/ "
-            f"({encoded['weights'].__len__()} LIF ticks, "
+            f"({len(encoded['weights'])} LIF ticks, "
             f"{len(output_layer['bitmaps'])} output-layer vectors)"
         )
         return 0

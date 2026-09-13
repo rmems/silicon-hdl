@@ -154,6 +154,15 @@ def write_mem(path: str | Path, raws: list[int], *, header: str | None = None) -
     Path(path).write_text("\n".join(lines) + "\n")
 
 
+def read_words(path: str | Path) -> list[int]:
+    """Read a ``.mem`` image as plain **unsigned** 16-bit patterns.
+
+    Counterpart of :func:`write_words`, and the one to use for bitmaps and
+    flags: :func:`read_mem` would hand back ``0xFFFF`` as ``-1``.
+    """
+    return [raw & 0xFFFF for raw in read_mem(path)]
+
+
 def write_words(path: str | Path, words: list[int], *, header: str | None = None) -> None:
     """Write plain unsigned 16-bit patterns as a ``$readmemh`` image.
 
