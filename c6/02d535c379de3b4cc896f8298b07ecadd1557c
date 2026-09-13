@@ -1,0 +1,19 @@
+docs/interface-alignment.md
+  s_7067949814bdc0::t_3056cafb1bc106 56-57,59-60,64-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c602d535c379de3b4cc896f8298b07ecadd1557c",
+  "prompts": {},
+  "sessions": {
+    "s_7067949814bdc0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "549b33f0-9888-495c-9ab0-8d3bd5f9e670",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
