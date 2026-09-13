@@ -1,0 +1,47 @@
+spikenaut-core-sv/tb/tb_LifNeuronArray.sv
+  s_85a9116998874a::t_077014041bfe5f 233-262
+  s_85a9116998874a::t_f45205ddf0df64 22-23
+spikenaut-core-sv/tb/tb_LifNeuron.sv
+  s_85a9116998874a::t_01966d2a298f20 128-134,136-143,145-150,153-181,183-205,207-211
+  s_85a9116998874a::t_b41cf908a6a467 182
+CHANGELOG.md
+  s_85a9116998874a::t_164d793f32075c 12-26
+spikenaut-core-sv/rtl/LifNeuronArray.sv
+  s_85a9116998874a::t_e2fae7af167504 178-185
+  s_85a9116998874a::t_019602d68cae7a 151-155,160-163,171-177,187,189-191
+  s_85a9116998874a::t_2be2b1c39ed7b1 164-170
+  s_85a9116998874a::t_983d00ad7913e4 8-13
+  s_85a9116998874a::t_02f1732d35141c 84-93
+docs/resource-budget-n16.md
+  s_85a9116998874a::t_8e35f7eda860aa 3
+  s_85a9116998874a::t_d48fcfc71c78a0 120-156
+spikenaut-core-sv/mem/README.md
+  s_85a9116998874a::t_50a6cea1e3dea3 20-32
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_85a9116998874a::t_ac998c0c6b26d8 519-520
+  s_85a9116998874a::t_49f8f87690581e 543,545,547
+  s_85a9116998874a::t_d5ec543587153a 538-542,544,546,548-549,552-561
+  s_85a9116998874a::t_e5fd8bbbd032c8 505-508,510-511
+spikenaut-core-sv/rtl/LifNeuron.sv
+  s_85a9116998874a::t_b94a8d81a1d08b 10-18
+  s_85a9116998874a::t_95f48f031bc66b 106-114
+  s_85a9116998874a::t_948695a46b35fa 36-39
+  s_85a9116998874a::t_c79b769cd3e322 89-97
+  s_85a9116998874a::t_d7b447bfdf9e03 57-66,83-88,99-105,115-116,121-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f837c45ae46bff894eca3ec92610e406b91ecbe8",
+  "prompts": {},
+  "sessions": {
+    "s_85a9116998874a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "349a2438-9b06-4d7a-a4f6-d875b81e8313",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
