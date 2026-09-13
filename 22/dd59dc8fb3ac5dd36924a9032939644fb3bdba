@@ -1,0 +1,28 @@
+tests/test_golden_frame_vectors.py
+  s_c7954be637f460::t_240a54861e64f6 259-279,285-297
+scripts/gen_golden_frame_vectors.py
+  s_c7954be637f460::t_9d84504d534148 503
+docs/host-soc-e2e.md
+  s_c7954be637f460::t_3fe6bfeb022a3f 221-241,244,247-250,257-260
+  s_c7954be637f460::t_2a98af4de3e3b1 252-256
+spikenaut-core-sv/mem/golden/frame_golden_vectors.json
+  s_c7954be637f460::t_9d84504d534148 55
+scripts/q88.py
+  s_c7954be637f460::t_9d84504d534148 212-217,224-232,240,243,245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "22dd59dc8fb3ac5dd36924a9032939644fb3bdba",
+  "prompts": {},
+  "sessions": {
+    "s_c7954be637f460": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ffaa399-5f9e-4396-89bc-bf5ca65de325",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
