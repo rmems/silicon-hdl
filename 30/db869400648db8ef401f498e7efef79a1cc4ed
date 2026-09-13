@@ -1,0 +1,33 @@
+docs/lif-array-connectivity-model.md
+  s_85a9116998874a::t_dcdf347fe784ab 1-76
+spikenaut-core-sv/mem/README.md
+  s_85a9116998874a::t_7e4d7699faf5c4 34-45
+spikenaut-core-sv/rtl/LifNeuronArray.sv
+  s_85a9116998874a::t_d4079f481a0de8 14-19
+  s_85a9116998874a::t_dbf0314131440e 141-146
+docs/interface-alignment.md
+  s_85a9116998874a::t_a01c6370855277 168-183
+docs/boundary-matrix.md
+  s_85a9116998874a::t_9c1dc8bd0055e7 94
+spikenaut-core-sv/tb/tb_LifNeuronArray.sv
+  s_85a9116998874a::t_ec08cec48b9a82 193-196
+  s_85a9116998874a::t_e713acc8ff26a8 24-27
+  s_85a9116998874a::t_f1cb40a6870a37 241,245-247
+  s_85a9116998874a::t_55978e6c60618a 270-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "30db869400648db8ef401f498e7efef79a1cc4ed",
+  "prompts": {},
+  "sessions": {
+    "s_85a9116998874a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "349a2438-9b06-4d7a-a4f6-d875b81e8313",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
