@@ -1,0 +1,19 @@
+scripts/sim_core.tcl
+  s_c7954be637f460::t_98e8c0a4c80fc7 160-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "545fba079dc12223e93a0ee556b6acf6a36c6774",
+  "prompts": {},
+  "sessions": {
+    "s_c7954be637f460": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ffaa399-5f9e-4396-89bc-bf5ca65de325",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
