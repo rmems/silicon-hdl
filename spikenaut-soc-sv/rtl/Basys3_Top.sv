@@ -250,8 +250,20 @@ module spikenaut_soc_basys3_top #(
 
     // Target encoding matches SocProtocolFsm: 0=weight, 1=threshold, 2=leak.
     assign weight_we = wr_fire && (wr_sel_target == 2'd0);
-    assign thresh_we = wr_fire && (wr_sel_target == 2'd1);
-    assign leak_we   = wr_fire && (wr_sel_target == 2'd2);
+    // #73 follow-up: LifNeuronArray's threshold compare is signed, so a
+    // sign-bit-set threshold word -- whether from a host still using the
+    // unsigned FixedPointEncode contract (docs/interface-alignment.md
+    // §1.3.1) or simply malformed -- would make an idle neuron spike
+    // continuously (almost any signed membrane satisfies next_mem >=
+    // threshold once threshold is negative). Reject the write instead of
+    // storing it; NeuronParamRam keeps its prior value. Weight is exempt:
+    // a negative weight is the whole point of #73 (Dale inhibition).
+    assign thresh_we = wr_fire && (wr_sel_target == 2'd1) && !wr_sel_data[DATA_WIDTH-1];
+    // Same guard, same reason, for leak: a sign-bit-set leak makes the
+    // symmetric-decay math in LifNeuronArray ADD to the membrane every idle
+    // tick instead of draining it (0 - (-leak) = +leak), climbing to a
+    // positive threshold with no input at all. Only weight may be negative.
+    assign leak_we   = wr_fire && (wr_sel_target == 2'd2) && !wr_sel_data[DATA_WIDTH-1];
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),

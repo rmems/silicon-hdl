@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // tb_Basys3_Top.sv
+// Canonical source: spikenaut-soc-sv/tb
 // SoC-level testbench for spikenaut-soc-sv/rtl/Basys3_Top.sv
 // (top module spikenaut_soc_basys3_top).
 //
@@ -502,8 +503,13 @@ module tb_spikenaut_soc_basys3_top #(
 
         expected_first_spikes = '0;
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
+            // GH#73: LifNeuronArray now reads weight/threshold as signed
+            // Q8.8, so Dale I rows (negative col0 words, e.g. 0xFF00)
+            // correctly compare below their (positive) threshold instead of
+            // misreading as a huge positive integer.
             expected_first_spikes[neuron] =
-                (dut.u_wram.mem[neuron * NUM_NEURONS] >= dut.u_npram_threshold.mem[neuron]);
+                ($signed(dut.u_wram.mem[neuron * NUM_NEURONS]) >=
+                 $signed(dut.u_npram_threshold.mem[neuron]));
             check(dut.u_lif_array.membrane_potential[neuron] ==
                   dut.u_wram.mem[neuron * NUM_NEURONS],
                   "broadcast event must integrate each neuron row's input-column-0 weight");
@@ -511,7 +517,8 @@ module tb_spikenaut_soc_basys3_top #(
         check(led === expected_first_spikes,
               "LED bitmap must equal the merged_v2 per-neuron threshold outcomes");
         check(expected_first_spikes === 16'h0000,
-              "merged_v2 input-column-0 weights are below every per-neuron threshold");
+              {"exp-025 Dale bank: signed col0 weights (E ~1.2, I ~-1.0) are below every ",
+               "per-neuron threshold (~1.6 / ~0.45) -- no false spikes from I rows"});
         check(seen_threshold_addr == {NUM_NEURONS{1'b1}},
               "PE sweep must request all 16 threshold RAM entries");
         check(seen_leak_addr == {NUM_NEURONS{1'b1}},
@@ -529,16 +536,37 @@ module tb_spikenaut_soc_basys3_top #(
         check_int(frame_send_count, 1,
                   "idle leak tick must not increment the gated response count");
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
-            if (expected_first_spikes[neuron])
+            // GH#73: leak is signed and symmetric around the 0 resting
+            // potential, mirroring LifNeuronArray's leak_wide/decayed_wide
+            // logic exactly -- an I row's negative membrane (e.g. exp-025's
+            // -1.0 Q8.8 rows) now decays back *up* toward 0, not just a
+            // positive membrane decaying down.
+            // Mirrors LifNeuronArray's own wide-domain arithmetic exactly
+            // (sign-selected add/subtract + sign-flip clamp) rather than a
+            // magnitude compare with a plain 16-bit negation: negating
+            // 16'h8000 (the most-negative Q8.8 value) in 16 bits overflows
+            // back to itself, which would silently diverge from the RTL for
+            // a future bank containing that exact word. The RTL never hits
+            // this because its own decay arithmetic is done in one extra
+            // guard bit; give the reference model here the same guard bit.
+            automatic logic signed [16:0] mem1_wide =
+                $signed(dut.u_wram.mem[neuron * NUM_NEURONS]);
+            automatic logic signed [16:0] lk_wide =
+                $signed(dut.u_npram_leak.mem[neuron]);
+            automatic logic signed [16:0] expected_wide;
+            automatic logic signed [15:0] expected_mem2;
+
+            if (expected_first_spikes[neuron]) begin
                 check(dut.u_lif_array.membrane_potential[neuron] === '0,
                       "a prior spike must reset that row on the next tick");
-            else if (dut.u_wram.mem[neuron * NUM_NEURONS] > dut.u_npram_leak.mem[neuron])
-                check(dut.u_lif_array.membrane_potential[neuron] ==
-                      (dut.u_wram.mem[neuron * NUM_NEURONS] - dut.u_npram_leak.mem[neuron]),
-                      "each non-spiking row must use its own leak value");
-            else
-                check(dut.u_lif_array.membrane_potential[neuron] === '0,
-                      "leak must floor each row's membrane at zero");
+            end else begin
+                expected_wide = mem1_wide[16] ? (mem1_wide + lk_wide) : (mem1_wide - lk_wide);
+                if (expected_wide[16] != mem1_wide[16])
+                    expected_wide = '0;
+                expected_mem2 = expected_wide[15:0];
+                check(dut.u_lif_array.membrane_potential[neuron] == expected_mem2,
+                      "each non-spiking row must apply its own row's signed, symmetric leak");
+            end
         end
 
         // ------------------------------------------------------------
@@ -759,6 +787,88 @@ module tb_spikenaut_soc_basys3_top #(
                   "test 11: leak we must return low after the one-cycle strobe");
             check(dut.u_npram_leak.addr === dut.leak_addr,
                   "test 11: leak addr must return to the PE path after the write");
+        end
+
+        // ------------------------------------------------------------
+        // Test 11b (#73 follow-up): a sign-bit-set threshold write must be
+        // rejected, not stored -- LifNeuronArray's threshold compare is
+        // signed, so a negative threshold would make an idle neuron spike
+        // continuously. A non-negative write to the same address must
+        // still commit normally right after, proving the guard is
+        // sign-specific, not a general threshold-write block.
+        // ------------------------------------------------------------
+        begin
+            localparam logic [7:0] WRITE_THRESH_ADDR        = 8'h03;
+            localparam logic [15:0] WRITE_THRESH_REJECT_DATA = 16'hF000;  // sign bit set (-16.0)
+            localparam logic [15:0] WRITE_THRESH_ACCEPT_DATA = 16'h0200;  // 2.0
+            logic [15:0] thresh_before;
+
+            thresh_before = dut.u_npram_threshold.mem[WRITE_THRESH_ADDR];
+            check(thresh_before !== WRITE_THRESH_REJECT_DATA && thresh_before !== WRITE_THRESH_ACCEPT_DATA,
+                  "test 11b: INIT_FILE threshold must differ from both test values");
+
+            fork
+                uart_send_write_frame(8'h01, WRITE_THRESH_ADDR, WRITE_THRESH_REJECT_DATA);
+                wait_for_host_write(2'd1, "test 11b threshold (rejected)");
+            join
+            check(dut.thresh_we === 1'b0,
+                  "test 11b: a sign-bit-set threshold write must never assert thresh_we");
+            check(dut.u_npram_threshold.mem[WRITE_THRESH_ADDR] === thresh_before,
+                  "test 11b: a sign-bit-set threshold write must be rejected, not stored");
+
+            fork
+                uart_send_write_frame(8'h01, WRITE_THRESH_ADDR, WRITE_THRESH_ACCEPT_DATA);
+                wait_for_host_write(2'd1, "test 11b threshold (accepted)");
+            join
+            check(dut.u_npram_threshold.mem[WRITE_THRESH_ADDR] === WRITE_THRESH_ACCEPT_DATA,
+                  "test 11b: a non-negative threshold write to the same address must still commit");
+        end
+
+        // ------------------------------------------------------------
+        // Test 11c (#73 follow-up): a sign-bit-set leak write must also be
+        // rejected. Unlike threshold, a negative leak doesn't just fail to
+        // decay -- with a positive membrane it flips the arithmetic to
+        // *add* every idle tick (0 - (-leak) = +leak), climbing to a
+        // positive threshold from a fresh (zero) membrane with no input.
+        // wait_for_host_write() can't be reused for the rejected case: it
+        // asserts leak_we === (target==2'd2), which assumes target-2
+        // writes always commit -- true before this guard, not after.
+        // ------------------------------------------------------------
+        begin
+            localparam logic [7:0] WRITE_LEAK_ADDR2        = 8'h04;
+            localparam logic [15:0] WRITE_LEAK_REJECT_DATA = 16'hFF00;  // sign bit set (-1.0)
+            localparam logic [15:0] WRITE_LEAK_ACCEPT_DATA = 16'h0080;  // 0.5
+            logic [15:0] leak_before2;
+            int unsigned waited;
+
+            leak_before2 = dut.u_npram_leak.mem[WRITE_LEAK_ADDR2];
+            check(leak_before2 !== WRITE_LEAK_REJECT_DATA && leak_before2 !== WRITE_LEAK_ACCEPT_DATA,
+                  "test 11c: INIT_FILE leak must differ from both test values");
+
+            waited = 0;
+            fork
+                uart_send_write_frame(8'h02, WRITE_LEAK_ADDR2, WRITE_LEAK_REJECT_DATA);
+                begin
+                    forever begin
+                        @(negedge clk);
+                        waited++;
+                        if (dut.host_wr_en === 1'b1) break;
+                        if (waited > (5 * 11 * CLKS_PER_BIT + SEQ_SLACK))
+                            $fatal(1, "test 11c leak (rejected): host_wr_en not seen within %0d cycles", waited);
+                    end
+                end
+            join
+            check(dut.leak_we === 1'b0,
+                  "test 11c: a sign-bit-set leak write must never assert leak_we");
+            check(dut.u_npram_leak.mem[WRITE_LEAK_ADDR2] === leak_before2,
+                  "test 11c: a sign-bit-set leak write must be rejected, not stored");
+
+            fork
+                uart_send_write_frame(8'h02, WRITE_LEAK_ADDR2, WRITE_LEAK_ACCEPT_DATA);
+                wait_for_host_write(2'd2, "test 11c leak (accepted)");
+            join
+            check(dut.u_npram_leak.mem[WRITE_LEAK_ADDR2] === WRITE_LEAK_ACCEPT_DATA,
+                  "test 11c: a non-negative leak write to the same address must still commit");
         end
 
         // ------------------------------------------------------------

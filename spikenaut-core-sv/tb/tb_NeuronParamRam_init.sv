@@ -74,15 +74,15 @@ module tb_NeuronParamRam_init #(
         rst_n = 1'b1;
         @(negedge clk);
 
-        // merged_v2_thresholds.mem: line0=0120, line1=0128, line2=0130
+        // exp-025 bank (GH#73): merged_v2_thresholds.mem: line0=019A, line1=0199, line2=019A
         read_addr(4'd0, q);
-        check(q === 16'h0120, "mem[0] should be 0120 after $readmemh");
+        check(q === 16'h019A, "mem[0] should be 019A after $readmemh");
 
         read_addr(4'd1, q);
-        check(q === 16'h0128, "mem[1] should be 0128 after $readmemh");
+        check(q === 16'h0199, "mem[1] should be 0199 after $readmemh");
 
         read_addr(4'd2, q);
-        check(q === 16'h0130, "mem[2] should be 0130 after $readmemh");
+        check(q === 16'h019A, "mem[2] should be 019A after $readmemh");
 
         @(negedge clk);
         we   = 1'b1;

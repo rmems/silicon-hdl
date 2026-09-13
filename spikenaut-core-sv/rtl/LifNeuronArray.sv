@@ -5,6 +5,12 @@
 // NUM_NEURONS-neuron logical tick.  One shared datapath handles one neuron
 // slot per fabric cycle after fill; parameter/weight RAM reads and the
 // selected membrane state are prefetched before the slot consumes them.
+//
+// Signed Dale E/I path (GH#73): weight_dout and the per-neuron membrane state
+// are signed two's-complement Q8.8 (see spikenaut-core-sv/mem/README.md), so
+// an inhibitory weight subtracts instead of misreading as a large positive
+// integer. Mirrors LifNeuron.sv's signed leak/integrate/compare exactly (see
+// that file's header for the saturation and symmetric-leak rationale).
 
 module LifNeuronArray #(
     parameter int DATA_WIDTH        = 16,
@@ -75,6 +81,16 @@ module LifNeuronArray #(
     logic                   next_spike;
     logic [NUM_NEURONS-1:0] sweep_spikes_next;
 
+    // Signed Q8.8 saturation extremes (see file header, GH#73).
+    localparam logic signed [DATA_WIDTH-1:0] MAX_MEM = {1'b0, {(DATA_WIDTH-1){1'b1}}};
+    localparam logic signed [DATA_WIDTH-1:0] MIN_MEM = {1'b1, {(DATA_WIDTH-1){1'b0}}};
+    // One extra bit so leak/integrate arithmetic is exact (no wraparound)
+    // before the explicit saturate-to-DATA_WIDTH step.
+    logic signed [DATA_WIDTH:0] mem_wide;
+    logic signed [DATA_WIDTH:0] leak_wide;
+    logic signed [DATA_WIDTH:0] decayed_wide;
+    logic signed [DATA_WIDTH:0] sum_wide;
+
     generate
         if (NUM_NEURONS < 1)
             $error("LifNeuronArray: NUM_NEURONS (%0d) must be at least 1", NUM_NEURONS);
@@ -132,25 +148,47 @@ module LifNeuronArray #(
         next_spike       = 1'b0;
         sweep_spikes_next = sweep_spikes;
 
+        mem_wide     = '0;
+        leak_wide    = '0;
+        decayed_wide = '0;
+        sum_wide     = '0;
+
         if (sweep_refractory) begin
             next_membrane = '0;
             next_spike    = 1'b0;
         end else begin
-            if (membrane_q > leak_value)
-                decayed_membrane = membrane_q - leak_value;
+            mem_wide  = $signed(membrane_q);
+            leak_wide = $signed(leak_value);
+
+            // Leak pulls the membrane toward the 0 resting potential from
+            // either side (GH#73): mirrors LifNeuron.sv exactly -- one
+            // sign-selected add/subtract plus a sign-flip clamp check
+            // instead of a magnitude compare, since this shared datapath is
+            // timing-critical (see the retiming comments above).
+            decayed_wide = mem_wide[DATA_WIDTH] ? (mem_wide + leak_wide) : (mem_wide - leak_wide);
+            if (decayed_wide[DATA_WIDTH] != mem_wide[DATA_WIDTH])
+                decayed_wide = '0;  // crossed past 0 resting potential -- clamp
+            decayed_membrane = decayed_wide[DATA_WIDTH-1:0];
+
+            // Integrate, then saturate to the signed Q8.8 extremes instead of
+            // wrapping (positive overflow from strong excitation, negative
+            // overflow from strong inhibition).
+            sum_wide = sweep_spike_in ? (decayed_wide + $signed(weight_q)) : decayed_wide;
+
+            // sum_wide is exactly one bit wider than needed, so it always
+            // holds the true (non-wrapping) sum: it fits back in DATA_WIDTH
+            // bits iff the guard bit matches the sign bit. Cheap bit compare
+            // instead of a wide magnitude compare against MAX_MEM/MIN_MEM --
+            // this shared datapath is timing-critical (see the retiming
+            // comments above on weight_q/threshold_q/leak_q/membrane_q).
+            if (sum_wide[DATA_WIDTH] != sum_wide[DATA_WIDTH-1])
+                next_membrane = sum_wide[DATA_WIDTH] ? MIN_MEM : MAX_MEM;
             else
-                decayed_membrane = '0;
+                next_membrane = sum_wide[DATA_WIDTH-1:0];
 
-            if (sweep_spike_in) begin
-                if (decayed_membrane > ({DATA_WIDTH{1'b1}} - weight_q))
-                    next_membrane = {DATA_WIDTH{1'b1}};
-                else
-                    next_membrane = decayed_membrane + weight_q;
-            end else begin
-                next_membrane = decayed_membrane;
-            end
-
-            next_spike = (next_membrane >= threshold_value);
+            // Signed compare: next_membrane can now be negative (inhibited);
+            // threshold_value is always non-negative in shipped banks.
+            next_spike = ($signed(next_membrane) >= $signed(threshold_value));
         end
 
         sweep_spikes_next[neuron_index] = next_spike;
