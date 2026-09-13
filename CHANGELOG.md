@@ -31,6 +31,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Signed output-layer weights wired into the SoC (addresses #72).
+  - New `OutputLayer` (`spikenaut-core-sv/rtl/OutputLayer.sv`) reduces one tick's
+    `spike_bitmap` into 3 signed Q8.8 class scores against
+    `merged_v2_output_weights.mem` (row-major, `addr = neuron*3 + class`) and reports the
+    argmax as a one-hot result — the bank is no longer vendored-only.
+  - Accumulation reuses `LifNeuron`'s guard-bit saturating idiom at every one of the 48
+    steps, so a negative (Dale-inhibitory) output weight subtracts instead of misreading
+    as a large positive value, and 16 summed terms saturate at the signed Q8.8 extremes
+    instead of wrapping.
+  - Triggered from `LifNeuronArray.tick_done`, not `step_en`: `spike_bitmap` only updates
+    on `tick_done`, so a `step_en` trigger would have scored the previous tick's spikes.
+  - A second `WeightRam` instance (`u_output_wram`, `ADDR_WIDTH=6`) loads the bank via
+    `OUTPUT_WEIGHT_INIT_FILE`; no runtime write path (`INIT_FILE` is the only load path).
+  - Surfaced on LEDs only — `SocStatusLeds` `status_word[15:13]` (previously reserved/0)
+    now carries the stretched argmax. The 36-byte UART response frame is deliberately
+    unchanged (see #64).
+  - New `tb_OutputLayer` proves real-bank `$readmemh` loading, signed subtraction of a
+    negative weight, a real shipped-bank row cross-check, and both saturation directions.
+    `tb_SocStatusLeds` and `tb_spikenaut_soc_basys3_top` updated for the new bits.
+    Wired into `scripts/sim_core.tcl`, `.github/workflows/sim.yml`, and `scripts/build_soc.tcl`.
 - Dual MIT / Apache-2.0 licensing for maximum adoption in research and commercial hardware (addresses #6).
   - `LICENSE-MIT` and `LICENSE-APACHE-2.0` added at repository root.
   - SPDX-License-Identifier headers (`MIT OR Apache-2.0`) added to all `.sv`, `.tcl`, `.xdc`, and documentation sources.

@@ -46,7 +46,7 @@ single-source-of-truth rule: no module is defined in more than one place.
 
 | Library | Path | Contents |
 |---|---|---|
-| `lib_core` | `spikenaut-core-sv/rtl` | `LifNeuron`, `WeightRam`, `NeuronParamRam`, `StdpController` |
+| `lib_core` | `spikenaut-core-sv/rtl` | `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, `StdpController`, `OutputLayer` |
 | `lib_bridge` | `spikenaut-bridge-sv/rtl` | `UartRx`, `UartTx`, `SiliconBridge` |
 | `lib_soc` | `spikenaut-soc-sv/rtl` | `Basys3_Top.sv` (top: `spikenaut_soc_basys3_top`) wrapper only |
 | `lib_synapse` | `synapse-link-hdl/src` | `SynapseRouter` — address-event representation (AER) routing; demo top `synapse_demo_basys3_top` |

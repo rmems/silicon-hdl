@@ -16,6 +16,7 @@
 //   spikenaut-core-sv/rtl/WeightRam.sv
 //   spikenaut-core-sv/rtl/NeuronParamRam.sv
 //   spikenaut-core-sv/rtl/StdpController.sv
+//   spikenaut-core-sv/rtl/OutputLayer.sv
 //   spikenaut-bridge-sv/rtl/UartRx.sv
 //   spikenaut-bridge-sv/rtl/UartTx.sv
 //   spikenaut-bridge-sv/rtl/SiliconBridge.sv
@@ -27,9 +28,13 @@ module spikenaut_soc_basys3_top #(
     parameter string WEIGHT_INIT_FILE = "spikenaut-core-sv/mem/merged_v2_weights.mem",
     parameter string THRESH_INIT_FILE = "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
     parameter string LEAK_INIT_FILE   = "spikenaut-core-sv/mem/merged_v2_decay.mem",
+    // GH#72: output-layer bank (16 neurons x 3 classes, 48 entries).
+    parameter string OUTPUT_WEIGHT_INIT_FILE = "spikenaut-core-sv/mem/merged_v2_output_weights.mem",
     // 256-entry weight image => ADDR_WIDTH=8 (not core default 10).
     parameter int    WEIGHT_ADDR_W    = 8,
-    parameter int    NEURON_ADDR_W    = 8
+    parameter int    NEURON_ADDR_W    = 8,
+    // 48-entry output-weight image => ADDR_WIDTH=6 (2**6=64 >= 48).
+    parameter int    OUTPUT_WEIGHT_ADDR_W = 6
 )(
     input  logic        clk,       // 100 MHz on-board oscillator
     input  logic        rst_n,     // Physically active-high button (U18/BTNC/CPU_RESET); inverted to rst (active-low) internally per gh-14 5u3.5. XDC port name kept for compatibility.
@@ -50,6 +55,9 @@ module spikenaut_soc_basys3_top #(
     localparam int DATA_WIDTH      = 16;
     localparam int PARAM_WIDTH     = 16;
     localparam int NUM_NEURONS     = 16;
+    // GH#72: output classes in the exp-025 bank ("n_outputs": 3). Fixed at 3
+    // because SocStatusLeds' status_word[15:13] field is exactly 3 bits wide.
+    localparam int NUM_OUTPUT_CLASSES = 3;
 
     // gh-14 5u3.5 (P1): inversion in RTL (XDC pin/port rst_n kept for compatibility;
     // BTNC/CPU_RESET U18 is active-high). Use 'rst' (active-low) for all submodules + local logic.
@@ -345,6 +353,52 @@ module spikenaut_soc_basys3_top #(
     );
 
     // ----------------------------------------------------------------
+    // Output layer (#72): 3-class argmax readout over that tick's
+    // spike_bitmap, surfaced on LEDs only (status_word[15:13]) -- no UART
+    // frame change (see docs/interface-alignment.md / #64). Triggered on
+    // lif_tick_done, not step_en: spike_bitmap only updates on tick_done,
+    // so triggering on step_en would score the *previous* tick's spikes.
+    // No runtime write path for this bank -- we/din tied off, matching the
+    // precedent of u_stdp's intentionally-dangling write ports below.
+    // ----------------------------------------------------------------
+    logic [DATA_WIDTH-1:0] output_weight_dout;
+    logic [OUTPUT_WEIGHT_ADDR_W-1:0] output_weight_addr;
+    logic [NUM_OUTPUT_CLASSES-1:0] output_class;
+    logic output_class_valid;
+
+    WeightRam #(
+        .ADDR_WIDTH (OUTPUT_WEIGHT_ADDR_W),
+        .DATA_WIDTH (DATA_WIDTH),
+        .INIT_FILE  (OUTPUT_WEIGHT_INIT_FILE)
+    ) u_output_wram (
+        .clk  (clk),
+        .rst_n (rst),
+        .we   (1'b0),
+        .addr (output_weight_addr),
+        .din  ('0),
+        .dout (output_weight_dout)
+    );
+
+    OutputLayer #(
+        .DATA_WIDTH        (DATA_WIDTH),
+        .NUM_NEURONS       (NUM_NEURONS),
+        .NUM_CLASSES       (NUM_OUTPUT_CLASSES),
+        .WEIGHT_ADDR_WIDTH (OUTPUT_WEIGHT_ADDR_W)
+    ) u_output_layer (
+        .clk          (clk),
+        .rst_n        (rst),
+        .spike_valid  (lif_tick_done),
+        .spike_bitmap (spike_bitmap),
+        .weight_dout  (output_weight_dout),
+        .weight_addr  (output_weight_addr),
+        .result       (output_class),
+        // Gates the LED latch: result is a held one-hot that never returns
+        // to '0, so SocStatusLeds must replace the whole vector on this
+        // strobe rather than OR-ing bits into a stretched hold.
+        .done         (output_class_valid)
+    );
+
+    // ----------------------------------------------------------------
     // SoC application protocol (0xAA frame codec + TX readback)
     // ----------------------------------------------------------------
     // Host contract (#62): one 36-byte response per consumed 0xAA stimulus
@@ -438,7 +492,9 @@ module spikenaut_soc_basys3_top #(
         .tx_frame_active (tx_frame_active),
         .stimuli_pending (stimuli_pending),
         .response_armed  (response_armed),
-        .led             (led)
+        .output_class       (output_class),
+        .output_class_valid (output_class_valid),
+        .led                (led)
     );
 
 endmodule

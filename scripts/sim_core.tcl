@@ -48,6 +48,7 @@ read_verilog -sv [list \
     [file join $core_rtl WeightRam.sv]      \
     [file join $core_rtl NeuronParamRam.sv] \
     [file join $core_rtl StdpController.sv] \
+    [file join $core_rtl OutputLayer.sv]    \
 ]
 
 # ---------------------------------------------------------------------------
@@ -82,7 +83,7 @@ foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_OutputLayer tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
 
 set mem_dir [file join $repo_root spikenaut-core-sv mem]
 
@@ -100,11 +101,15 @@ foreach tb_top $core_tb_tops {
         set_property generic "INIT=[file normalize [file join $mem_dir merged_v2_weights.mem]]" [get_filesets sim_1]
     } elseif {$tb_top eq "tb_NeuronParamRam_init"} {
         set_property generic "INIT=[file normalize [file join $mem_dir merged_v2_thresholds.mem]]" [get_filesets sim_1]
+    } elseif {$tb_top eq "tb_OutputLayer"} {
+        # #72 output-weight bank regression $readmemh's the shipped bank directly.
+        set_property generic "INIT_FILE=[file normalize [file join $mem_dir merged_v2_output_weights.mem]]" [get_filesets sim_1]
     } elseif {$tb_top eq "tb_spikenaut_soc_basys3_top"} {
         set_property generic [list \
             "WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_weights.mem]]" \
             "THRESH_INIT=[file normalize [file join $mem_dir merged_v2_thresholds.mem]]" \
             "LEAK_INIT=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
+            "OUTPUT_WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_output_weights.mem]]" \
         ] [get_filesets sim_1]
         set run_time 20ms
     } elseif {$tb_top eq "tb_LifNeuronArray"} {

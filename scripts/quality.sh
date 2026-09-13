@@ -77,6 +77,23 @@ for entry in "${TBS[@]}"; do
   fi
 done
 
+# tb_OutputLayer needs two DUT files (it drives a real WeightRam), so it does
+# not fit the single-DUT TBS loop above.
+echo ""
+echo "=== Verilator tb_OutputLayer ==="
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_OutputLayer \
+    -Ispikenaut-core-sv/rtl \
+    spikenaut-core-sv/rtl/WeightRam.sv \
+    spikenaut-core-sv/rtl/OutputLayer.sv \
+    spikenaut-core-sv/tb/tb_OutputLayer.sv \
+  && ./obj_dir/Vtb_OutputLayer; then
+  record "verilator/tb_OutputLayer" "PASS"
+else
+  record "verilator/tb_OutputLayer" "FAIL"
+fi
+
 BRIDGE_TBS=(UartRx UartTx SiliconBridge)
 for tb in "${BRIDGE_TBS[@]}"; do
   echo ""

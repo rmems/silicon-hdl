@@ -21,7 +21,7 @@ either side of the contract changes.
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Widths match. SoC demo loads `merged_v2_weights.mem`, `merged_v2_thresholds.mem`, and `merged_v2_decay.mem` via `INIT_FILE` `$readmemh` ([#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52)); `merged_v2_output_weights.mem` is vendored, not wired. Runtime UART rewrite is on via `SocProtocolFsm` `0xA5` frames ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
+| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Widths match. SoC demo loads `merged_v2_weights.mem`, `merged_v2_thresholds.mem`, `merged_v2_decay.mem`, and (since [#72](https://github.com/rmems/silicon-hdl/issues/72)) `merged_v2_output_weights.mem` via `INIT_FILE` `$readmemh` ([#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52) / #72). The output-weight bank feeds `OutputLayer`'s 3-class argmax, surfaced on LEDs only (`status_word[15:13]`) — no UART frame change (see [#64](https://github.com/rmems/silicon-hdl/issues/64)). Runtime UART rewrite is on via `SocProtocolFsm` `0xA5` frames ([#63](https://github.com/rmems/silicon-hdl/issues/63)) for the weight/threshold/leak banks only; the output-weight bank has no runtime write path |
 | SiliconBridge UART framing vs `FpgaBridge` | **Implemented at SoC layer** | `SiliconBridge` remains transport-only (8-bit bytes); canonical `SocProtocolFsm` owns the host multi-byte frames ([#62](https://github.com/rmems/silicon-hdl/issues/62)) |
 | Compatibility table (Rust ↔ SV) | **Documented** | See below |
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
@@ -160,8 +160,11 @@ Distill sidecar export, not from `FixedPointEncode`.
 
 **SoC demo note (`spikenaut_soc_basys3_top`):** `INIT_FILE` is wired. Weight,
 threshold, and leak RAMs load `merged_v2_weights.mem`, `merged_v2_thresholds.mem`,
-and `merged_v2_decay.mem` at elaboration (`merged_v2_output_weights.mem` is
-vendored only). Vivado: `build_soc.tcl` `-generic` absolute paths so `$readmemh`
+and `merged_v2_decay.mem` at elaboration; a fourth RAM (`u_output_wram`) loads
+`merged_v2_output_weights.mem` for `OutputLayer` (#72), which reduces one
+tick's `spike_bitmap` into a 3-class argmax surfaced on LEDs only
+(`status_word[15:13]`) — the 36-byte UART response frame is unchanged (see
+#64). Vivado: `build_soc.tcl` `-generic` absolute paths so `$readmemh`
 resolves. `LifNeuronArray` starts a 16-slot sweep on each `step_en` and pipelines
 the RAM address one fabric cycle ahead of its registered `dout` consumption.
 Threshold and leak walk neuron addresses `0..15`; the weight map is

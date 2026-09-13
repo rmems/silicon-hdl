@@ -93,6 +93,18 @@ jobs:
             spikenaut-core-sv/tb/tb_NeuronParamRam_init.sv
           ./obj_dir/Vtb_NeuronParamRam_init
 
+      - name: Run tb_OutputLayer
+        run: |
+          rm -rf obj_dir
+          # INIT_FILE path is repo-root relative (merged_v2 output weights)
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_OutputLayer \
+            -Ispikenaut-core-sv/rtl \
+            spikenaut-core-sv/rtl/WeightRam.sv \
+            spikenaut-core-sv/rtl/OutputLayer.sv \
+            spikenaut-core-sv/tb/tb_OutputLayer.sv
+          ./obj_dir/Vtb_OutputLayer
+
       - name: Run tb_StdpController
         run: |
           rm -rf obj_dir
@@ -174,6 +186,7 @@ jobs:
             spikenaut-core-sv/rtl/WeightRam.sv \
             spikenaut-core-sv/rtl/NeuronParamRam.sv \
             spikenaut-core-sv/rtl/StdpController.sv \
+            spikenaut-core-sv/rtl/OutputLayer.sv \
             spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
             spikenaut-soc-sv/rtl/SocStatusLeds.sv \
             spikenaut-soc-sv/rtl/Basys3_Top.sv \

@@ -30,8 +30,8 @@ create_project -force $project_name $project_dir -part $part
 # sourced ONLY from their lib dirs, never copied into soc-sv/rtl or examples).
 # Full list (traced from build order + insts in Basys3_Top + XDC):
 #   bridge: UartRx.sv UartTx.sv SiliconBridge.sv (spikenaut-bridge-sv/rtl)
-#   core:   LifNeuron.sv LifNeuronArray.sv WeightRam.sv NeuronParamRam.sv StdpController.sv (spikenaut-core-sv/rtl)
-#   mem:    merged_v2_{weights,thresholds,decay}.mem (spikenaut-core-sv/mem) — E2 INIT
+#   core:   LifNeuron.sv LifNeuronArray.sv WeightRam.sv NeuronParamRam.sv StdpController.sv OutputLayer.sv (spikenaut-core-sv/rtl)
+#   mem:    merged_v2_{weights,thresholds,decay,output_weights}.mem (spikenaut-core-sv/mem) — E2 / #72 INIT
 #   soc:    SocProtocolFsm.sv SocStatusLeds.sv Basys3_Top.sv (spikenaut-soc-sv/rtl)  -- top=spikenaut_soc_basys3_top
 #   xdc:    constraints/basys3.xdc (shared ports) + constraints/basys3_soc.xdc (SoC-only sw)
 # See also sim_core.tcl, dedup greps in README, and headers in each .sv.
@@ -62,6 +62,7 @@ read_verilog -sv [list \
     [file join $core_rtl WeightRam.sv]       \
     [file join $core_rtl NeuronParamRam.sv]  \
     [file join $core_rtl StdpController.sv]  \
+    [file join $core_rtl OutputLayer.sv]     \
 ]
 
 # ---------------------------------------------------------------------------
@@ -86,16 +87,18 @@ set core_mem [file join $repo_root spikenaut-core-sv mem]
 set weight_mem [file join $core_mem merged_v2_weights.mem]
 set thresh_mem [file join $core_mem merged_v2_thresholds.mem]
 set decay_mem  [file join $core_mem merged_v2_decay.mem]
+set output_weight_mem [file join $core_mem merged_v2_output_weights.mem]
 
-foreach mem_f [list $weight_mem $thresh_mem $decay_mem] {
+foreach mem_f [list $weight_mem $thresh_mem $decay_mem $output_weight_mem] {
     if {![file isfile $mem_f]} {
         error "build_soc.tcl: missing mem image: $mem_f"
     }
 }
-add_files -norecurse [list $weight_mem $thresh_mem $decay_mem]
+add_files -norecurse [list $weight_mem $thresh_mem $decay_mem $output_weight_mem]
 set_property file_type {Memory Initialization Files} [get_files $weight_mem]
 set_property file_type {Memory Initialization Files} [get_files $thresh_mem]
 set_property file_type {Memory Initialization Files} [get_files $decay_mem]
+set_property file_type {Memory Initialization Files} [get_files $output_weight_mem]
 
 # ---------------------------------------------------------------------------
 # 4. Constraints
@@ -111,7 +114,8 @@ set_property top spikenaut_soc_basys3_top [current_fileset]
 synth_design -top spikenaut_soc_basys3_top -part $part \
     -generic "WEIGHT_INIT_FILE=\"$weight_mem\"" \
     -generic "THRESH_INIT_FILE=\"$thresh_mem\"" \
-    -generic "LEAK_INIT_FILE=\"$decay_mem\""
+    -generic "LEAK_INIT_FILE=\"$decay_mem\"" \
+    -generic "OUTPUT_WEIGHT_INIT_FILE=\"$output_weight_mem\""
 
 # ---------------------------------------------------------------------------
 # 6. Implementation
