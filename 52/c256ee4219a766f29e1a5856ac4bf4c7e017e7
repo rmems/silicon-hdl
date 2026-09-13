@@ -1,0 +1,30 @@
+docs/interface-alignment.md
+  s_85a9116998874a::t_81eae852d7affe 224-226
+  s_85a9116998874a::t_70423a29c9a091 90-95
+  s_85a9116998874a::t_225563d5c3350c 105,107-113,122-147
+spikenaut-core-sv/tb/tb_WeightRam_init.sv
+  s_85a9116998874a::t_1e112d1af55eab 78,80,83,86
+spikenaut-core-sv/tb/tb_NeuronParamRam_init.sv
+  s_85a9116998874a::t_0e5894df438011 77,79,82,85
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_85a9116998874a::t_69055a2bfa3981 544-552,554,556,563-566
+  s_85a9116998874a::t_48705955bd618c 3
+spikenaut-core-sv/mem/README.md
+  s_85a9116998874a::t_9d46345878866b 20-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "52c256ee4219a766f29e1a5856ac4bf4c7e017e7",
+  "prompts": {},
+  "sessions": {
+    "s_85a9116998874a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "349a2438-9b06-4d7a-a4f6-d875b81e8313",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
