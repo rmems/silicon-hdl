@@ -34,7 +34,11 @@ module OutputLayer #(
     parameter int DATA_WIDTH        = 16,
     parameter int NUM_NEURONS       = 16,
     parameter int NUM_CLASSES       = 3,
-    parameter int WEIGHT_ADDR_WIDTH = $clog2(NUM_NEURONS * NUM_CLASSES)
+    // Guard the degenerate 1x1 layer: $clog2(1) is 0, which would make the
+    // address port and its casts zero-width. Same idiom as
+    // LifNeuronArray's INDEX_WIDTH.
+    parameter int WEIGHT_ADDR_WIDTH =
+        (NUM_NEURONS * NUM_CLASSES > 1) ? $clog2(NUM_NEURONS * NUM_CLASSES) : 1
 )(
     input  logic                         clk,
     input  logic                         rst_n,
@@ -124,11 +128,24 @@ module OutputLayer #(
 
                 SWEEP: begin
                     automatic logic signed [DATA_WIDTH:0] sum_wide;
+                    // Sign-extend both operands to the guard width BEFORE
+                    // adding. SystemVerilog's context-determined sizing
+                    // would already widen the add to sum_wide's width, but
+                    // spelling it out keeps the no-wrap guarantee from
+                    // resting on that rule -- and keeps it intact if this
+                    // expression is ever moved into a self-determined
+                    // context. Mirrors LifNeuron.sv, where the accumulator
+                    // operand (decayed_wide) is already guard-width.
+                    automatic logic signed [DATA_WIDTH:0] acc_wide;
+                    automatic logic signed [DATA_WIDTH:0] weight_wide;
+
+                    acc_wide    = $signed(class_acc[consume_class]);
+                    weight_wide = $signed(weight_dout);
 
                     if (consume_valid) begin
                         sum_wide = spike_bitmap[consume_neuron]
-                            ? ($signed(class_acc[consume_class]) + $signed(weight_dout))
-                            : $signed(class_acc[consume_class]);
+                            ? (acc_wide + weight_wide)
+                            : acc_wide;
                         if (sum_wide[DATA_WIDTH] != sum_wide[DATA_WIDTH-1])
                             class_acc[consume_class] <= sum_wide[DATA_WIDTH] ? MIN_MEM : MAX_MEM;
                         else

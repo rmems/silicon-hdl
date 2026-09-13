@@ -70,8 +70,10 @@ even if the project lives under `vivado_projects/`.
 
 `u_output_wram` feeds `OutputLayer` (`spikenaut-core-sv/rtl/OutputLayer.sv`),
 which reduces one tick's `spike_bitmap` into a 3-class argmax and surfaces it
-on LEDs only (`status_word[15:13]`, see `docs/led-map.md`) — the UART response
-frame is unchanged (see `docs/interface-alignment.md` / #64). No runtime
-write path exists for this bank; `INIT_FILE` is the only load path.
+on LEDs only (`status_word[15:13]`, latched as a whole one-hot vector on each
+`OutputLayer.done` — **not** a per-bit stretched hold, which would go
+multi-hot; see `docs/led-map.md`) — the UART response frame is unchanged (see
+`docs/interface-alignment.md` / #64). No runtime write path exists for this
+bank; `INIT_FILE` is the only load path.
 
 **Depth:** `$readmemh` loads `min(file lines, 2**ADDR_WIDTH)` words. Match width to the image, e.g. `WeightRam` with `merged_v2_weights.mem` (256 lines) should use `ADDR_WIDTH=8` (not the default 10). Thresholds/decay (16 lines) fit `NeuronParamRam` default `ADDR_WIDTH=8` with room to spare.

@@ -28,6 +28,7 @@ module tb_SocStatusLeds;
     logic stimuli_pending;
     logic response_armed;
     logic [2:0] output_class;
+    logic output_class_valid;
     logic [LED_WIDTH-1:0] led;
 
     int errors = 0;
@@ -49,8 +50,9 @@ module tb_SocStatusLeds;
         .tx_frame_active (tx_frame_active),
         .stimuli_pending (stimuli_pending),
         .response_armed  (response_armed),
-        .output_class    (output_class),
-        .led             (led)
+        .output_class       (output_class),
+        .output_class_valid (output_class_valid),
+        .led                (led)
     );
 
     initial clk = 1'b0;
@@ -77,7 +79,8 @@ module tb_SocStatusLeds;
             tx_frame_active  = 1'b0;
             stimuli_pending  = 1'b0;
             response_armed   = 1'b0;
-            output_class     = 3'b000;
+            output_class       = 3'b000;
+            output_class_valid = 1'b0;
         end
     endtask
 
@@ -266,20 +269,46 @@ module tb_SocStatusLeds;
         check(led[15:13] === 3'b000, "reserved bits must stay 0 for a full bitmap");
 
         // ------------------------------------------------------------
-        // GH#72: output_class must stretch/hold like every other event bit
-        // (set on event, cleared on stretch_tick), independently per bit.
+        // GH#72: output_class is a HELD one-hot argmax, not an event pulse.
+        // OutputLayer.result always has exactly one bit set (argmax picks a
+        // winner even when every score is 0) and holds it until the next
+        // tick replaces it -- it never returns to '0 on its own. So these
+        // bits must latch the whole vector on output_class_valid rather
+        // than OR-ing each bit independently: an independent per-bit hold
+        // would pin the current winner high forever and leave the previous
+        // winner set too, making status[15:13] multi-hot.
         // ------------------------------------------------------------
         @(negedge clk);
-        output_class = 3'b101;
+        output_class       = 3'b001;   // class 0 wins this tick
+        output_class_valid = 1'b1;
         @(negedge clk);
-        output_class = 3'b000;
+        output_class_valid = 1'b0;
         #1;
-        check(led[15:13] === 3'b101,
-              "GH#72: output_class must latch into status[15:13] on event");
+        check(led[15:13] === 3'b001,
+              "GH#72: status[15:13] must latch the committed one-hot argmax");
+
+        // The winner now CHANGES while the old value is still held. A real
+        // OutputLayer keeps driving the new one-hot continuously.
+        @(negedge clk);
+        output_class       = 3'b100;   // class 2 wins the next tick
+        output_class_valid = 1'b1;
+        @(negedge clk);
+        output_class_valid = 1'b0;
+        #1;
+        check(led[15:13] === 3'b100,
+              "GH#72: a new winner must REPLACE the previous one, not OR with it");
+        check($countones(led[15:13]) <= 1,
+              "GH#72: status[15:13] must stay one-hot across a class change");
+
+        // Holding the same one-hot for a long time (the steady-state case)
+        // must not be cleared out from under the reader by stretch_tick.
         wait_stretch_tick();
         @(negedge clk);
-        check(led[15:13] === 3'b000,
-              "GH#72: stretch_tick must clear output_class_hold");
+        check(led[15:13] === 3'b100,
+              "GH#72: a held argmax must survive stretch_tick (it is state, not an event)");
+        check($countones(led[15:13]) <= 1,
+              "GH#72: status[15:13] must stay one-hot after a stretch window");
+        output_class = 3'b000;
 
         // ------------------------------------------------------------
         // Stretch window DURATION, measured through the led port only.

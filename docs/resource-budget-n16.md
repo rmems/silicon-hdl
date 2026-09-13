@@ -167,34 +167,40 @@ instance (`u_output_wram`, 48 × 16-bit) and driving `SocStatusLeds`
 
 | Resource | Used | Available | Utilization | vs. #73 |
 |---|---|---|---|---|
-| Slice LUTs | 1,035 | 20,800 | 4.98% | +122 |
-| Slice Registers | 1,808 | 41,600 | 4.35% | +70 |
+| Slice LUTs | 1,030 | 20,800 | 4.95% | +117 |
+| Slice Registers | 1,809 | 41,600 | 4.35% | +71 |
 | Block RAM Tile | 2.0 (4 × RAMB18E1) | 50 | 4.00% | +0.5 (one RAMB18E1) |
 | DSPs | 0 | 90 | 0.00% | unchanged |
 | Bonded IOB | 36 | 106 | 33.96% | unchanged |
 
 | Metric | Value | Failing / total endpoints | vs. #73 |
 |---|---|---|---|
-| WNS | **+0.526 ns** | 0 / 3558 | −0.18 ns |
-| WHS | +0.088 ns | 0 / 3558 | −0.02 ns |
-| WPWS | +4.500 ns | 0 / 1813 | unchanged |
+| WNS | **+1.052 ns** | 0 / 3559 | +0.34 ns |
+| WHS | +0.069 ns | 0 / 3559 | −0.04 ns |
+| WPWS | +4.500 ns | 0 / 1814 | unchanged |
 
-Timing still closes with zero failing endpoints. The WNS move is within the
-±0.2 ns placement-noise band this file documents above, so it is not by itself
-evidence that the output layer is on the critical path — unlike #73's −0.52 ns,
-which exceeded that band.
+Timing closes with zero failing endpoints, and WNS *improved* by 0.34 ns
+against the #73 baseline. Do not read that as the output layer making the
+design faster: an intermediate build of this same change measured +0.526 ns,
+so the spread across two builds of nearly identical trees is ~0.53 ns — larger
+than the ±0.2 ns band noted above and a reminder that single-build WNS deltas
+on this design are dominated by placement variance. The honest claim is that
+the output layer does not move the critical path, not that it helps it.
 
 Per-module attribution for the new logic:
 
 | Instance | Module | LUTs | FFs |
 |---|---|---|---|
-| `u_output_layer` | `OutputLayer` | 121 | 67 |
+| `u_output_layer` | `OutputLayer` | 114 | 68 |
 | `u_status_leds` | `SocStatusLeds` | 51 (+2) | 58 (+3) |
 
-`u_output_layer`'s 67 flip-flops are the three 16-bit class accumulators (48),
-the two 6-bit sweep counters, the 2-bit state, the 3-bit registered result, and
-`done`. `SocStatusLeds`'s +3 flip-flops are exactly the new
-`output_class_hold` register. The extra RAMB18E1 is `u_output_wram`: Vivado
+`OutputLayer` declares 67 flip-flops: the three 16-bit class accumulators (48),
+the two 6-bit sweep counters (12), the 1-bit `consume_valid` pipeline flag, the
+2-bit state, the 3-bit registered result, and `done` — 48 + 12 + 1 + 2 + 3 + 1.
+The routed report attributes 68 to the instance; the ±1 is the same
+cross-hierarchy attribution caveat this file documents for the LUT column.
+`SocStatusLeds`'s +3 flip-flops are exactly the new `output_class_hold`
+register. The extra RAMB18E1 is `u_output_wram`: Vivado
 infers a whole block RAM for the 48-word bank rather than distributed LUT RAM,
 which is why the BRAM tile count moves a full half-tile for a bank far smaller
 than the 256-word weight image. Building it as LUT RAM instead would trade

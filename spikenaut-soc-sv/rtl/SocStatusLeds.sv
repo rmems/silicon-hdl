@@ -25,10 +25,23 @@ module SocStatusLeds #(
     input  logic                    tx_frame_active,
     input  logic                    stimuli_pending,
     input  logic                    response_armed,
-    // GH#72: argmax-of-3 one-hot from OutputLayer, stretched into
-    // status_word[15:13] like every other event bit below (not the UART
-    // response frame -- see docs/interface-alignment.md / #64).
+    // GH#72: argmax-of-3 one-hot from OutputLayer, shown on
+    // status_word[15:13] (not the UART response frame -- see
+    // docs/interface-alignment.md / #64).
+    //
+    // Unlike every other bit in the status word, this is *state*, not an
+    // event: OutputLayer.result always has exactly one bit set (argmax
+    // picks a winner even when every score is 0) and holds it until the
+    // next tick replaces it, so it never returns to '0 on its own. It is
+    // therefore latched as a whole vector on output_class_valid
+    // (OutputLayer.done) rather than OR-ed per bit into a stretched hold.
+    // An event-style per-bit hold would pin the current winner high
+    // forever -- the `if (bit)` arm would win over the stretch clear every
+    // cycle -- and leave the previous winner set alongside it, making
+    // status_word[15:13] multi-hot. Being already held for a full logical
+    // tick, it also needs no stretching for visibility.
     input  logic [2:0]              output_class,
+    input  logic                    output_class_valid,
     output logic [LED_WIDTH-1:0]    led
 );
 
@@ -130,12 +143,10 @@ module SocStatusLeds #(
                     spike_hold[neuron] <= 1'b0;
             end
 
-            for (int cls = 0; cls < 3; cls++) begin
-                if (output_class[cls])
-                    output_class_hold[cls] <= 1'b1;
-                else if (stretch_tick)
-                    output_class_hold[cls] <= 1'b0;
-            end
+            // Whole-vector replace, never a per-bit OR -- see the port
+            // comment above for why this one field is not stretched.
+            if (output_class_valid)
+                output_class_hold <= output_class;
 
             if (rx_commit)
                 abort_sticky <= 1'b0;

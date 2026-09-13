@@ -364,6 +364,7 @@ module spikenaut_soc_basys3_top #(
     logic [DATA_WIDTH-1:0] output_weight_dout;
     logic [OUTPUT_WEIGHT_ADDR_W-1:0] output_weight_addr;
     logic [NUM_OUTPUT_CLASSES-1:0] output_class;
+    logic output_class_valid;
 
     WeightRam #(
         .ADDR_WIDTH (OUTPUT_WEIGHT_ADDR_W),
@@ -391,7 +392,10 @@ module spikenaut_soc_basys3_top #(
         .weight_dout  (output_weight_dout),
         .weight_addr  (output_weight_addr),
         .result       (output_class),
-        .done         ()
+        // Gates the LED latch: result is a held one-hot that never returns
+        // to '0, so SocStatusLeds must replace the whole vector on this
+        // strobe rather than OR-ing bits into a stretched hold.
+        .done         (output_class_valid)
     );
 
     // ----------------------------------------------------------------
@@ -488,8 +492,9 @@ module spikenaut_soc_basys3_top #(
         .tx_frame_active (tx_frame_active),
         .stimuli_pending (stimuli_pending),
         .response_armed  (response_armed),
-        .output_class    (output_class),
-        .led             (led)
+        .output_class       (output_class),
+        .output_class_valid (output_class_valid),
+        .led                (led)
     );
 
 endmodule

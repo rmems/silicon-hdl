@@ -53,9 +53,10 @@ capture; use status mode to eyeball a running demo.
 
 ## Status mode
 
-SW15 = 1. Bits `[1]`, `[2]`, `[4]`, `[5]`, `[6]`, `[13]`-`[15]`, and
-`spike_hold` are set on event and cleared on the shared `stretch_tick`.
-`abort_sticky` clears only on `rx_commit` or reset.
+SW15 = 1. Bits `[1]`, `[2]`, `[4]`, `[5]`, `[6]` and `spike_hold` are set on
+event and cleared on the shared `stretch_tick`. `abort_sticky` clears only on
+`rx_commit` or reset. `[15:13]` is neither: it is latched state, replaced as a
+whole vector on each `OutputLayer.done` — see the note under the table.
 
 | Bit | Name | Source |
 | --- | --- | --- |
@@ -68,14 +69,25 @@ SW15 = 1. Bits `[1]`, `[2]`, `[4]`, `[5]`, `[6]`, `[13]`-`[15]`, and
 | `[6]` | response_armed | stretched SoC armed flag |
 | `[7]` | any_spike | `\|spike_hold` |
 | `[12:8]` | spike_count | `$countones(spike_hold)` |
-| `[13]` | output_class[0] | stretched `OutputLayer.result[0]` (GH#72) |
-| `[14]` | output_class[1] | stretched `OutputLayer.result[1]` (GH#72) |
-| `[15]` | output_class[2] | stretched `OutputLayer.result[2]` (GH#72) |
+| `[13]` | output_class[0] | latched `OutputLayer.result[0]` (GH#72) |
+| `[14]` | output_class[1] | latched `OutputLayer.result[1]` (GH#72) |
+| `[15]` | output_class[2] | latched `OutputLayer.result[2]` (GH#72) |
 
 `output_class` is an argmax-of-3 one-hot over the 16-neuron `spike_bitmap`
 weighted by `merged_v2_output_weights.mem` (ties favor the lower class
-index), recomputed fresh every tick — not persisted across ticks except
-through the shared stretch hold above. See
+index), recomputed fresh every tick.
+
+**These three bits are state, not events, and are deliberately not
+stretched.** `OutputLayer.result` always has exactly one bit set — argmax
+picks a winner even when every score is zero — and holds it until the next
+tick replaces it, so it never returns to `'0` on its own. `SocStatusLeds`
+therefore latches the **whole vector** on `OutputLayer.done` rather than
+OR-ing each bit into a stretched hold. An event-style per-bit hold would pin
+the current winner high forever (its set arm beats the stretch clear every
+cycle) and leave the previous winner set alongside it, so `[15:13]` would go
+multi-hot and stop being an argmax. Being already held for a full logical
+tick, it needs no stretching for visibility. Expect exactly one of these
+three lit whenever the design has completed a tick since reset. See
 [`mem/README.md`](../spikenaut-core-sv/mem/README.md) and
 [`interface-alignment.md`](interface-alignment.md). This is LED-only: the
 36-byte UART response frame is unchanged (see [#64](https://github.com/rmems/silicon-hdl/issues/64)).
