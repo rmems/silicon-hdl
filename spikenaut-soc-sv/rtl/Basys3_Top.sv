@@ -259,7 +259,11 @@ module spikenaut_soc_basys3_top #(
     // storing it; NeuronParamRam keeps its prior value. Weight is exempt:
     // a negative weight is the whole point of #73 (Dale inhibition).
     assign thresh_we = wr_fire && (wr_sel_target == 2'd1) && !wr_sel_data[DATA_WIDTH-1];
-    assign leak_we   = wr_fire && (wr_sel_target == 2'd2);
+    // Same guard, same reason, for leak: a sign-bit-set leak makes the
+    // symmetric-decay math in LifNeuronArray ADD to the membrane every idle
+    // tick instead of draining it (0 - (-leak) = +leak), climbing to a
+    // positive threshold with no input at all. Only weight may be negative.
+    assign leak_we   = wr_fire && (wr_sel_target == 2'd2) && !wr_sel_data[DATA_WIDTH-1];
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),

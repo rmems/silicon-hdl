@@ -825,6 +825,53 @@ module tb_spikenaut_soc_basys3_top #(
         end
 
         // ------------------------------------------------------------
+        // Test 11c (#73 follow-up): a sign-bit-set leak write must also be
+        // rejected. Unlike threshold, a negative leak doesn't just fail to
+        // decay -- with a positive membrane it flips the arithmetic to
+        // *add* every idle tick (0 - (-leak) = +leak), climbing to a
+        // positive threshold from a fresh (zero) membrane with no input.
+        // wait_for_host_write() can't be reused for the rejected case: it
+        // asserts leak_we === (target==2'd2), which assumes target-2
+        // writes always commit -- true before this guard, not after.
+        // ------------------------------------------------------------
+        begin
+            localparam logic [7:0] WRITE_LEAK_ADDR2        = 8'h04;
+            localparam logic [15:0] WRITE_LEAK_REJECT_DATA = 16'hFF00;  // sign bit set (-1.0)
+            localparam logic [15:0] WRITE_LEAK_ACCEPT_DATA = 16'h0080;  // 0.5
+            logic [15:0] leak_before2;
+            int unsigned waited;
+
+            leak_before2 = dut.u_npram_leak.mem[WRITE_LEAK_ADDR2];
+            check(leak_before2 !== WRITE_LEAK_REJECT_DATA && leak_before2 !== WRITE_LEAK_ACCEPT_DATA,
+                  "test 11c: INIT_FILE leak must differ from both test values");
+
+            waited = 0;
+            fork
+                uart_send_write_frame(8'h02, WRITE_LEAK_ADDR2, WRITE_LEAK_REJECT_DATA);
+                begin
+                    forever begin
+                        @(negedge clk);
+                        waited++;
+                        if (dut.host_wr_en === 1'b1) break;
+                        if (waited > (5 * 11 * CLKS_PER_BIT + SEQ_SLACK))
+                            $fatal(1, "test 11c leak (rejected): host_wr_en not seen within %0d cycles", waited);
+                    end
+                end
+            join
+            check(dut.leak_we === 1'b0,
+                  "test 11c: a sign-bit-set leak write must never assert leak_we");
+            check(dut.u_npram_leak.mem[WRITE_LEAK_ADDR2] === leak_before2,
+                  "test 11c: a sign-bit-set leak write must be rejected, not stored");
+
+            fork
+                uart_send_write_frame(8'h02, WRITE_LEAK_ADDR2, WRITE_LEAK_ACCEPT_DATA);
+                wait_for_host_write(2'd2, "test 11c leak (accepted)");
+            join
+            check(dut.u_npram_leak.mem[WRITE_LEAK_ADDR2] === WRITE_LEAK_ACCEPT_DATA,
+                  "test 11c: a non-negative leak write to the same address must still commit");
+        end
+
+        // ------------------------------------------------------------
         // Test 12: host writes that land mid-sweep are held until idle.
         // Force a one-cycle wr_en during PREFETCH/SWEEP; UART is too slow
         // to finish a 5-byte frame in that window.

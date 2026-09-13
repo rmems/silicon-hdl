@@ -63,13 +63,14 @@ Example: 1.0 → 0x0100, 0.5 → 0x0080, 0.85 → 0x00D9
 `EXPORT_FORMAT_VERSION` is currently `"Spikenaut-v2"` (historical tag retained
 for tooling that keys on the string).
 
-**Signed Q8.8** appears only on the optional UART stimulus/readback path
-(`src/fpga_bridge.rs`, feature `uart`): stimuli and membrane readback use
-`i16` big-endian with clamp approximately ±127.99. That path is **not** the
-same encoder as `FixedPointEncode` / `.mem` export. As of
+**Signed Q8.8** on the *host-encoder* side appears only on the optional UART
+stimulus/readback path (`src/fpga_bridge.rs`, feature `uart`): stimuli and
+membrane readback use `i16` big-endian with clamp approximately ±127.99. That
+path is **not** the same encoder as `FixedPointEncode` / `.mem` export, which
+remains unsigned (§1.3.1). Separately, as of
 [#73](https://github.com/rmems/silicon-hdl/issues/73), core LIF arithmetic in
-silicon-hdl treats 16-bit words as **signed saturating** Q8.8 values (see
-§1.3) — `FixedPointEncode` / `.mem` export itself is still unsigned (§1.3.1).
+silicon-hdl (RTL-internal, not a host encoder) also treats 16-bit words as
+**signed saturating** Q8.8 values (see §1.3).
 
 ### 1.2 `.mem` file contract
 
@@ -125,25 +126,33 @@ match (see the compatibility gap called out there).
 #### 1.3.1 Host-encoder compatibility gap opened by #73
 
 `FixedPointEncode` (§1.1) still clamps to **unsigned** `u16` Q8.8
-(0.0 … 255.996) and the `0xA5` write-frame contract below (§2.3) still
-documents write data as unsigned. Neither has been updated for #73. Two
-concrete consequences until they are:
+(0.0 … 255.996) and has not been updated for #73 — it is the one part of this
+gap still open. The `0xA5` write-frame *wire contract* itself (§2.2) is
+signed two's-complement Q8.8, and `spikenaut_soc_basys3_top` rejects a
+sign-bit-set weight/threshold/leak word written through `FixedPointEncode`
+where doing so protects against a false spike (see below) — but the encoder
+producing that wire data still can't emit one on purpose. Concretely:
 
-- A weight/threshold/leak word in `0x8000..0xFFFF` written by that unsigned
-  encoder is now read as **negative** by `LifNeuronArray` — e.g. an intended
-  unsigned value like `0xC880` (≈200.5 under the old encoding) now reads as
-  ≈ −55.5. A negative *threshold* in particular can make an otherwise-idle
-  neuron spike continuously, since almost any signed membrane satisfies
-  `next_mem >= threshold` once `threshold` is negative.
-  `LifNeuronArray`/`Basys3_Top` do not currently reject such a write —
-  raised in PR [#91](https://github.com/rmems/silicon-hdl/pull/91) review,
-  deliberately not fixed there to keep that PR's threshold handling
-  unsigned-shaped, and not yet tracked by its own issue.
+- A weight/threshold/leak word in `0x8000..0xFFFF` written by the still-
+  unsigned `FixedPointEncode` is read as **negative** by `LifNeuronArray` —
+  e.g. an intended unsigned value like `0xC880` (≈200.5 under the old
+  encoding) now reads as ≈ −55.5. A negative *threshold* or *leak* can make
+  an otherwise-idle neuron spike with no input at all: a negative threshold
+  satisfies `next_mem >= threshold` for almost any membrane value, and a
+  negative leak *adds* to the membrane every idle tick instead of draining
+  it (`0 - (-leak) = +leak`), so it climbs to a positive threshold on its
+  own. `spikenaut_soc_basys3_top` rejects a sign-bit-set write to either the
+  threshold or leak RAM instead of storing it (raised in PR
+  [#91](https://github.com/rmems/silicon-hdl/pull/91) review; weight is
+  exempt from this guard since a negative weight is the intended
+  Dale-inhibitory case).
 - Negative weights encoded by a signed-aware producer (e.g. the exp-025
   Distill sidecar bank, which does not go through `FixedPointEncode`) cannot
   currently round-trip through `FixedPointEncode`/`MemFileWriter` — that
   encoder clamps negative `f32` input to `0x0000`, so it cannot itself
-  produce the inhibitory words #73 now interprets correctly.
+  produce the inhibitory words #73 now interprets correctly. This half of
+  the gap has no RTL-side mitigation (weight is meant to go negative) and is
+  not yet tracked by its own issue.
 
 The exp-025 `.mem` images shipped from #73 onward come from that separate
 Distill sidecar export, not from `FixedPointEncode`.
