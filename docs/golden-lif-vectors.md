@@ -53,11 +53,34 @@ largest word is `410/256` = 1.6).
 | Images | `merged_v2_weights.mem`, `merged_v2_thresholds.mem`, `merged_v2_decay.mem`, `merged_v2_output_weights.mem` |
 
 The committed images under `spikenaut-core-sv/mem/` are byte-identical to the
-vault at that commit. The pin is recorded in
-`scripts/gen_golden_lif_vectors.py` (`SPIKENAUT_BANK_COMMIT`) and echoed into
-`golden_vectors.json`. **After any retrain, re-copy the bank, re-verify the
-pin, and regenerate** — the vectors encode bank values, so a new bank makes
-them stale by construction.
+vault at that commit.
+
+The pin is **enforced, not just recorded**. `BANK_DIGESTS` in
+`scripts/gen_golden_lif_vectors.py` holds a SHA-256 for each image and the
+generator refuses to run if any of them changes. A length check alone would not
+catch a retrain that happened to keep the same word count: every vector would
+silently regenerate against new weights while the manifest still claimed
+`6965e12a`. The digests are over each image's **canonical word stream** (see
+`q88.content_digest`), not its raw bytes, so editing an SPDX header or a
+provenance comment does not trip the pin but a single changed weight does. Both
+the commit and the digests are echoed into `golden_vectors.json`.
+
+**After an intentional retrain:**
+
+1. Re-copy the images from the vault into `spikenaut-core-sv/mem/`.
+2. Bump `SPIKENAUT_BANK_COMMIT`.
+3. Recompute the digests:
+
+   ```bash
+   python3 -c "import sys; sys.path.insert(0, 'scripts'); import q88; \
+     from gen_golden_lif_vectors import BANK_DIGESTS; \
+     [print(f'    \"{n}\": \"{q88.content_digest(\"spikenaut-core-sv/mem/\" + n)}\",') for n in BANK_DIGESTS]"
+   ```
+
+4. Paste them into `BANK_DIGESTS` and regenerate.
+
+A digest mismatch you did **not** expect means the working tree's bank images
+have drifted from the pinned export — investigate that before regenerating.
 
 ## Regenerating
 
@@ -137,11 +160,15 @@ so `tests/test_golden_lif_vectors.py` replays the committed vectors through
 three deliberately wrong LIF variants (`scripts/lif_reference.py`'s
 `Semantics`) and fails if any of them reproduces the golden trace:
 
-| Variant | Must diverge because |
-|---|---|
-| `signed=False` | unsigned misread of the bank |
-| `symmetric_leak=False` | pre-GH#73 one-sided leak |
-| `saturate=False` | wrapping instead of saturating |
+| Variant | Must diverge in | Because |
+|---|---|---|
+| `signed=False` | `dale_i_subtracts` | unsigned misread of the bank |
+| `symmetric_leak=False` | `dale_i_leak_recovery` | pre-GH#73 one-sided leak |
+| `saturate=False` | `saturate_positive`, `saturate_negative` | wrapping instead of saturating |
+
+The scenario column matters: asserting only "diverges somewhere" would let
+unrelated drift mask the failure of the very vector written to catch a variant.
+Each variant must diverge **inside its designated scenario**.
 
 The suite also checks codec agreement with silicon-bridge, the f32 round trip
 over every word in all four bank images, exact `.mem` lengths, and that every

@@ -56,6 +56,24 @@ GOLDEN_DIR = BANK_DIR / "golden"
 SPIKENAUT_BANK_COMMIT = "6965e12a"
 SPIKENAUT_BANK_SOURCE = "rmems/Spikenaut-SNN dataset/merged_v2 (exp-025 Dale health-PASS bank, PR #47)"
 
+#: SHA-256 of each pinned image's canonical word stream (see
+#: ``q88.content_digest``). Length checks alone cannot detect a retrain that
+#: keeps the same word count, which would silently regenerate every vector
+#: while the manifest still claimed the commit above. These digests make the
+#: provenance claim enforceable.
+#:
+#: To update after an intentional bank change: re-copy the images from the
+#: vault, bump SPIKENAUT_BANK_COMMIT, run
+#: ``python3 -c "import sys; sys.path.insert(0, 'scripts'); import q88;
+#: [print(n, q88.content_digest(f'spikenaut-core-sv/mem/{n}')) for n in
+#: BANK_DIGESTS]"``, paste the new values here, and regenerate.
+BANK_DIGESTS = {
+    "merged_v2_weights.mem": "825969873444d215d09920e69592700a2cc8594d92e7b14c4059eef8919fe4f3",
+    "merged_v2_thresholds.mem": "2aff910820757f7015f7097dae0aa00f631fc49d2a5df912b35ba92e309f7a70",
+    "merged_v2_decay.mem": "bbb575d31ebd5e0386037c3421d17212b3645522f4e64d02272bb5d6abc0610d",
+    "merged_v2_output_weights.mem": "6577e1c5958cb04d0e064a23a8356f54d73739378ed7fdd925a367627014cf72",
+}
+
 #: Bank geometry (see spikenaut-core-sv/mem/README.md and #92).
 NUM_NEURONS = 16
 NUM_CHANNELS = 16
@@ -116,6 +134,22 @@ class Bank:
                     f"{name}: expected {count} words, found {len(words)}. "
                     "The pinned bank geometry changed -- re-read "
                     "spikenaut-core-sv/mem/README.md before regenerating."
+                )
+
+        # Content pin. A retrain that keeps the word count would otherwise
+        # regenerate every vector while the manifest still claimed commit
+        # SPIKENAUT_BANK_COMMIT -- a provenance claim nothing enforced.
+        for name, expected_digest in BANK_DIGESTS.items():
+            actual = q88.content_digest(BANK_DIR / name)
+            if actual != expected_digest:
+                raise SystemExit(
+                    f"{name}: content digest {actual[:16]}... does not match the pinned "
+                    f"{expected_digest[:16]}... for Spikenaut-SNN commit "
+                    f"{SPIKENAUT_BANK_COMMIT}.\n"
+                    "The bank changed. If that was intentional, bump "
+                    "SPIKENAUT_BANK_COMMIT and BANK_DIGESTS in "
+                    "scripts/gen_golden_lif_vectors.py, then regenerate. If it was not, "
+                    "the working tree's bank images have drifted from the pinned export."
                 )
 
     def weight_f32(self, neuron: int, channel: int) -> tuple[float, str]:
@@ -491,6 +525,11 @@ def emit(target: Path, encoded: dict, output_layer: dict) -> None:
                 "spikenaut-core-sv/mem/merged_v2_decay.mem",
                 "spikenaut-core-sv/mem/merged_v2_output_weights.mem",
             ],
+            "content_digests_sha256": dict(BANK_DIGESTS),
+            "digest_note": (
+                "SHA-256 over each image's canonical word stream, not its raw bytes; "
+                "see q88.content_digest."
+            ),
         },
         "lif": {
             "dut": "spikenaut-core-sv/rtl/LifNeuron.sv",

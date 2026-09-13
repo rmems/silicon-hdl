@@ -51,8 +51,10 @@ path is bad; synthesis still uses `$readmemh` for BRAM init.
 **Golden vectors (GH#66):** `golden/` holds generated f32 → Q8.8 → `.mem` test vectors derived
 from these images, consumed by `tb_LifNeuron_golden` / `tb_OutputLayer_golden`. They are
 generated, not hand-written — regenerate with `python3 scripts/gen_golden_lif_vectors.py` after
-any bank change, and see [`docs/golden-lif-vectors.md`](../../docs/golden-lif-vectors.md) for the
-Spikenaut commit pin (`6965e12a`) those vectors assume.
+any bank change. The generator **enforces** the Spikenaut commit pin (`6965e12a`) with a SHA-256
+per image, so changing any of the four images above without updating `BANK_DIGESTS` fails loudly
+rather than silently regenerating vectors against new weights. See
+[`docs/golden-lif-vectors.md`](../../docs/golden-lif-vectors.md) for the retrain procedure.
 
 **Canonical vault path:** `~/Spikenaut-Vault/Spikenaut-SNN/dataset/merged_v2/`  
 (also HF `rmems/Spikenaut-SNN`). Re-copy from vault after retrain; do not invent hex by hand.

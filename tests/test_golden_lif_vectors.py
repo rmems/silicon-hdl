@@ -284,24 +284,48 @@ DRIFT_VARIANTS = {
     "wrapping_instead_of_saturating": lif.Semantics(saturate=False),
 }
 
+#: The scenario each variant is *designed* to be caught by. Asserting only
+#: "diverges somewhere" would let unrelated drift mask the failure of the
+#: specific scenario that exists to catch this variant -- e.g. the saturation
+#: vectors could stop pinning saturation entirely and the test would still pass
+#: on an incidental difference elsewhere.
+DRIFT_SENTINEL_SCENARIOS = {
+    "unsigned_misread": ["dale_i_subtracts"],
+    "one_sided_leak": ["dale_i_leak_recovery"],
+    "wrapping_instead_of_saturating": ["saturate_positive", "saturate_negative"],
+}
+
+
+def _scenario_span(manifest: dict, name: str) -> range:
+    scenario = next(s for s in manifest["lif"]["scenarios"] if s["name"] == name)
+    return range(scenario["first_tick"], scenario["first_tick"] + scenario["tick_count"])
+
 
 @pytest.mark.parametrize("variant", sorted(DRIFT_VARIANTS))
-def test_vectors_reject_wrong_semantics(variant, golden_ticks, golden_expectations):
-    """Replaying the golden vectors through a wrong LIF must not reproduce them.
+def test_vectors_reject_wrong_semantics(variant, manifest, golden_ticks, golden_expectations):
+    """A wrong LIF must diverge, and must diverge *in the scenario meant to catch it*.
 
     This is what makes the check meaningful rather than merely reproducible:
     each of the three failure modes named in GH#66 -- an unsigned misread of
     ``0xFF00``, the wrong leak, the wrong saturate -- is shown to change the
-    committed trace.
+    committed trace at the vector written for it.
     """
     membrane, spike = golden_expectations
     trace = lif.run(golden_ticks, semantics=DRIFT_VARIANTS[variant])
-    drifted = [
+    drifted = {
         index
         for index, state in enumerate(trace)
         if state.membrane != membrane[index] or int(state.spike_out) != spike[index]
-    ]
+    }
     assert drifted, f"the golden vectors do not distinguish '{variant}' from the shipped semantics"
+
+    for name in DRIFT_SENTINEL_SCENARIOS[variant]:
+        span = _scenario_span(manifest, name)
+        assert drifted & set(span), (
+            f"'{name}' is the vector that exists to catch '{variant}', but it no longer "
+            f"diverges under it -- the variant is only being caught incidentally elsewhere, "
+            f"so that scenario has stopped doing its job"
+        )
 
 
 def test_unsigned_misread_fires_the_dale_neuron_on_its_first_tick(manifest, golden_ticks):
@@ -475,3 +499,58 @@ def test_emit_reproduces_the_committed_tree(tmp_path: Path) -> None:
 
 def test_check_mode_returns_zero_on_a_clean_tree() -> None:
     assert gen.main(["--check"]) == 0
+
+
+def test_encoder_saturates_beyond_the_f32_range() -> None:
+    """An f64 too large for f32 must saturate, not raise.
+
+    Rust would hold such a value as an infinity and clamp it; packing it to
+    f32 in Python raises OverflowError unless that is handled.
+    """
+    assert q88.encode_q88_signed(1e300) == 32765
+    assert q88.encode_q88_signed(-1e300) == -32765
+    assert q88.encode_q88_signed(float("-inf")) == -32765
+
+
+def test_bank_digests_match_the_committed_images() -> None:
+    """The pinned digests must describe the bank that is actually committed."""
+    for name, expected in gen.BANK_DIGESTS.items():
+        assert q88.content_digest(BANK_DIR / name) == expected, (
+            f"{name} has drifted from the digest pinned for Spikenaut-SNN "
+            f"{gen.SPIKENAUT_BANK_COMMIT}"
+        )
+
+
+def test_bank_rejects_a_same_size_content_change(tmp_path: Path, monkeypatch) -> None:
+    """A retrain that keeps the word count must still fail the provenance pin.
+
+    This is the hole a length check alone leaves: every vector would silently
+    regenerate against new weights while the manifest still claimed `6965e12a`.
+    """
+    for name in gen.BANK_DIGESTS:
+        (tmp_path / name).write_text((BANK_DIR / name).read_text())
+
+    words = q88.read_mem(BANK_DIR / "merged_v2_weights.mem")
+    words[0] += 1  # same count, one different weight
+    q88.write_mem(tmp_path / "merged_v2_weights.mem", words)
+
+    monkeypatch.setattr(gen, "BANK_DIR", tmp_path)
+    with pytest.raises(SystemExit, match="does not match the pinned"):
+        gen.Bank()
+
+
+def test_content_digest_ignores_comments_but_not_data(tmp_path: Path) -> None:
+    """The digest fingerprints the words, so header churn does not trip the pin."""
+    plain = tmp_path / "plain.mem"
+    plain.write_text("0100\nFF00\n")
+    commented = tmp_path / "commented.mem"
+    commented.write_text("// SPDX-License-Identifier: MIT OR Apache-2.0\n// note\n0100\n\nFF00\n")
+    changed = tmp_path / "changed.mem"
+    changed.write_text("0100\nFF01\n")
+
+    assert q88.content_digest(plain) == q88.content_digest(commented)
+    assert q88.content_digest(plain) != q88.content_digest(changed)
+
+
+def test_manifest_records_the_bank_digests(manifest: dict) -> None:
+    assert manifest["bank"]["content_digests_sha256"] == gen.BANK_DIGESTS

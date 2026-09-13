@@ -40,6 +40,7 @@ yet; the closest existing work is silicon-bridge GH#22 / RM-300 (MemFileWriter
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import struct
@@ -64,8 +65,17 @@ Q88_CLAMP_MAX = 127.99
 
 
 def _as_f32(value: float) -> float:
-    """Round a Python float to the nearest ``f32``, as Rust would hold it."""
-    return struct.unpack("<f", struct.pack("<f", value))[0]
+    """Round a Python float to the nearest ``f32``, as Rust would hold it.
+
+    Python floats are ``f64``, so a caller can hand us a magnitude no ``f32``
+    can represent. Converting one in Rust (``as f32``) yields an infinity, so
+    that is what we return -- the clamp downstream then saturates it, which is
+    the documented behaviour. Packing would raise ``OverflowError`` instead.
+    """
+    try:
+        return struct.unpack("<f", struct.pack("<f", value))[0]
+    except OverflowError:
+        return math.inf if value > 0 else -math.inf
 
 
 def encode_q88_signed(value: float) -> int:
@@ -152,6 +162,20 @@ def write_mem(path: str | Path, raws: list[int], *, header: str | None = None) -
         lines.extend(f"// {line}" if line else "//" for line in header.splitlines())
     lines.extend(raw_to_hex(raw) for raw in raws)
     Path(path).write_text("\n".join(lines) + "\n")
+
+
+def content_digest(path: str | Path) -> str:
+    """SHA-256 over a ``.mem`` image's **canonical word stream**.
+
+    Hashes the decoded words re-serialised as ``%04X`` lines, not the raw file
+    bytes. That makes the digest a fingerprint of the *data*: editing the SPDX
+    header or a provenance comment does not change it, while a single changed
+    weight does. Used to pin bank provenance in
+    ``scripts/gen_golden_lif_vectors.py`` -- a retrain that happens to keep the
+    same word count cannot slip through a length check alone.
+    """
+    canonical = "".join(f"{raw & 0xFFFF:04X}\n" for raw in read_mem(path))
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
 def read_words(path: str | Path) -> list[int]:

@@ -19,7 +19,14 @@
       "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
       "spikenaut-core-sv/mem/merged_v2_decay.mem",
       "spikenaut-core-sv/mem/merged_v2_output_weights.mem"
-    ]
+    ],
+    "content_digests_sha256": {
+      "merged_v2_weights.mem": "825969873444d215d09920e69592700a2cc8594d92e7b14c4059eef8919fe4f3",
+      "merged_v2_thresholds.mem": "2aff910820757f7015f7097dae0aa00f631fc49d2a5df912b35ba92e309f7a70",
+      "merged_v2_decay.mem": "bbb575d31ebd5e0386037c3421d17212b3645522f4e64d02272bb5d6abc0610d",
+      "merged_v2_output_weights.mem": "6577e1c5958cb04d0e064a23a8356f54d73739378ed7fdd925a367627014cf72"
+    },
+    "digest_note": "SHA-256 over each image's canonical word stream, not its raw bytes; see q88.content_digest."
   },
   "lif": {
     "dut": "spikenaut-core-sv/rtl/LifNeuron.sv",
