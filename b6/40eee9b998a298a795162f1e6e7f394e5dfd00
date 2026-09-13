@@ -1,0 +1,24 @@
+spikenaut-soc-sv/rtl/Basys3_Top.sv
+  s_85a9116998874a::t_aea3bdb1f88ac5 262-266
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_85a9116998874a::t_cd9e88be599808 828-873
+docs/interface-alignment.md
+  s_85a9116998874a::t_3b5d9fe50d3625 66-70,72-73
+  s_85a9116998874a::t_31fa4212ff9ff9 129-148,153-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b640eee9b998a298a795162f1e6e7f394e5dfd00",
+  "prompts": {},
+  "sessions": {
+    "s_85a9116998874a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "349a2438-9b06-4d7a-a4f6-d875b81e8313",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
