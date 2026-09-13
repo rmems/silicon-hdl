@@ -276,8 +276,8 @@ Host → FPGA write (5 bytes, #63):
   [1]      = target                  // 0=weight, 1=threshold, 2=leak
   [2]      = addr                    // 8-bit RAM address
   [3..4]   = Q8.8 data               // signed two's-complement, big-endian, since #73 -- same as RAM/LIF math.
-                                      // The host-side encoder (FixedPointEncode) has not been
-                                      // updated to emit signed words yet; see §1.3.1.
+                                      // The host-side encoder (FixedPointEncode) emits signed
+                                      // words too, as of silicon-bridge #60; see §1.3.1.
 ```
 
 | Layer | Owner | Status in this monorepo |
