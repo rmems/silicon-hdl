@@ -11,6 +11,12 @@
 // an inhibitory weight subtracts instead of misreading as a large positive
 // integer. Mirrors LifNeuron.sv's signed leak/integrate/compare exactly (see
 // that file's header for the saturation and symmetric-leak rationale).
+//
+// Connectivity model (#92): the weight lookup is a per-neuron-row lookup
+// against one shared external input channel selected by input_index, not
+// neuron-to-neuron recurrent routing -- there is no path from spike_bitmap
+// back into input_index anywhere in this design. See
+// docs/lif-array-connectivity-model.md.
 
 module LifNeuronArray #(
     parameter int DATA_WIDTH        = 16,
@@ -24,8 +30,10 @@ module LifNeuronArray #(
     input  logic                         rst_n,
     input  logic                         step_en,
     input  logic                         spike_in,
-    // The binary-event SoC drives input_index=0 today.  A future #62 frame
-    // parser can select channels 0..NUM_NEURONS-1 without changing this PE.
+    // #62 is implemented: the binary-event SoC decodes the lowest-index
+    // active lane of a completed host stimulus frame and drives it here as
+    // an external input channel 0..NUM_NEURONS-1 (never another neuron's
+    // index -- see docs/lif-array-connectivity-model.md, #92).
     input  logic [INDEX_WIDTH-1:0]       input_index,
     input  logic [DATA_WIDTH-1:0]        weight_dout,
     input  logic [PARAM_WIDTH-1:0]       threshold_dout,
@@ -132,8 +140,12 @@ module LifNeuronArray #(
         weight_addr    = '0;
         threshold_addr = address_neuron;
         leak_addr      = address_neuron;
-        // Flattened matrix policy: address = output-neuron row * input count
-        //                                  + selected input channel.
+        // Flattened matrix policy: row = the neuron currently being updated
+        // (address_neuron), column = the selected external input channel
+        // (address_input). See docs/lif-array-connectivity-model.md (#92):
+        // this is a per-neuron-row lookup against a shared external channel,
+        // not neuron-to-neuron routing -- address_input never carries
+        // another neuron's index.
         weight_addr = WEIGHT_ADDR_WIDTH'((address_neuron * NUM_NEURONS) + address_input);
     end
 

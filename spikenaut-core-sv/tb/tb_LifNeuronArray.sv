@@ -9,7 +9,15 @@
 
 `timescale 1ns/1ps
 
-module tb_LifNeuronArray;
+// #92: shipped-bank mem paths are module parameters (matching
+// tb_WeightRam_init / tb_NeuronParamRam_init) so Vivado sim_core.tcl can
+// pass absolute paths via set_property generic (XSim CWD is the sim run
+// dir, not the repo root). Defaults are repo-root-relative for Verilator.
+module tb_LifNeuronArray #(
+    parameter string SHIPPED_WEIGHT_MEM    = "spikenaut-core-sv/mem/merged_v2_weights.mem",
+    parameter string SHIPPED_THRESHOLD_MEM = "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
+    parameter string SHIPPED_DECAY_MEM     = "spikenaut-core-sv/mem/merged_v2_decay.mem"
+);
 
     localparam int DATA_WIDTH        = 16;
     localparam int PARAM_WIDTH       = 16;
@@ -21,6 +29,10 @@ module tb_LifNeuronArray;
     localparam logic [INDEX_WIDTH-1:0] SELECTED_INPUT = 4'd3;
     // GH#73: dedicated row for the signed Dale-inhibitory regression test below.
     localparam int INHIB_NEURON = 2;
+    // #92: a real Dale-inhibitory row (6-9 in the shipped exp-025 bank) and one
+    // of its real legal-telemetry columns, for the external-input-channel proof.
+    localparam int REAL_INHIB_NEURON = 6;
+    localparam logic [INDEX_WIDTH-1:0] LEGAL_CHANNEL = 4'd2;
 
     logic                         clk;
     logic                         rst_n;
@@ -186,9 +198,10 @@ module tb_LifNeuronArray;
         check_data(spike_bitmap, '0, "spike bitmap must reset low");
         rst_n = 1'b1;
 
-        // First logical tick: each neuron receives the broadcast event.  Four
-        // rows cross their own threshold; the output stays uncommitted until
-        // tick_done despite per-slot processing.
+        // First logical tick: every neuron reads the same external input
+        // channel (SELECTED_INPUT) from its own row.  Four rows cross their
+        // own threshold; the output stays uncommitted until tick_done
+        // despite per-slot processing.
         @(negedge clk);
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
@@ -233,11 +246,13 @@ module tb_LifNeuronArray;
         // ------------------------------------------------------------
         // GH#73: a Dale-inhibitory row must subtract, not misread as a huge
         // positive add. Reset first so this row's membrane starts from a
-        // known 0, independent of the broadcast history above. Weight and
+        // known 0, independent of the earlier ticks above. Weight and
         // threshold are picked so an unsigned misread of the weight
         // (0xFF00 = 65280) would falsely cross this small positive
         // threshold, but the correct signed read (-256, i.e. -1.0 Q8.8)
-        // does not.
+        // does not. INHIB_NEURON's row is a synthetic vector at a single
+        // column; see the real-bank-data proof below for #92, which uses
+        // an actual shipped inhibitory row's values instead.
         // ------------------------------------------------------------
         rst_n = 1'b0;
         repeat (2) @(negedge clk);
@@ -259,6 +274,54 @@ module tb_LifNeuronArray;
               "leak-only recovery of an inhibited row must never spike");
         check_data(dut.membrane_potential[INHIB_NEURON], -16'sd216,
                    "inhibitory row's membrane must recover by its own leak (-256+40=-216)");
+
+        // ------------------------------------------------------------
+        // #92: prove a real shipped inhibitory row's own weights are
+        // reachable in the per-neuron external-sensor-input model --
+        // docs/lif-array-connectivity-model.md. Loads the actual shipped
+        // exp-025 bank via $readmemh -- not a hand-copied constant, so
+        // this fails if the bank or its row layout ever drifts from what
+        // this test documents -- and asserts the real values before
+        // using them: row 6 has real Dale-inhibitory weights on legal
+        // telemetry columns 0-4, zero on the 11 unused axon columns.
+        // input_index here is LEGAL_CHANNEL (2), one of those 5 legal
+        // columns -- an external input channel, never another neuron's
+        // index. No cross-neuron (recurrent) case is exercised or
+        // implied: this PE has no path from spike_bitmap back into
+        // input_index, so "another neuron fires and selects this
+        // channel" cannot happen and isn't what this test checks.
+        // ------------------------------------------------------------
+        begin
+            logic [DATA_WIDTH-1:0]  shipped_weights    [0:255];
+            logic [PARAM_WIDTH-1:0] shipped_thresholds [0:15];
+            logic [PARAM_WIDTH-1:0] shipped_decay      [0:15];
+            logic [DATA_WIDTH-1:0]  shipped_weight_val;
+
+            $readmemh(SHIPPED_WEIGHT_MEM, shipped_weights);
+            $readmemh(SHIPPED_THRESHOLD_MEM, shipped_thresholds);
+            $readmemh(SHIPPED_DECAY_MEM, shipped_decay);
+            shipped_weight_val = shipped_weights[REAL_INHIB_NEURON * NUM_NEURONS + LEGAL_CHANNEL];
+
+            check_data(shipped_weight_val, 16'hFF00,
+                       "#92: shipped bank row 6 col 2 must be -256 Q8.8 (fails first if the bank/layout ever changes)");
+            check_data(shipped_thresholds[REAL_INHIB_NEURON], 16'd115,
+                       "#92: shipped bank row 6 threshold must be ~0.449");
+            check_data(shipped_decay[REAL_INHIB_NEURON], 16'd218,
+                       "#92: shipped bank leak must be ~0.852");
+
+            rst_n = 1'b0;
+            repeat (2) @(negedge clk);
+            rst_n = 1'b1;
+            weight_mem[REAL_INHIB_NEURON * NUM_NEURONS + LEGAL_CHANNEL] = shipped_weight_val;
+            threshold_mem[REAL_INHIB_NEURON] = shipped_thresholds[REAL_INHIB_NEURON];
+            leak_mem[REAL_INHIB_NEURON]      = shipped_decay[REAL_INHIB_NEURON];
+
+            run_tick(1'b1, LEGAL_CHANNEL, sweep_cycles);
+            check(spike_bitmap[REAL_INHIB_NEURON] == 1'b0,
+                  "#92: a real inhibitory row's own weight must not falsely spike on a legal external channel");
+            check_data(dut.membrane_potential[REAL_INHIB_NEURON], shipped_weight_val,
+                       "#92: a real inhibitory row's membrane must reflect its own real negative weight, proving it is reachable");
+        end
 
         if (errors == 0) begin
             $display("TB_LIFNEURONARRAY: ALL TESTS PASSED");

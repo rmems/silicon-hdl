@@ -107,6 +107,13 @@ foreach tb_top $core_tb_tops {
             "LEAK_INIT=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
         ] [get_filesets sim_1]
         set run_time 20ms
+    } elseif {$tb_top eq "tb_LifNeuronArray"} {
+        # #92 bank-data regression $readmemh's the shipped bank directly.
+        set_property generic [list \
+            "SHIPPED_WEIGHT_MEM=[file normalize [file join $mem_dir merged_v2_weights.mem]]" \
+            "SHIPPED_THRESHOLD_MEM=[file normalize [file join $mem_dir merged_v2_thresholds.mem]]" \
+            "SHIPPED_DECAY_MEM=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
+        ] [get_filesets sim_1]
     } else {
         # Clear any leftover generic from a prior top in this loop.
         catch {set_property generic {} [get_filesets sim_1]}
