@@ -46,31 +46,38 @@ Trait surface (`src/fpga_export.rs`):
 
 | Trait | Role |
 |-------|------|
-| `FixedPointEncode` | `f32` → unsigned Q8.8 `u16` |
+| `FixedPointEncode` | `f32` → signed two's-complement Q8.8 `i16` |
 | `ParameterExport` | Build `FpgaParameters` bundle |
 | `MemFileWriter` | Write Vivado `$readmemh` `.mem` files + JSON metadata |
 
-**Unsigned Q8.8** (export path — parameters / weights / decay):
+**Signed two's-complement Q8.8** (export path — parameters / weights / decay):
 
 ```text
-raw_u16 = clamp(value × 256.0, 0.0, 65535.0) as u16
-value   = raw_u16 / 256.0
+raw_i16 = clamp(value, -127.99, 127.99) × 256.0, truncated toward zero
+value   = raw_i16 / 256.0
 
-Representable range (non-negative): ~0.0 … ~255.996
-Example: 1.0 → 0x0100, 0.5 → 0x0080, 0.85 → 0x00D9
+Representable range: ~ −127.99 … ~ +127.99  (raw −32765 … +32765)
+Example: 1.0 → 0x0100, 0.5 → 0x0080, −1.0 → 0xFF00
 ```
 
 `EXPORT_FORMAT_VERSION` is currently `"Spikenaut-v2"` (historical tag retained
 for tooling that keys on the string).
 
-**Signed Q8.8** on the *host-encoder* side appears only on the optional UART
-stimulus/readback path (`src/fpga_bridge.rs`, feature `uart`): stimuli and
-membrane readback use `i16` big-endian with clamp approximately ±127.99. That
-path is **not** the same encoder as `FixedPointEncode` / `.mem` export, which
-remains unsigned (§1.3.1). Separately, as of
-[#73](https://github.com/rmems/silicon-hdl/issues/73), core LIF arithmetic in
-silicon-hdl (RTL-internal, not a host encoder) also treats 16-bit words as
-**signed saturating** Q8.8 values (see §1.3).
+The optional UART stimulus/readback path (`src/fpga_bridge.rs`, feature `uart`)
+uses the **same** convention: `i16` big-endian, clamp approximately ±127.99.
+As of silicon-bridge
+[#60](https://github.com/rmems/silicon-bridge/pull/60) (`e201514`) these are
+literally the same function — `FixedPointEncode::encode_q88` returns
+`encode_q88_signed(value)` — so there is one signed Q8.8 convention across the
+crate, not one per path. This matches
+[#73](https://github.com/rmems/silicon-hdl/issues/73), under which core LIF
+arithmetic in silicon-hdl treats 16-bit words as **signed saturating** Q8.8
+values (see §1.3). §1.3.1 records how that alignment was reached.
+
+> *Correction:* revisions of this document before this one described the
+> `.mem` export encoder as unsigned-only `u16`. That was accurate until
+> silicon-bridge #60 and is no longer accurate; `encode_q88_unsigned` remains
+> public in that crate but nothing there builds hardware images with it.
 
 ### 1.2 `.mem` file contract
 
@@ -78,9 +85,9 @@ silicon-hdl (RTL-internal, not a host encoder) also treats 16-bit words as
 
 | File | Contents | Maps to (intended) |
 |------|----------|--------------------|
-| `parameters.mem` | Thresholds, one `u16` Q8.8 per line | `NeuronParamRam` instance used for thresholds |
+| `parameters.mem` | Thresholds, one signed `i16` Q8.8 word per line | `NeuronParamRam` instance used for thresholds |
 | `parameters_weights.mem` | Flattened weight matrix `[neurons × channels]` | `WeightRam` |
-| `parameters_decay.mem` | Decay / leak rates, one `u16` Q8.8 per line | `NeuronParamRam` instance used for leak |
+| `parameters_decay.mem` | Decay / leak rates, one signed `i16` Q8.8 word per line | `NeuronParamRam` instance used for leak |
 | `parameters.json` | Full `FpgaParameters` + `FpgaMetadata` | Host / CI metadata only |
 
 Example line: `0100` loads as 16'h0100 (Q8.8 value 1.0).
@@ -94,8 +101,9 @@ RTL does **not** implement fixed-point multiply/shift. Modules store opaque
 16-bit words; `WeightRam`/`NeuronParamRam` are agnostic to sign, but as of
 [#73](https://github.com/rmems/silicon-hdl/issues/73) `LifNeuron`/`LifNeuronArray`
 read weight, membrane, and threshold as **signed two's-complement Q8.8**, not
-unsigned (see §1.3.1 below) — the host-side encoder has not been updated to
-match (see the compatibility gap called out there).
+unsigned. The host-side `.mem` encoder was updated to match in silicon-bridge
+[#60](https://github.com/rmems/silicon-bridge/pull/60); §1.3.1 below records
+that history and what is still worth knowing about it.
 
 | Module | Path | Default width | Depth (default) | Role |
 |--------|------|---------------|-----------------|------|
@@ -123,40 +131,63 @@ match (see the compatibility gap called out there).
   fabric cycles until the next enabled edge. Only in the unit TBs — which drive `step_en = 1`
   every cycle — do a tick and a fabric cycle coincide.
 
-#### 1.3.1 Host-encoder compatibility gap opened by #73
+#### 1.3.1 Host-encoder gap opened by #73 — resolved upstream by silicon-bridge #60
 
-`FixedPointEncode` (§1.1) still clamps to **unsigned** `u16` Q8.8
-(0.0 … 255.996) and has not been updated for #73 — it is the one part of this
-gap still open. The `0xA5` write-frame *wire contract* itself (§2.2) is
-signed two's-complement Q8.8: `spikenaut_soc_basys3_top` rejects a
-sign-bit-set *threshold or leak* write instead of storing it (weight is not
-guarded — a negative weight is the valid Dale-inhibitory case), but
-`FixedPointEncode` itself still can't produce a signed word on purpose, for
-any of the three. Concretely:
+**Status: closed.** Both sides of this contract are signed two's-complement
+Q8.8 today. This subsection is kept as the history, because the older reading
+is still reachable from the #73 / #91 record and from any pinned silicon-bridge
+older than `e201514`.
 
-- A weight/threshold/leak word in `0x8000..0xFFFF` written by the still-
-  unsigned `FixedPointEncode` is read as **negative** by `LifNeuronArray` —
-  e.g. an intended unsigned value like `0xC880` (≈200.5 under the old
-  encoding) now reads as ≈ −55.5. A negative *threshold* or *leak* can make
-  an otherwise-idle neuron spike with no input at all: a negative threshold
-  satisfies `next_mem >= threshold` for almost any membrane value, and a
-  negative leak *adds* to the membrane every idle tick instead of draining
-  it (`0 - (-leak) = +leak`), so it climbs to a positive threshold on its
-  own. `spikenaut_soc_basys3_top` rejects a sign-bit-set write to either the
-  threshold or leak RAM instead of storing it (raised in PR
-  [#91](https://github.com/rmems/silicon-hdl/pull/91) review; weight is
-  exempt from this guard since a negative weight is the intended
-  Dale-inhibitory case).
-- Negative weights encoded by a signed-aware producer (e.g. the exp-025
-  Distill sidecar bank, which does not go through `FixedPointEncode`) cannot
-  currently round-trip through `FixedPointEncode`/`MemFileWriter` — that
-  encoder clamps negative `f32` input to `0x0000`, so it cannot itself
-  produce the inhibitory words #73 now interprets correctly. This half of
-  the gap has no RTL-side mitigation (weight is meant to go negative) and is
-  not yet tracked by its own issue.
+**What the gap was.** [#73](https://github.com/rmems/silicon-hdl/issues/73)
+made `LifNeuron`/`LifNeuronArray` read weight, membrane, and threshold as
+signed, while silicon-bridge's `FixedPointEncode` (§1.1) still clamped to
+unsigned `u16` Q8.8 (0.0 … 255.996). The two failure directions were:
 
-The exp-025 `.mem` images shipped from #73 onward come from that separate
-Distill sidecar export, not from `FixedPointEncode`.
+- A weight/threshold/leak word in `0x8000..0xFFFF` written by the then-unsigned
+  `FixedPointEncode` would be read as **negative** by `LifNeuronArray` — e.g.
+  an intended `0xC880` (≈200.5 unsigned) reads as ≈ −55.5. A negative
+  *threshold* or *leak* can make an otherwise-idle neuron spike with no input
+  at all: a negative threshold satisfies `next_mem >= threshold` for almost any
+  membrane value, and a negative leak *adds* to the membrane every idle tick
+  instead of draining it (`0 - (-leak) = +leak`), so it climbs to a positive
+  threshold on its own.
+- Negative weights from a signed-aware producer (e.g. the exp-025 Distill
+  sidecar bank, which does not go through `FixedPointEncode`) could not
+  round-trip through `FixedPointEncode`/`MemFileWriter` at all — that encoder
+  clamped negative `f32` input to `0x0000`, flattening every Dale-inhibitory
+  word.
+
+**How it was resolved.** silicon-bridge
+[#60](https://github.com/rmems/silicon-bridge/pull/60) (`e201514`, tip of
+`rmems/silicon-bridge` `origin/main`) changed `FpgaParameterExporter`'s
+`FixedPointEncode::encode_q88` to return `encode_q88_signed(value)`, so the
+`.mem` export path and the UART stimulus path share one encoder and one clamp
+(±127.99). `encode_q88_unsigned` / `q88_to_f32` remain public in that crate as
+an unsigned-magnitude pair, but they are **not** the `.mem` convention and
+nothing in the crate builds hardware images with them — so the second bullet
+above no longer applies, and the first can only be reproduced by pinning a
+silicon-bridge older than `e201514`.
+
+**What survives the fix, and why.** The RTL-side mitigation raised in PR
+[#91](https://github.com/rmems/silicon-hdl/pull/91) review is still in place
+and is still correct: `spikenaut_soc_basys3_top` rejects a sign-bit-set
+*threshold or leak* runtime write instead of storing it, while **weight is
+deliberately exempt** because a negative weight is the intended
+Dale-inhibitory case. That guard is defence against any host — not only an
+out-of-date `FixedPointEncode` — sending a nonsensical negative threshold or
+leak, so it does not go away now that the upstream encoder is signed.
+
+The exp-025 `.mem` images shipped from #73 onward come from the separate
+Distill sidecar export, not from `FixedPointEncode`; that is unchanged by #60.
+
+> *Correction:* this subsection previously described the host encoder as "the
+> one part of this gap still open" and said `FixedPointEncode` "still can't
+> produce a signed word on purpose". That was accurate when #73 landed and was
+> superseded by silicon-bridge #60. The parallel notes in
+> [`scripts/q88.py`](../scripts/q88.py) and
+> [`docs/host-soc-e2e.md`](host-soc-e2e.md) were corrected in
+> [PR #96](https://github.com/rmems/silicon-hdl/pull/96); this file is the
+> remaining catch-up.
 
 **SoC demo note (`spikenaut_soc_basys3_top`):** `INIT_FILE` is wired. Weight,
 threshold, and leak RAMs load `merged_v2_weights.mem`, `merged_v2_thresholds.mem`,
@@ -191,10 +222,10 @@ and the runtime rewrite path in [#63](https://github.com/rmems/silicon-hdl/issue
 
 | Concept | silicon-bridge | silicon-hdl | Align? |
 |---------|----------------|-------------|--------|
-| Parameter / weight word | `u16` Q8.8 | 16-bit `logic` (`DATA_WIDTH` / `PARAM_WIDTH`) | Yes |
-| Threshold vector | `FpgaParameters.thresholds: Vec<u16>` | `NeuronParamRam` (threshold instance) | Yes (format) |
-| Decay / leak vector | `FpgaParameters.decay_rates: Vec<u16>` | `NeuronParamRam` (leak instance) | Yes (format) |
-| Weight matrix flat | `FpgaParameters.weights: Vec<u16>` | `WeightRam` | Yes; implemented as `neuron_row * 16 + input_index` over the 16×16 image |
+| Parameter / weight word | `i16` Q8.8 (signed two's complement) | 16-bit `logic` (`DATA_WIDTH` / `PARAM_WIDTH`) | Yes |
+| Threshold vector | `FpgaParameters.thresholds: Vec<i16>` | `NeuronParamRam` (threshold instance) | Yes (format) |
+| Decay / leak vector | `FpgaParameters.decay_rates: Vec<i16>` | `NeuronParamRam` (leak instance) | Yes (format) |
+| Weight matrix flat | `FpgaParameters.weights: Vec<i16>` | `WeightRam` | Yes; implemented as `neuron_row * 16 + input_index` over the 16×16 image |
 | Max weight depth (default) | sized by export metadata | 1024 entries @ 16-bit | Host must not exceed RAM depth for a given parameterization |
 | Max param depth (default) | `num_neurons` | 256 entries @ 16-bit | Host `num_neurons` ≤ 256 at default `ADDR_WIDTH` |
 
@@ -322,7 +353,7 @@ steal the first payload bytes of a real host frame. A parallel
 
 | Rust (silicon-bridge) | SV module / port / artifact | Match notes |
 |-----------------------|-----------------------------|-------------|
-| `FixedPointEncode::encode_q88` | 16-bit `din`/`dout` on RAMs; `weight` / `threshold` / `leak` on `LifNeuronArray` | Same 16-bit word size; RTL ops are signed since #73, encoder is still unsigned (§1.3.1) |
+| `FixedPointEncode::encode_q88` | 16-bit `din`/`dout` on RAMs; `weight` / `threshold` / `leak` on `LifNeuronArray` | Same 16-bit word size; both signed two's-complement Q8.8 — RTL since #73, host encoder since silicon-bridge #60 (§1.3.1) |
 | `q88_to_f32` / `format_q88_hex` | Host-side only | No RTL equivalent required |
 | `FpgaParameters.thresholds` | `NeuronParamRam` (threshold instance) `.din`/`.dout` | 16-bit; separate RAM from leak |
 | `FpgaParameters.decay_rates` | `NeuronParamRam` (leak instance) | Mapped as **leak** in LIF (`membrane -= leak`) |
@@ -382,11 +413,11 @@ contracts and RTL ports:
 | Check | Result |
 |-------|--------|
 | Bridge UART `DATA_WIDTH` vs host 8-bit serial | Match (default 8) |
-| Core RAM / LIF 16-bit vs export `u16` | Match |
+| Core RAM / LIF 16-bit vs export `i16` | Match (width and signedness) |
 | `LifNeuron` `PARAM_WIDTH == DATA_WIDTH` | Enforced by generate `$error` |
 | SoC instantiation of bridge vs core widths | Documented split: bridge 8-bit, core 16-bit (by design) |
 | Host v3.0 multi-byte frame vs bridge RTL | **Layer gap** (protocol not in bridge); not a port-width bug |
-| Signed UART Q8.8 vs unsigned LIF / export | **Superseded by #73**: LIF is signed now too; export path (`FixedPointEncode`) is the one still unsigned — see §1.3.1 |
+| Signed UART Q8.8 vs unsigned LIF / export | **Resolved.** LIF is signed since #73; the `.mem` export path (`FixedPointEncode`) is signed since silicon-bridge #60 (`e201514`) — see §1.3.1 |
 
 **Conclusion:** documentation-only change. No RTL logic edit required for #8
 acceptance. Clarifying comments only may be added on `SiliconBridge.sv`.
@@ -416,5 +447,6 @@ tracked under finishing epic
 | PR #31 Vivado CI (util/timing) | [silicon-hdl#31](https://github.com/rmems/silicon-hdl/pull/31) |
 | Issues #51 / #52 `INIT_FILE` `$readmemh` (E1/E2) | [silicon-hdl#51](https://github.com/rmems/silicon-hdl/issues/51), [#52](https://github.com/rmems/silicon-hdl/issues/52) |
 | silicon-bridge export traits | [`fpga_export.rs`](https://github.com/Limen-Neural/silicon-bridge/blob/main/src/fpga_export.rs) |
+| silicon-bridge #60 signed `.mem` export (closes §1.3.1) | [silicon-bridge#60](https://github.com/rmems/silicon-bridge/pull/60) |
 | silicon-bridge UART host | [`fpga_bridge.rs`](https://github.com/Limen-Neural/silicon-bridge/blob/main/src/fpga_bridge.rs) |
 | silicon-bridge boundary matrix | [`docs/boundary-matrix.md`](https://github.com/Limen-Neural/silicon-bridge/blob/main/docs/boundary-matrix.md) |

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `docs/interface-alignment.md` now records the host-side `.mem` encoder as **signed**
+  two's-complement Q8.8. silicon-bridge
+  [#60](https://github.com/rmems/silicon-bridge/pull/60) (`e201514`) made
+  `FpgaParameterExporter`'s `FixedPointEncode::encode_q88` return `encode_q88_signed`, so
+  the §1.3.1 "host-encoder compatibility gap" opened by #73 is closed upstream.
+  §1.1, §1.2, §1.3, §1.4, the §3 compatibility table, and the §5 findings table were
+  corrected (including `FpgaParameters` fields, which are `Vec<i16>`), and §1.3.1 was
+  rewritten from an open mismatch into the resolved history with an explicit *Correction:*
+  note. The #73/#91 entries below are left as written — they describe what was true at the
+  time. The `spikenaut_soc_basys3_top` sign-bit-set threshold/leak write guard stays: it
+  defends against any host, not only an out-of-date encoder. Matches the corrections already
+  made to `scripts/q88.py` and `docs/host-soc-e2e.md` in
+  [#96](https://github.com/rmems/silicon-hdl/pull/96).
+
 ### Fixed
 
 - Signed Dale E/I (inhibitory) path for `LifNeuron` / `LifNeuronArray` (addresses #73).
