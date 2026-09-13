@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Signed Dale E/I (inhibitory) path for `LifNeuron` / `LifNeuronArray` (addresses #73).
+  - `weight` and `membrane_potential` are now read as signed two's-complement Q8.8 instead of
+    unsigned, so an inhibitory weight (e.g. `0xFF00` = `-1.0`) subtracts from the membrane instead
+    of misreading as a large positive integer and looking excitatory.
+  - Leak now decays the membrane symmetrically toward the 0 resting potential from either side
+    (a negative/inhibited membrane recovers upward, clamped at 0) instead of only draining a
+    positive one; integration saturates at the signed Q8.8 extremes (`16'h7FFF` / `16'h8000`)
+    instead of wrapping.
+  - `tb_LifNeuron`, `tb_LifNeuronArray`, and `tb_spikenaut_soc_basys3_top` gained mixed-sign
+    coverage proving no false spikes from inhibitory rows under the old unsigned misread.
+  - `spikenaut-core-sv/mem/README.md` documents the signed Q8.8 contract for every `.mem` image
+    and the host runtime-write path.
+
 ### Added
 
 - Dual MIT / Apache-2.0 licensing for maximum adoption in research and commercial hardware (addresses #6).

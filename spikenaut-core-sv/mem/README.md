@@ -17,6 +17,19 @@ Hex `.mem` files for `$readmemh` into `WeightRam` / `NeuronParamRam`.
 (`0120` = 288/256 = 1.125; `FFF9` = signed −7/256 ≈ −0.027).  
 Leading `// SPDX-...` comment lines are allowed (`$readmemh` skips `//` comments).
 
+**Signedness contract (GH#73):** every word in every `.mem` image — weights,
+thresholds, decay, output weights — is read as **signed two's-complement Q8.8**
+by `LifNeuron`/`LifNeuronArray` (not just `merged_v2_output_weights.mem`).
+`0xFF00` is a Dale-inhibitory weight of `-256/256 = -1.0`, not `65280`; it
+subtracts from the membrane instead of adding. Thresholds and leak/decay
+values happen to never set the sign bit in shipped banks, so they read the
+same either way, but the RTL comparisons treat them as signed too — there is
+no silent unsigned compare anywhere in the leak/integrate/threshold path. The
+host runtime-write path (`SocProtocolFsm` `wr_data`, see
+`docs/timestep-contract.md`) carries this same contract: a host writing a
+weight/threshold/leak word at runtime must send signed two's-complement Q8.8,
+not an unsigned magnitude.
+
 **RTL default:** `parameter string INIT_FILE = "NONE"`. Prefer typed `string`
 over bare untyped string parameters: some tools size untyped defaults
 narrowly and path overrides misbehave (saw this on free-runner Verilator).
