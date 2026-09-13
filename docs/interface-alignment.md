@@ -66,8 +66,10 @@ for tooling that keys on the string).
 **Signed Q8.8** appears only on the optional UART stimulus/readback path
 (`src/fpga_bridge.rs`, feature `uart`): stimuli and membrane readback use
 `i16` big-endian with clamp approximately ±127.99. That path is **not** the
-same encoder as `FixedPointEncode` / `.mem` export. Core LIF arithmetic in
-silicon-hdl treats 16-bit words as **unsigned saturating** values (see §1.3).
+same encoder as `FixedPointEncode` / `.mem` export. As of
+[#73](https://github.com/rmems/silicon-hdl/issues/73), core LIF arithmetic in
+silicon-hdl treats 16-bit words as **signed saturating** Q8.8 values (see
+§1.3) — `FixedPointEncode` / `.mem` export itself is still unsigned (§1.3.1).
 
 ### 1.2 `.mem` file contract
 
@@ -299,7 +301,7 @@ steal the first payload bytes of a real host frame. A parallel
 
 | Rust (silicon-bridge) | SV module / port / artifact | Match notes |
 |-----------------------|-----------------------------|-------------|
-| `FixedPointEncode::encode_q88` | 16-bit `din`/`dout` on RAMs; `weight` / `threshold` / `leak` on `LifNeuronArray` | Same 16-bit word size; RTL unsigned ops |
+| `FixedPointEncode::encode_q88` | 16-bit `din`/`dout` on RAMs; `weight` / `threshold` / `leak` on `LifNeuronArray` | Same 16-bit word size; RTL ops are signed since #73, encoder is still unsigned (§1.3.1) |
 | `q88_to_f32` / `format_q88_hex` | Host-side only | No RTL equivalent required |
 | `FpgaParameters.thresholds` | `NeuronParamRam` (threshold instance) `.din`/`.dout` | 16-bit; separate RAM from leak |
 | `FpgaParameters.decay_rates` | `NeuronParamRam` (leak instance) | Mapped as **leak** in LIF (`membrane -= leak`) |
@@ -363,7 +365,7 @@ contracts and RTL ports:
 | `LifNeuron` `PARAM_WIDTH == DATA_WIDTH` | Enforced by generate `$error` |
 | SoC instantiation of bridge vs core widths | Documented split: bridge 8-bit, core 16-bit (by design) |
 | Host v3.0 multi-byte frame vs bridge RTL | **Layer gap** (protocol not in bridge); not a port-width bug |
-| Signed UART Q8.8 vs unsigned LIF / export | **Semantic gap** on live stimulus path; export path stays unsigned |
+| Signed UART Q8.8 vs unsigned LIF / export | **Superseded by #73**: LIF is signed now too; export path (`FixedPointEncode`) is the one still unsigned — see §1.3.1 |
 
 **Conclusion:** documentation-only change. No RTL logic edit required for #8
 acceptance. Clarifying comments only may be added on `SiliconBridge.sv`.
