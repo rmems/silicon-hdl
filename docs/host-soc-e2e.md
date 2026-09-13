@@ -106,7 +106,7 @@ python3 scripts/gen_golden_frame_vectors.py --check
 | --- | --- | --- |
 | `bank_ei_column` | exp-025 | Mixed Dale E/I (`0xFF00` on neurons 6–9); an unsigned host decode reads 255.0 where the SoC sent −1.0 |
 | `bank_inhibitory_row` | exp-025 | An all-non-positive frame; aux `0xA5A5`, the same switch pattern the SoC testbench drives |
-| `lane_walk` | synthetic | Adjacent lanes one Q8.8 LSB apart — catches a transposition, lane offset, or byte-swapped word; `spike_word = 0x0001` pins bit 0 = neuron 0 |
+| `lane_walk` | synthetic | Adjacent lanes one Q8.8 LSB apart — catches a transposition or byte-swapped word; `spike_word = 0x0001` pins bit 0 = neuron 0 |
 | `lane15_only` | synthetic | The other end of the vector; swaps with `lane_walk` under a reversed lane or bit order |
 | `all_ones` | synthetic | `0xFFFF` spike and aux words as *bit patterns*, not the Q8.8 value −1/256 |
 | `all_zeros` | synthetic | The all-zero frame is still 36 bytes |
@@ -129,9 +129,9 @@ the SoC would produce these potentials from these stimuli.
 | Layer | Check | Where |
 | --- | --- | --- |
 | Vectors | Regenerating is a no-op; image lengths; bank provenance | `tests/test_golden_frame_vectors.py` |
-| Host codec | A model of `process_stimuli` reproduces every golden request and recovers every golden response; wrong decodes (unsigned, little-endian, reversed lanes, reversed spike bits) must disagree | `tests/test_golden_frame_vectors.py` |
-| SoC codec | Golden bytes replayed through the real `SocProtocolFsm`, both directions, idle and under back-pressure; no 37th byte | `tb_SocFrameGolden` |
-| Assembled chain | 36 bytes demodulated off the real `uart_tx` line; `status_word[15:13]` compared against the live `OutputLayer.result` | `tb_Basys3_Top` tests 13a / 13b |
+| Host codec | A model of `process_stimuli` reproduces every golden request and recovers every response; wrong decodes must disagree | `tests/test_golden_frame_vectors.py` |
+| SoC codec | Golden bytes through the real `SocProtocolFsm`, both directions, idle and stalled; no 37th byte | `tb_SocFrameGolden` |
+| Assembled chain | 36 bytes demodulated off the real `uart_tx` line; `status_word[15:13]` checked by value | `tb_Basys3_Top` tests 13a / 13b |
 | Board | Program, LED heartbeat, live host session | [`phase-c-board-smoke.md`](phase-c-board-smoke.md) and below |
 
 The host model in `tests/test_golden_frame_vectors.py` is a transcription of the
@@ -157,7 +157,13 @@ python3 scripts/gen_golden_frame_vectors.py --check
 ```
 
 ```bash
-rm -rf obj_dir && verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD --top-module tb_SocFrameGolden -Ispikenaut-soc-sv/rtl spikenaut-soc-sv/rtl/SocProtocolFsm.sv spikenaut-soc-sv/tb/tb_SocFrameGolden.sv && ./obj_dir/Vtb_SocFrameGolden
+rm -rf obj_dir && verilator --binary --timing \
+  -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+  --top-module tb_SocFrameGolden \
+  -Ispikenaut-soc-sv/rtl \
+  spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+  spikenaut-soc-sv/tb/tb_SocFrameGolden.sv \
+  && ./obj_dir/Vtb_SocFrameGolden
 ```
 
 The Python side needs `pip install -r requirements-dev.txt`:
@@ -241,7 +247,10 @@ steps) and the `silicon-bridge` crate checked out.
    the `all_zeros` golden case):
 
    ```bash
-   timeout 2 cat /dev/ttyUSB0 > /tmp/soc-response.bin & sleep 0.3; { printf '\xAA'; printf '\x00%.0s' $(seq 32); } > /dev/ttyUSB0; wait
+   timeout 2 cat /dev/ttyUSB0 > /tmp/soc-response.bin &
+   sleep 0.3
+   { printf '\xAA'; printf '\x00%.0s' $(seq 32); } > /dev/ttyUSB0
+   wait
    ```
 
    Now count and inspect. **Exactly 36** is the pass condition — 37 or more is
@@ -263,13 +272,24 @@ steps) and the `silicon-bridge` crate checked out.
 
 | Symptom | Likely cause |
 | --- | --- |
-| Host blocks in `read_exact` | No response armed. Idle 1 ms ticks deliberately do **not** send a frame; a response fires only after a consumed host request. Check `status_word[2]` (`rx_commit`) flickered. |
-| Every potential is a large positive number | Unsigned Q8.8 decode. `0xFF00` is −1.0, not 65280 ([#73](https://github.com/rmems/silicon-hdl/issues/73)). |
+| Host blocks in `read_exact` | No response armed — idle ticks send **no** frame. Check `status_word[2]` (`rx_commit`) flickered. |
+| Every potential is a large positive number | Unsigned Q8.8 decode — `0xFF00` is −1.0, not 65280 ([#73](https://github.com/rmems/silicon-hdl/issues/73)). |
 | Potentials look plausible but the wrong way round | Byte or lane order. Replay `lane_walk` / `lane15_only` against your parser. |
-| Spike bits are mirrored | Bit order. Bit 0 is neuron 0; `lane_walk` (`0x0001`) and `lane15_only` (`0x8000`) are the pair that separates the two conventions. |
-| Responses drift out of sync over a session | An extra or missing byte. One stray byte desynchronizes every later `read_exact(36)` permanently — `tb_Basys3_Top` test 13b is the check that catches this in simulation. |
-| `status_word[3]` is lit | Sticky `rx_abort`: a host request was abandoned mid-frame and the inter-byte idle timeout fired. Idle the link before retrying. |
-| Inhibitory weights have no effect *in a bank you exported yourself* | Not the UART path. Check the encoder the export used: `encode_q88_unsigned` flattens every negative to `0`. As of silicon-bridge [#60](https://github.com/rmems/silicon-bridge/pull/60) (`e201514`) `FpgaParameterExporter` encodes `.mem` images through `encode_q88_signed`, so a current crate is correct here; an older export is not. |
+| Spike bits are mirrored | Bit order — bit 0 is neuron 0. `lane_walk` (`0x0001`) and `lane15_only` (`0x8000`) separate the two conventions. |
+| Responses drift out of sync over a session | An extra or missing byte. One stray byte desynchronizes every later `read_exact(36)`. |
+| `status_word[3]` is lit | Sticky `rx_abort` — a request was abandoned mid-frame and the idle timeout fired. Idle the link before retrying. |
+| Inhibitory weights have no effect in a bank you exported | Not the UART path — check the export encoder. See the note below. |
+
+**On that last row.** `encode_q88_unsigned` flattens every negative weight to
+`0`, so a bank exported through it has no inhibition at all. Since
+silicon-bridge [#60](https://github.com/rmems/silicon-bridge/pull/60)
+(`e201514`), `.mem` export goes through `encode_q88_signed` — a current crate is
+correct here, an older export is not. Nothing about this touches the UART path,
+which has always used the signed encoder.
+
+**On response desynchronization.** A single extra or missing byte shifts every
+later `read_exact(36)` permanently, and no amount of retrying recovers it.
+`tb_Basys3_Top` test 13b is the check that catches this in simulation.
 
 ## Out of scope
 
