@@ -19,6 +19,8 @@ module tb_LifNeuronArray;
     localparam int WEIGHT_ADDR_WIDTH = 8;
     localparam int CLK_PERIOD        = 10;
     localparam logic [INDEX_WIDTH-1:0] SELECTED_INPUT = 4'd3;
+    // GH#73: dedicated row for the signed Dale-inhibitory regression test below.
+    localparam int INHIB_NEURON = 2;
 
     logic                         clk;
     logic                         rst_n;
@@ -227,6 +229,36 @@ module tb_LifNeuronArray;
                 check_data(dut.membrane_potential[neuron], DATA_WIDTH'(49 + neuron),
                            "a non-spiking neuron must apply its own row's leak without cross-neuron state");
         end
+
+        // ------------------------------------------------------------
+        // GH#73: a Dale-inhibitory row must subtract, not misread as a huge
+        // positive add. Reset first so this row's membrane starts from a
+        // known 0, independent of the broadcast history above. Weight and
+        // threshold are picked so an unsigned misread of the weight
+        // (0xFF00 = 65280) would falsely cross this small positive
+        // threshold, but the correct signed read (-256, i.e. -1.0 Q8.8)
+        // does not.
+        // ------------------------------------------------------------
+        rst_n = 1'b0;
+        repeat (2) @(negedge clk);
+        rst_n = 1'b1;
+        weight_mem[INHIB_NEURON * NUM_NEURONS + SELECTED_INPUT] = 16'hFF00;  // -256 Q8.8 (-1.0)
+        threshold_mem[INHIB_NEURON] = 16'd50;                                // 0.195: an unsigned misread would cross
+        leak_mem[INHIB_NEURON]      = 16'd40;
+
+        run_tick(1'b1, SELECTED_INPUT, sweep_cycles);
+        check(spike_bitmap[INHIB_NEURON] == 1'b0,
+              "GH#73: an inhibitory row (-256 Q8.8) must not falsely spike against a small positive threshold");
+        check_data(dut.membrane_potential[INHIB_NEURON], 16'hFF00,
+                   "inhibitory row's membrane must be the signed weight itself (0 + -256), not a huge positive value");
+
+        // Leak-only tick: the negative membrane must recover toward 0 by
+        // its own leak, not stay pinned or wrap.
+        run_tick(1'b0, SELECTED_INPUT, sweep_cycles);
+        check(spike_bitmap[INHIB_NEURON] == 1'b0,
+              "leak-only recovery of an inhibited row must never spike");
+        check_data(dut.membrane_potential[INHIB_NEURON], -16'sd216,
+                   "inhibitory row's membrane must recover by its own leak (-256+40=-216)");
 
         if (errors == 0) begin
             $display("TB_LIFNEURONARRAY: ALL TESTS PASSED");

@@ -125,23 +125,90 @@ module tb_LifNeuron;
         check(spike_out == 1'b0, "spike_out should deassert after second spike (refractory)");
 
         // ------------------------------------------------------------
-        // Overflow saturation: when decayed_mem + weight would exceed the
-        // DATA_WIDTH range, next_mem must saturate at max (all 1s) instead
-        // of wrapping around. A threshold set to the max value should then
-        // still fire, proving the saturation preserves the threshold
-        // crossing instead of masking it.
+        // Overflow saturation (GH#73: weight/membrane are now signed Q8.8):
+        // when decayed_mem + weight would exceed the signed DATA_WIDTH
+        // range, next_mem must saturate at the signed extreme (16'h7FFF /
+        // 16'h8000) instead of wrapping. A threshold at the positive
+        // extreme should then still fire on positive saturation, proving
+        // the saturation preserves the threshold crossing instead of
+        // masking it.
         // ------------------------------------------------------------
-        threshold = 16'hFFFF;  // max threshold
-        leak      = 16'd0;     // no decay for a clean overflow test
-        weight    = 16'd40000;
+        rst_n     = 1'b0;
+        step_en   = 1'b1;
+        spike_in  = 1'b0;
+        repeat (2) @(negedge clk);
+        rst_n     = 1'b1;
+        threshold = 16'h7FFF;  // max positive Q8.8 threshold
+        leak      = 16'd0;     // no decay for a clean saturation test
+        weight    = 16'sd28672;  // +112.0
         spike_in  = 1'b1;
-        @(negedge clk);  // mem: 0 -> 40000  (no overflow yet)
-        check(spike_out == 1'b0, "no spike yet: 40000 < max threshold");
-        @(negedge clk);  // mem: 40000 + 40000 -> saturates to 65535, fires
-        check(spike_out == 1'b1, "spike_out should fire when membrane saturates at max (>= max threshold)");
+        @(negedge clk);  // mem: 0 -> 28672 (no overflow yet)
+        check(spike_out == 1'b0, "no spike yet: 28672 < max positive threshold");
+        @(negedge clk);  // mem: 28672 + 28672 = 57344 -> saturates to 16'h7FFF, fires
+        check(spike_out == 1'b1, "spike_out should fire when membrane saturates at max positive (>= max threshold)");
+        check_data(dut.membrane_potential, 16'h7FFF,
+                   "membrane must saturate at the max positive Q8.8 value, not wrap");
         @(negedge clk);  // refractory reset after the saturation spike
         check(spike_out == 1'b0, "spike_out should deassert after saturation spike (refractory)");
+
+        // Negative (inhibitory) saturation: a strongly negative weight must
+        // saturate at the most-negative Q8.8 value and never falsely fire.
+        weight = -16'sd28672;  // -112.0
+        @(negedge clk);  // mem: 0 -> -28672 (no overflow yet)
+        check(spike_out == 1'b0, "no spike yet: -28672 is far below any positive threshold");
+        @(negedge clk);  // mem: -28672 + -28672 = -57344 -> saturates to 16'h8000
+        check(spike_out == 1'b0, "spike_out must stay low when membrane saturates at max negative");
+        check_data(dut.membrane_potential, 16'h8000,
+                   "membrane must saturate at the max negative Q8.8 value, not wrap");
         spike_in = 1'b0;
+
+        // ------------------------------------------------------------
+        // Inhibitory subtraction (GH#73): an excitatory weight followed by
+        // an inhibitory one must *subtract* from the membrane. Under the
+        // old unsigned misread, weight=-10 (16'hFFF6) reads as 65526, and
+        // 90 + 65526 would saturate to all-1s and falsely cross this
+        // threshold -- proving this is a real "no false spike" regression
+        // check, not just an arithmetic nicety.
+        // ------------------------------------------------------------
+        rst_n     = 1'b0;
+        repeat (2) @(negedge clk);
+        rst_n     = 1'b1;
+        threshold = 16'd100;
+        leak      = 16'd0;
+        weight    = 16'd90;
+        spike_in  = 1'b1;
+        @(negedge clk);  // mem: 0 -> 90
+        check(spike_out == 1'b0, "90 < 100: no spike from the excitatory leg");
+        check_data(dut.membrane_potential, 16'd90, "membrane must be exactly 90 after the excitatory input");
+        weight = -16'sd10;
+        @(negedge clk);  // mem: 90 + (-10) = 80
+        check(spike_out == 1'b0,
+              "inhibitory weight must subtract (90-10=80 < 100), not misread as a huge positive add");
+        check_data(dut.membrane_potential, 16'd80,
+                   "membrane must be exactly 90-10=80 after the inhibitory input");
+        spike_in = 1'b0;
+
+        // ------------------------------------------------------------
+        // Leak on a negative membrane (GH#73): leak now decays a negative
+        // (inhibited) membrane symmetrically back toward 0, and must not
+        // overshoot past 0 once the remaining magnitude is smaller than
+        // the leak step.
+        // ------------------------------------------------------------
+        rst_n     = 1'b0;
+        repeat (2) @(negedge clk);
+        rst_n     = 1'b1;
+        threshold = 16'd100;
+        leak      = 16'd0;
+        weight    = -16'sd50;
+        spike_in  = 1'b1;
+        @(negedge clk);  // mem: 0 -> -50
+        check_data(dut.membrane_potential, -16'sd50, "membrane must be -50 after one inhibitory tick");
+        spike_in = 1'b0;
+        leak     = 16'd60;  // larger than the remaining |membrane| of 50
+        @(negedge clk);  // mem: -50 recovers toward 0 but must not overshoot to +10
+        check_data(dut.membrane_potential, 16'd0,
+                   "leak must clamp a recovering negative membrane at exactly 0, not overshoot positive");
+        check(spike_out == 1'b0, "leak-only recovery must never spike");
 
         // step_en=0: must not leak or integrate (would fire in a few cycles if ungated)
         rst_n     = 1'b0;

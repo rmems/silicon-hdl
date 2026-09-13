@@ -502,8 +502,13 @@ module tb_spikenaut_soc_basys3_top #(
 
         expected_first_spikes = '0;
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
+            // GH#73: LifNeuronArray now reads weight/threshold as signed
+            // Q8.8, so Dale I rows (negative col0 words, e.g. 0xFF00)
+            // correctly compare below their (positive) threshold instead of
+            // misreading as a huge positive integer.
             expected_first_spikes[neuron] =
-                (dut.u_wram.mem[neuron * NUM_NEURONS] >= dut.u_npram_threshold.mem[neuron]);
+                ($signed(dut.u_wram.mem[neuron * NUM_NEURONS]) >=
+                 $signed(dut.u_npram_threshold.mem[neuron]));
             check(dut.u_lif_array.membrane_potential[neuron] ==
                   dut.u_wram.mem[neuron * NUM_NEURONS],
                   "broadcast event must integrate each neuron row's input-column-0 weight");
@@ -511,7 +516,8 @@ module tb_spikenaut_soc_basys3_top #(
         check(led === expected_first_spikes,
               "LED bitmap must equal the merged_v2 per-neuron threshold outcomes");
         check(expected_first_spikes === 16'h0000,
-              "merged_v2 input-column-0 weights are below every per-neuron threshold");
+              {"exp-025 Dale bank: signed col0 weights (E ~1.2, I ~-1.0) are below every ",
+               "per-neuron threshold (~1.6 / ~0.45) -- no false spikes from I rows"});
         check(seen_threshold_addr == {NUM_NEURONS{1'b1}},
               "PE sweep must request all 16 threshold RAM entries");
         check(seen_leak_addr == {NUM_NEURONS{1'b1}},
@@ -529,16 +535,30 @@ module tb_spikenaut_soc_basys3_top #(
         check_int(frame_send_count, 1,
                   "idle leak tick must not increment the gated response count");
         for (int neuron = 0; neuron < NUM_NEURONS; neuron++) begin
-            if (expected_first_spikes[neuron])
+            // GH#73: leak is signed and symmetric around the 0 resting
+            // potential, mirroring LifNeuronArray's leak_wide/decayed_wide
+            // logic exactly -- an I row's negative membrane (e.g. exp-025's
+            // -1.0 Q8.8 rows) now decays back *up* toward 0, not just a
+            // positive membrane decaying down.
+            automatic logic signed [15:0] mem1 =
+                $signed(dut.u_wram.mem[neuron * NUM_NEURONS]);
+            automatic logic signed [15:0] lk =
+                $signed(dut.u_npram_leak.mem[neuron]);
+            automatic logic signed [15:0] expected_mem2;
+
+            if (expected_first_spikes[neuron]) begin
                 check(dut.u_lif_array.membrane_potential[neuron] === '0,
                       "a prior spike must reset that row on the next tick");
-            else if (dut.u_wram.mem[neuron * NUM_NEURONS] > dut.u_npram_leak.mem[neuron])
-                check(dut.u_lif_array.membrane_potential[neuron] ==
-                      (dut.u_wram.mem[neuron * NUM_NEURONS] - dut.u_npram_leak.mem[neuron]),
-                      "each non-spiking row must use its own leak value");
-            else
-                check(dut.u_lif_array.membrane_potential[neuron] === '0,
-                      "leak must floor each row's membrane at zero");
+            end else begin
+                if (mem1 > 0)
+                    expected_mem2 = (mem1 > lk) ? (mem1 - lk) : 0;
+                else if (mem1 < 0)
+                    expected_mem2 = (-mem1 > lk) ? (mem1 + lk) : 0;
+                else
+                    expected_mem2 = 0;
+                check(dut.u_lif_array.membrane_potential[neuron] == expected_mem2,
+                      "each non-spiking row must apply its own row's signed, symmetric leak");
+            end
         end
 
         // ------------------------------------------------------------

@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- resource-budget-n16.md -->
-<!-- Last updated: 2026-09-07 -->
+<!-- Last updated: 2026-09-12 -->
 
 # N=16 time-multiplexed PE resource budget
 
@@ -116,6 +116,43 @@ separate rows. The RAMs are inferred as the three top-level `RAMB18E1` primitive
 WNS variance across recent builds of nearly identical trees has been ±0.2 ns
 (1.200 / 1.323 / 1.405 / 1.230 ns), so treat small movements as placement noise
 rather than as a signal about a particular change.
+
+## Update: signed Dale E/I path (#73)
+
+Routed Vivado 2026.1 build after making `LifNeuron`/`LifNeuronArray` treat weight and
+membrane state as signed Q8.8 (leak/integrate/compare, see `CHANGELOG.md`):
+
+| Resource | Used | Available | Utilization | vs. #85 baseline |
+|---|---|---|---|---|
+| Slice LUTs | 913 | 20,800 | 4.39% | +21 |
+| Slice Registers | 1,738 | 41,600 | 4.18% | +78 |
+| Block RAM Tile | 1.5 (3 × RAMB18E1) | 50 | 3.00% | unchanged |
+| DSPs | 0 | 90 | 0.00% | unchanged |
+| Bonded IOB | 36 | 106 | 33.96% | unchanged |
+
+| Metric | Value | Failing / total endpoints | vs. #85 baseline |
+|---|---|---|---|
+| WNS | **+0.708 ns** | 0 / — | −0.52 ns |
+| WHS | +0.106 ns | 0 / — | unchanged |
+| WPWS | +4.500 ns | 0 / — | unchanged |
+
+Timing still closes with zero failing endpoints, but WNS moved beyond the ±0.2 ns
+placement-noise band noted above — a real, small cost of the wider signed arithmetic
+in `LifNeuronArray`'s shared leak/integrate/compare datapath (the RAM-to-LIF critical
+path this file already calls out). Two rounds of simplification during this change
+kept it closable without adding a pipeline stage: saturating the integrate sum via a
+guard-bit/sign check instead of a magnitude compare against `MAX_MEM`/`MIN_MEM`, and
+decaying the (now signed) membrane via one sign-selected add/subtract plus a
+sign-flip clamp check instead of two magnitude compares. Before those two changes,
+the same signed rework missed timing at −1.783 ns / 119 failing endpoints.
+
+Per-module hierarchy attribution shifted more than the module-level changes alone
+would suggest (e.g. `u_lif_array` itself measured 205 LUTs here, down from 236, while
+several untouched modules' rows also moved) — consistent with this doc's existing
+cross-hierarchy-LUT-combining caveat on the per-module split; the top-level totals
+above are the reliable numbers. `u_lif_array`'s flip-flop count is unchanged (365):
+this change widens combinational intermediates, not the `membrane_potential`
+register file itself.
 
 These figures are a build snapshot. Regenerate `utilization.rpt`,
 `utilization_hier.rpt`, and `timing_summary.rpt` after later RTL or tool changes —
