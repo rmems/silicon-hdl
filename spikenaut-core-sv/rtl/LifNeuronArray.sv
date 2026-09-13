@@ -30,8 +30,10 @@ module LifNeuronArray #(
     input  logic                         rst_n,
     input  logic                         step_en,
     input  logic                         spike_in,
-    // The binary-event SoC drives input_index=0 today.  A future #62 frame
-    // parser can select channels 0..NUM_NEURONS-1 without changing this PE.
+    // #62 is implemented: the binary-event SoC decodes the lowest-index
+    // active lane of a completed host stimulus frame and drives it here as
+    // an external input channel 0..NUM_NEURONS-1 (never another neuron's
+    // index -- see docs/lif-array-connectivity-model.md, #92).
     input  logic [INDEX_WIDTH-1:0]       input_index,
     input  logic [DATA_WIDTH-1:0]        weight_dout,
     input  logic [PARAM_WIDTH-1:0]       threshold_dout,

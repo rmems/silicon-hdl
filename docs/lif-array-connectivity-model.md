@@ -62,9 +62,9 @@ actual SoC wiring, that reading doesn't hold:
   read, so "neuron 6 fires and broadcasts to column 6" cannot occur as
   described in the original #92 report.
 
-Given that, a Dale-inhibitory row's real negative weights (columns 0-4) are
-reachable exactly like every other row's: whenever the host's stimulus frame
-selects one of the 5 legal channels. There is no addressing bug and no
+Given that, a Dale-inhibitory row's genuine negative weights (columns 0-4)
+are reachable exactly like every other row's: whenever the host's stimulus
+frame selects one of the 5 legal channels. There is no addressing bug and no
 transpose needed.
 
 ## Non-goals
