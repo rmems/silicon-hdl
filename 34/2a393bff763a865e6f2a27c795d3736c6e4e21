@@ -1,0 +1,21 @@
+docs/host-soc-e2e.md
+  s_c7954be637f460::t_5bc5d926b1befe 238
+scripts/q88.py
+  s_c7954be637f460::t_878c41091fe691 8-13,19,22-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "342a393bff763a865e6f2a27c795d3736c6e4e21",
+  "prompts": {},
+  "sessions": {
+    "s_c7954be637f460": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ffaa399-5f9e-4396-89bc-bf5ca65de325",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
