@@ -1,15 +1,47 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-07-22 -->
+<!-- Last updated: 2026-09-13 -->
 # Phase C: optional board-in-loop smoke (self-hosted only)
 
 Design stub for **Phase C** of the quality checkup epic. This document is intentional
-skeleton only — it does **not** implement hardware CI automation.
+skeleton only — it does **not** implement hardware CI automation. A one-time manual
+smoke was executed per [#68](https://github.com/rmems/silicon-hdl/issues/68); see
+[Smoke log](#smoke-log) below. That execution was manual (local Tcl/batch, no GUI
+interaction, no camera/JTAG-probe automation) — it does not itself add hardware CI.
 
 | Item | Link |
 | --- | --- |
 | Tracking issue | [rmems/silicon-hdl#32](https://github.com/rmems/silicon-hdl/issues/32) |
+| Smoke execution issue | [rmems/silicon-hdl#68](https://github.com/rmems/silicon-hdl/issues/68) |
 | Parent epic | [rmems/silicon-hdl#23](https://github.com/rmems/silicon-hdl/issues/23) |
 | Phase B dependency | [rmems/silicon-hdl#31](https://github.com/rmems/silicon-hdl/pull/31) (optional self-hosted Vivado CI) |
+
+## Smoke log
+
+| Date | HEAD | Board / target | Method | Result |
+| --- | --- | --- | --- | --- |
+| 2026-09-13 | `7208d8c` | Digilent Basys 3, JTAG target `Digilent/210183BF7C8CA` | Manual, local Tcl/batch (no GUI) | **PASS** |
+
+Details of the 2026-09-13 run:
+
+1. **Bitstream**: `vivado_projects/spikenaut_soc/output/spikenaut_soc.bit` rebuilt from
+   `main` at `7208d8c` via `vivado -mode batch -source scripts/build_soc.tcl`
+   (Vivado 2026.1). 0 errors, 0 critical warnings, WNS = 0.751 ns / WHS = 0.027 ns
+   (timing met).
+2. **Program**: board programmed over JTAG via `open_hw_manager` /
+   `connect_hw_server` / `program_hw_devices` in a Tcl batch script (same
+   `hw_server` path the Vivado GUI uses — no GUI session was opened). DRC: 0
+   errors. `hw_server` reported startup status `HIGH` (DONE asserted) after
+   `program_hw_devices`.
+3. **Functional check**: BTNC pressed to reset, SW15 set high (status mode per
+   [`led-map.md`](led-map.md)). LED0 (`heartbeat` = `tick_cnt[8]`, ~1.95 Hz)
+   confirmed **blinking** by direct visual observation of the physical board.
+   Green DONE LED lit; seven-segment shows its expected undriven/floating
+   pattern (no constraint drives it — not a fault).
+4. **Scope note**: this was a manual, one-time execution to close out #68. No
+   new workflow YAML, programmer script, or JTAG-probe automation was added —
+   see [Suggested approach](#suggested-approach-future-work) below for what a
+   repeatable/automated version would still need (label-gated workflow,
+   UART smoke, runner labels).
 
 ## Goals
 

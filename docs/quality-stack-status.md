@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-07-22 -->
+<!-- Last updated: 2026-09-13 -->
 # Quality stack status (Epic #23)
 
 In-repo status artifact for the phased quality checkup stack on `silicon-hdl`.
@@ -16,7 +16,7 @@ Raise automated quality **without** making Vivado a required free-runner PR gate
 | -- | -- | -- | -- |
 | **A** | Free CI harden | **Complete** | Stronger Verilator + guardian + hygiene on `ubuntu-latest` |
 | **B** | Vivado CI | **Complete** (B1/B2) | Self-hosted optional/label-gated synth+sim+artifacts ([#12](https://github.com/rmems/silicon-hdl/issues/12), [PR #31](https://github.com/rmems/silicon-hdl/pull/31)) |
-| **C** | Board-in-loop | **Next** | Optional smoke on self-hosted only (never free GHA) |
+| **C** | Board-in-loop | **Manual smoke done** | One-time manual smoke passed on 2026-09-13 ([#68](https://github.com/rmems/silicon-hdl/issues/68)); automation still not started (never free GHA) |
 
 ## Phase A — Free CI harden (done)
 
@@ -42,11 +42,15 @@ Raise automated quality **without** making Vivado a required free-runner PR gate
 - Runner labels: `self-hosted`, `vivado` (never a free `ubuntu-latest` required check)
 - Local optional path: `./scripts/quality.sh --vivado` (requires Vivado env)
 
-## Phase C — Board-in-loop (next)
+## Phase C — Board-in-loop
 
-- **Next** after Phase B: optional board program + minimal smoke on self-hosted only.
+- Design stub: [`phase-c-board-smoke.md`](phase-c-board-smoke.md) — one-time manual
+  smoke executed and logged 2026-09-13 ([#68](https://github.com/rmems/silicon-hdl/issues/68),
+  PASS at HEAD `7208d8c`).
+- Automated/repeatable version (label-gated workflow, UART smoke, runner labels)
+  is still not started — see that doc's "Suggested approach" section.
 - Must **not** become a required free-runner gate.
-- New child issue(s) for Phase C are tracked separately (not created by this closeout).
+- New child issue(s) for Phase C automation are tracked separately.
 
 ## Non-goals (unchanged)
 
