@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     coverage proving no false spikes from inhibitory rows under the old unsigned misread.
   - `spikenaut-core-sv/mem/README.md` documents the signed Q8.8 contract for every `.mem` image
     and the host runtime-write path.
+  - `spikenaut_soc_basys3_top` now rejects a sign-bit-set threshold write instead of storing it:
+    since the threshold compare is signed, a negative threshold would make an idle neuron spike
+    continuously (relevant while the host-side `FixedPointEncode` encoder is still unsigned-only,
+    see `docs/interface-alignment.md` §1.3.1). Weight writes are exempt — a negative weight is the
+    intended inhibitory case.
 
 ### Added
 

@@ -790,6 +790,41 @@ module tb_spikenaut_soc_basys3_top #(
         end
 
         // ------------------------------------------------------------
+        // Test 11b (#73 follow-up): a sign-bit-set threshold write must be
+        // rejected, not stored -- LifNeuronArray's threshold compare is
+        // signed, so a negative threshold would make an idle neuron spike
+        // continuously. A non-negative write to the same address must
+        // still commit normally right after, proving the guard is
+        // sign-specific, not a general threshold-write block.
+        // ------------------------------------------------------------
+        begin
+            localparam logic [7:0] WRITE_THRESH_ADDR        = 8'h03;
+            localparam logic [15:0] WRITE_THRESH_REJECT_DATA = 16'hF000;  // sign bit set (-16.0)
+            localparam logic [15:0] WRITE_THRESH_ACCEPT_DATA = 16'h0200;  // 2.0
+            logic [15:0] thresh_before;
+
+            thresh_before = dut.u_npram_threshold.mem[WRITE_THRESH_ADDR];
+            check(thresh_before !== WRITE_THRESH_REJECT_DATA && thresh_before !== WRITE_THRESH_ACCEPT_DATA,
+                  "test 11b: INIT_FILE threshold must differ from both test values");
+
+            fork
+                uart_send_write_frame(8'h01, WRITE_THRESH_ADDR, WRITE_THRESH_REJECT_DATA);
+                wait_for_host_write(2'd1, "test 11b threshold (rejected)");
+            join
+            check(dut.thresh_we === 1'b0,
+                  "test 11b: a sign-bit-set threshold write must never assert thresh_we");
+            check(dut.u_npram_threshold.mem[WRITE_THRESH_ADDR] === thresh_before,
+                  "test 11b: a sign-bit-set threshold write must be rejected, not stored");
+
+            fork
+                uart_send_write_frame(8'h01, WRITE_THRESH_ADDR, WRITE_THRESH_ACCEPT_DATA);
+                wait_for_host_write(2'd1, "test 11b threshold (accepted)");
+            join
+            check(dut.u_npram_threshold.mem[WRITE_THRESH_ADDR] === WRITE_THRESH_ACCEPT_DATA,
+                  "test 11b: a non-negative threshold write to the same address must still commit");
+        end
+
+        // ------------------------------------------------------------
         // Test 12: host writes that land mid-sweep are held until idle.
         // Force a one-cycle wr_en during PREFETCH/SWEEP; UART is too slow
         // to finish a 5-byte frame in that window.
