@@ -41,6 +41,38 @@ jobs:
             spikenaut-core-sv/tb/tb_LifNeuron.sv
           ./obj_dir/Vtb_LifNeuron
 
+      - name: Check golden vectors are not stale
+        run: |
+          # GH#66 drift gate. Runs before the golden TBs so a stale committed
+          # vector set is reported as such, rather than as an RTL mismatch.
+          python3 scripts/gen_golden_lif_vectors.py --check
+
+      - name: Run tb_LifNeuron_golden
+        run: |
+          rm -rf obj_dir
+          # GH#66: replays the committed f32 -> Q8.8 -> .mem golden trace
+          # (pinned exp-025 bank) against the real signed LIF datapath.
+          # Golden .mem paths are repo-root relative.
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_LifNeuron_golden \
+            -Ispikenaut-core-sv/rtl \
+            spikenaut-core-sv/rtl/LifNeuron.sv \
+            spikenaut-core-sv/tb/tb_LifNeuron_golden.sv
+          ./obj_dir/Vtb_LifNeuron_golden
+
+      - name: Run tb_OutputLayer_golden
+        run: |
+          rm -rf obj_dir
+          # GH#66 over the GH#72 output-layer path: golden argmax vectors
+          # against the real shipped output-weight bank.
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_OutputLayer_golden \
+            -Ispikenaut-core-sv/rtl \
+            spikenaut-core-sv/rtl/WeightRam.sv \
+            spikenaut-core-sv/rtl/OutputLayer.sv \
+            spikenaut-core-sv/tb/tb_OutputLayer_golden.sv
+          ./obj_dir/Vtb_OutputLayer_golden
+
       - name: Run tb_LifNeuronArray
         run: |
           rm -rf obj_dir

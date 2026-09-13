@@ -50,9 +50,21 @@ else
   record "dedup_guardian" "FAIL"
 fi
 
+# Golden-vector drift gate (GH#66). Runs before the simulations: if the
+# committed vectors no longer match what the generator produces, the two
+# golden TBs below would be checking the RTL against a stale trace.
+echo ""
+echo "=== Golden vector drift check ==="
+if python3 scripts/gen_golden_lif_vectors.py --check; then
+  record "golden_vectors/drift" "PASS"
+else
+  record "golden_vectors/drift" "FAIL"
+fi
+
 VERILATOR_FLAGS=(--binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD)
 TBS=(
   "LifNeuron:LifNeuron"
+  "LifNeuron_golden:LifNeuron"
   "LifNeuronArray:LifNeuronArray"
   "WeightRam:WeightRam"
   "NeuronParamRam:NeuronParamRam"
@@ -92,6 +104,21 @@ if verilator "${VERILATOR_FLAGS[@]}" \
   record "verilator/tb_OutputLayer" "PASS"
 else
   record "verilator/tb_OutputLayer" "FAIL"
+fi
+
+echo ""
+echo "=== Verilator tb_OutputLayer_golden ==="
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_OutputLayer_golden \
+    -Ispikenaut-core-sv/rtl \
+    spikenaut-core-sv/rtl/WeightRam.sv \
+    spikenaut-core-sv/rtl/OutputLayer.sv \
+    spikenaut-core-sv/tb/tb_OutputLayer_golden.sv \
+  && ./obj_dir/Vtb_OutputLayer_golden; then
+  record "verilator/tb_OutputLayer_golden" "PASS"
+else
+  record "verilator/tb_OutputLayer_golden" "FAIL"
 fi
 
 BRIDGE_TBS=(UartRx UartTx SiliconBridge)
