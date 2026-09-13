@@ -1,0 +1,29 @@
+scripts/gen_golden_lif_vectors.py
+  s_2b6c8e7994c681::t_41e241762b2a14 59-76,139-154,528-532
+spikenaut-core-sv/mem/golden/golden_vectors.json
+  s_2b6c8e7994c681::t_41e241762b2a14 22-29
+docs/golden-lif-vectors.md
+  s_2b6c8e7994c681::t_759edc519d8cc9 56-83,163-171
+tests/test_golden_lif_vectors.py
+  s_2b6c8e7994c681::t_bb124196f1fe22 287-302,305-306,311,315,319,322-329,502-556
+spikenaut-core-sv/mem/README.md
+  s_2b6c8e7994c681::t_759edc519d8cc9 54-57
+scripts/q88.py
+  s_2b6c8e7994c681::t_22d6b41bf88375 43,68-78,167-178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c36b0c9d1536792a6d1b63490a3841d2a117cca5",
+  "prompts": {},
+  "sessions": {
+    "s_2b6c8e7994c681": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "714215e4-211b-4ef1-bc42-6455f1bf48e9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
