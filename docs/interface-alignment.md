@@ -53,12 +53,22 @@ Trait surface (`src/fpga_export.rs`):
 **Signed two's-complement Q8.8** (export path — parameters / weights / decay):
 
 ```text
-raw_i16 = clamp(value, -127.99, 127.99) × 256.0, truncated toward zero
-value   = raw_i16 / 256.0
+encode: raw_i16 = clamp(value, -127.99, 127.99) × 256.0, truncated toward zero
+decode: value   = raw_i16 / 256.0
 
-Representable range: ~ −127.99 … ~ +127.99  (raw −32765 … +32765)
+Encoder clamp (f32 → word):  −127.99 … +127.99        (raw −32765 … +32765)
+Format range  (word → f32):  −128.0  … +127.99609375  (raw −32768 … +32767)
 Example: 1.0 → 0x0100, 0.5 → 0x0080, −1.0 → 0xFF00
 ```
+
+**The decode side is deliberately wider than the encoder.** `encode_q88_signed`
+clamps the *unscaled* `f32` to `STIMULUS_Q88_MIN..=STIMULUS_Q88_MAX`
+(`±127.99`), so it saturates at raw ±32765 and never emits the two extreme
+words. `q88_signed_to_f32` accepts every `i16`. A host decoder must therefore
+cover the **full** `−32768..=32767`, not just what the encoder can produce:
+`LifNeuron` integration saturates at `16'h8000` / `16'h7FFF` (§1.3) — exactly
+the two values outside the encoder's clamp — so a membrane readback can carry
+−128.0 or +127.99609375 even though no host-encoded parameter ever will.
 
 `EXPORT_FORMAT_VERSION` is currently `"Spikenaut-v2"` (historical tag retained
 for tooling that keys on the string).
