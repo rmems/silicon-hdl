@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- resource-budget-n16.md -->
-<!-- Last updated: 2026-09-12 -->
+<!-- Last updated: 2026-09-13 -->
 
 # N=16 time-multiplexed PE resource budget
 
@@ -158,3 +158,49 @@ These figures are a build snapshot. Regenerate `utilization.rpt`,
 `utilization_hier.rpt`, and `timing_summary.rpt` after later RTL or tool changes —
 they are produced by `scripts/build_soc.tcl` and uploaded by the Vivado CI job as
 the `vivado-ci-reports` artifact.
+
+## Update: signed output-layer wiring (#72)
+
+Routed Vivado 2026.1 build after adding `OutputLayer` plus its own `WeightRam`
+instance (`u_output_wram`, 48 × 16-bit) and driving `SocStatusLeds`
+`status_word[15:13]` from the argmax result:
+
+| Resource | Used | Available | Utilization | vs. #73 |
+|---|---|---|---|---|
+| Slice LUTs | 1,035 | 20,800 | 4.98% | +122 |
+| Slice Registers | 1,808 | 41,600 | 4.35% | +70 |
+| Block RAM Tile | 2.0 (4 × RAMB18E1) | 50 | 4.00% | +0.5 (one RAMB18E1) |
+| DSPs | 0 | 90 | 0.00% | unchanged |
+| Bonded IOB | 36 | 106 | 33.96% | unchanged |
+
+| Metric | Value | Failing / total endpoints | vs. #73 |
+|---|---|---|---|
+| WNS | **+0.526 ns** | 0 / 3558 | −0.18 ns |
+| WHS | +0.088 ns | 0 / 3558 | −0.02 ns |
+| WPWS | +4.500 ns | 0 / 1813 | unchanged |
+
+Timing still closes with zero failing endpoints. The WNS move is within the
+±0.2 ns placement-noise band this file documents above, so it is not by itself
+evidence that the output layer is on the critical path — unlike #73's −0.52 ns,
+which exceeded that band.
+
+Per-module attribution for the new logic:
+
+| Instance | Module | LUTs | FFs |
+|---|---|---|---|
+| `u_output_layer` | `OutputLayer` | 121 | 67 |
+| `u_status_leds` | `SocStatusLeds` | 51 (+2) | 58 (+3) |
+
+`u_output_layer`'s 67 flip-flops are the three 16-bit class accumulators (48),
+the two 6-bit sweep counters, the 2-bit state, the 3-bit registered result, and
+`done`. `SocStatusLeds`'s +3 flip-flops are exactly the new
+`output_class_hold` register. The extra RAMB18E1 is `u_output_wram`: Vivado
+infers a whole block RAM for the 48-word bank rather than distributed LUT RAM,
+which is why the BRAM tile count moves a full half-tile for a bank far smaller
+than the 256-word weight image. Building it as LUT RAM instead would trade
+~0.5 BRAM tile for LUTs; block RAM was left as-is since BRAM is the least
+contended resource here (4% used).
+
+The 48 serial MAC steps run in ~50 fabric cycles per logical tick, against the
+100,000-cycle budget at 1 kHz — so this adds no new timing pressure from
+throughput, only from the accumulator's signed add/saturate width.

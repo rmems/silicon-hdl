@@ -18,10 +18,9 @@ Hex `.mem` files for `$readmemh` into `WeightRam` / `NeuronParamRam`.
 Leading `// SPDX-...` comment lines are allowed (`$readmemh` skips `//` comments).
 
 **Signedness contract (GH#73):** every `.mem` image is a **signed
-two's-complement Q8.8** format, not just `merged_v2_output_weights.mem` — but
-today only `LifNeuron`/`LifNeuronArray` (weights, thresholds, decay) actually
-read that format at runtime; `merged_v2_output_weights.mem` is vendored-only
-and not wired into any RTL yet (see below). `0xFF00` is a Dale-inhibitory
+two's-complement Q8.8** format. `LifNeuron`/`LifNeuronArray` (weights,
+thresholds, decay) and, since GH#72, `OutputLayer` (output weights) all read
+that format at runtime. `0xFF00` is a Dale-inhibitory
 weight of `-256/256 = -1.0`, not `65280`; it subtracts from the membrane
 instead of adding. Thresholds and leak/decay values happen to never set the
 sign bit in shipped banks, so they read the same either way, but the RTL
@@ -56,18 +55,23 @@ path is bad; synthesis still uses `$readmemh` for BRAM init.
 
 Paths passed to `INIT_FILE` are relative to the tool working directory (**repo root**
 in free-runner CI and recommended local Verilator). **`scripts/build_soc.tcl`**
-`add_files` the three active images and passes **absolute** paths via
+`add_files` the four active images and passes **absolute** paths via
 `synth_design -generic` (`WEIGHT_INIT_FILE` / `THRESH_INIT_FILE` /
-`LEAK_INIT_FILE`) so Vivado `$readmemh` resolves even if the project lives
-under `vivado_projects/`.
+`LEAK_INIT_FILE` / `OUTPUT_WEIGHT_INIT_FILE`) so Vivado `$readmemh` resolves
+even if the project lives under `vivado_projects/`.
 
-**SoC (E2 / #39):** `spikenaut_soc_basys3_top` wires:
+**SoC (E2 / #39, output layer GH#72):** `spikenaut_soc_basys3_top` wires:
 | Instance | Image | ADDR_WIDTH |
 |---|---|---|
 | `u_wram` | `merged_v2_weights.mem` | 8 (256 entries) |
 | `u_npram_threshold` | `merged_v2_thresholds.mem` | 8 |
 | `u_npram_leak` | `merged_v2_decay.mem` | 8 |
+| `u_output_wram` | `merged_v2_output_weights.mem` | 6 (48 entries; addresses 48-63 unused) |
 
-`merged_v2_output_weights.mem` is vendored only (not wired until multi-layer).
+`u_output_wram` feeds `OutputLayer` (`spikenaut-core-sv/rtl/OutputLayer.sv`),
+which reduces one tick's `spike_bitmap` into a 3-class argmax and surfaces it
+on LEDs only (`status_word[15:13]`, see `docs/led-map.md`) — the UART response
+frame is unchanged (see `docs/interface-alignment.md` / #64). No runtime
+write path exists for this bank; `INIT_FILE` is the only load path.
 
 **Depth:** `$readmemh` loads `min(file lines, 2**ADDR_WIDTH)` words. Match width to the image, e.g. `WeightRam` with `merged_v2_weights.mem` (256 lines) should use `ADDR_WIDTH=8` (not the default 10). Thresholds/decay (16 lines) fit `NeuronParamRam` default `ADDR_WIDTH=8` with room to spare.

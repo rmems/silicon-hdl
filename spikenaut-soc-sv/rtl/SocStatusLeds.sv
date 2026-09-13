@@ -25,6 +25,10 @@ module SocStatusLeds #(
     input  logic                    tx_frame_active,
     input  logic                    stimuli_pending,
     input  logic                    response_armed,
+    // GH#72: argmax-of-3 one-hot from OutputLayer, stretched into
+    // status_word[15:13] like every other event bit below (not the UART
+    // response frame -- see docs/interface-alignment.md / #64).
+    input  logic [2:0]              output_class,
     output logic [LED_WIDTH-1:0]    led
 );
 
@@ -59,6 +63,7 @@ module SocStatusLeds #(
     logic                           stimuli_pending_held;
     logic                           response_armed_held;
     logic [NUM_NEURONS-1:0]         spike_hold;
+    logic [2:0]                     output_class_hold;
     logic                           abort_sticky;
     logic [8:0]                     tick_cnt;
     logic                           heartbeat;
@@ -89,6 +94,7 @@ module SocStatusLeds #(
             stimuli_pending_held <= 1'b0;
             response_armed_held  <= 1'b0;
             spike_hold           <= '0;
+            output_class_hold    <= '0;
             abort_sticky         <= 1'b0;
             tick_cnt             <= '0;
         end else begin
@@ -124,6 +130,13 @@ module SocStatusLeds #(
                     spike_hold[neuron] <= 1'b0;
             end
 
+            for (int cls = 0; cls < 3; cls++) begin
+                if (output_class[cls])
+                    output_class_hold[cls] <= 1'b1;
+                else if (stretch_tick)
+                    output_class_hold[cls] <= 1'b0;
+            end
+
             if (rx_commit)
                 abort_sticky <= 1'b0;
             else if (rx_abort)
@@ -145,7 +158,7 @@ module SocStatusLeds #(
         status_word[6]     = response_armed_held;
         status_word[7]     = |spike_hold;
         status_word[12:8]  = COUNT_WIDTH'($countones(spike_hold));
-        status_word[15:13] = '0;
+        status_word[15:13] = output_class_hold;
     end
 
     assign led = mode_sel ? status_word : LED_WIDTH'(spike_bitmap);

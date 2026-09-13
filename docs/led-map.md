@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-06 -->
+<!-- Last updated: 2026-09-13 -->
 
 # LED and status map
 
@@ -53,9 +53,9 @@ capture; use status mode to eyeball a running demo.
 
 ## Status mode
 
-SW15 = 1. Bits `[1]`, `[2]`, `[4]`, `[5]`, `[6]` and `spike_hold` are set on
-event and cleared on the shared `stretch_tick`. `abort_sticky` clears only on
-`rx_commit` or reset.
+SW15 = 1. Bits `[1]`, `[2]`, `[4]`, `[5]`, `[6]`, `[13]`-`[15]`, and
+`spike_hold` are set on event and cleared on the shared `stretch_tick`.
+`abort_sticky` clears only on `rx_commit` or reset.
 
 | Bit | Name | Source |
 | --- | --- | --- |
@@ -68,7 +68,17 @@ event and cleared on the shared `stretch_tick`. `abort_sticky` clears only on
 | `[6]` | response_armed | stretched SoC armed flag |
 | `[7]` | any_spike | `\|spike_hold` |
 | `[12:8]` | spike_count | `$countones(spike_hold)` |
-| `[15:13]` | reserved | 0 |
+| `[13]` | output_class[0] | stretched `OutputLayer.result[0]` (GH#72) |
+| `[14]` | output_class[1] | stretched `OutputLayer.result[1]` (GH#72) |
+| `[15]` | output_class[2] | stretched `OutputLayer.result[2]` (GH#72) |
+
+`output_class` is an argmax-of-3 one-hot over the 16-neuron `spike_bitmap`
+weighted by `merged_v2_output_weights.mem` (ties favor the lower class
+index), recomputed fresh every tick — not persisted across ticks except
+through the shared stretch hold above. See
+[`mem/README.md`](../spikenaut-core-sv/mem/README.md) and
+[`interface-alignment.md`](interface-alignment.md). This is LED-only: the
+36-byte UART response frame is unchanged (see [#64](https://github.com/rmems/silicon-hdl/issues/64)).
 
 `rx_abort` is sticky rather than stretched on purpose: the inter-byte idle
 timeout is silent everywhere else in the design, so a truncated host frame

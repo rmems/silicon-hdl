@@ -63,6 +63,7 @@ symbols or tops conflict.
 | `tb_WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/tb/tb_WeightRam.sv` |
 | `tb_NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam.sv` |
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
+| `tb_OutputLayer` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer.sv` |
 | `tb_UartRx` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/tb/tb_UartRx.sv` |
 | `tb_UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/tb/tb_UartTx.sv` |
 | `tb_SiliconBridge` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/rtl/SiliconBridge.sv` + `spikenaut-bridge-sv/tb/tb_SiliconBridge.sv` |
@@ -91,6 +92,7 @@ verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD
   spikenaut-core-sv/rtl/LifNeuron.sv spikenaut-core-sv/rtl/LifNeuronArray.sv \
   spikenaut-core-sv/rtl/WeightRam.sv spikenaut-core-sv/rtl/NeuronParamRam.sv \
   spikenaut-core-sv/rtl/StdpController.sv \
+  spikenaut-core-sv/rtl/OutputLayer.sv \
   spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
   spikenaut-soc-sv/rtl/SocStatusLeds.sv \
   spikenaut-soc-sv/rtl/Basys3_Top.sv spikenaut-soc-sv/tb/tb_Basys3_Top.sv

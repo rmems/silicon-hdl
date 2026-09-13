@@ -27,6 +27,7 @@ module tb_SocStatusLeds;
     logic tx_frame_active;
     logic stimuli_pending;
     logic response_armed;
+    logic [2:0] output_class;
     logic [LED_WIDTH-1:0] led;
 
     int errors = 0;
@@ -48,6 +49,7 @@ module tb_SocStatusLeds;
         .tx_frame_active (tx_frame_active),
         .stimuli_pending (stimuli_pending),
         .response_armed  (response_armed),
+        .output_class    (output_class),
         .led             (led)
     );
 
@@ -75,6 +77,7 @@ module tb_SocStatusLeds;
             tx_frame_active  = 1'b0;
             stimuli_pending  = 1'b0;
             response_armed   = 1'b0;
+            output_class     = 3'b000;
         end
     endtask
 
@@ -261,6 +264,22 @@ module tb_SocStatusLeds;
         check(led[7] === 1'b1, "all-ones spike_hold must set any_spike");
         check(led[12:8] === 5'd16, "all-ones spike_hold must count sixteen");
         check(led[15:13] === 3'b000, "reserved bits must stay 0 for a full bitmap");
+
+        // ------------------------------------------------------------
+        // GH#72: output_class must stretch/hold like every other event bit
+        // (set on event, cleared on stretch_tick), independently per bit.
+        // ------------------------------------------------------------
+        @(negedge clk);
+        output_class = 3'b101;
+        @(negedge clk);
+        output_class = 3'b000;
+        #1;
+        check(led[15:13] === 3'b101,
+              "GH#72: output_class must latch into status[15:13] on event");
+        wait_stretch_tick();
+        @(negedge clk);
+        check(led[15:13] === 3'b000,
+              "GH#72: stretch_tick must clear output_class_hold");
 
         // ------------------------------------------------------------
         // Stretch window DURATION, measured through the led port only.

@@ -51,7 +51,8 @@
 module tb_spikenaut_soc_basys3_top #(
     parameter string WEIGHT_INIT = "spikenaut-core-sv/mem/merged_v2_weights.mem",
     parameter string THRESH_INIT = "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
-    parameter string LEAK_INIT   = "spikenaut-core-sv/mem/merged_v2_decay.mem"
+    parameter string LEAK_INIT   = "spikenaut-core-sv/mem/merged_v2_decay.mem",
+    parameter string OUTPUT_WEIGHT_INIT = "spikenaut-core-sv/mem/merged_v2_output_weights.mem"
 );
 
     localparam int CLK_PERIOD   = 10;                     // 100 MHz
@@ -109,7 +110,8 @@ module tb_spikenaut_soc_basys3_top #(
     spikenaut_soc_basys3_top #(
         .WEIGHT_INIT_FILE (WEIGHT_INIT),
         .THRESH_INIT_FILE (THRESH_INIT),
-        .LEAK_INIT_FILE   (LEAK_INIT)
+        .LEAK_INIT_FILE   (LEAK_INIT),
+        .OUTPUT_WEIGHT_INIT_FILE (OUTPUT_WEIGHT_INIT)
     ) dut (
         .clk     (clk),
         .rst_n   (btn_rst),
@@ -656,8 +658,8 @@ module tb_spikenaut_soc_basys3_top #(
               "test 9: status[7] must be any_spike from spike_hold");
         check(led[12:8] === 5'($countones(dut.u_status_leds.spike_hold)),
               "test 9: status[12:8] must be countones(spike_hold)");
-        check(led[15:13] === 3'b000,
-              "test 9: reserved status[15:13] must stay 0");
+        check(led[15:13] === dut.u_status_leds.output_class_hold,
+              "test 9: status[15:13] must follow the output-layer hold register (GH#72)");
 
         // The checks above mirror led against u_status_leds internals, so a
         // wrong Basys3_Top port binding moves both operands together and
