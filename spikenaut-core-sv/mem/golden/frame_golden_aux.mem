@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// GENERATED FILE -- do not edit by hand.
+// Regenerate: python3 scripts/gen_golden_frame_vectors.py
+// Source bank: rmems/Spikenaut-SNN dataset/merged_v2 (exp-025 Dale health-PASS bank, PR #47)
+// Pinned at Spikenaut-SNN commit 6965e12a
+// See docs/host-soc-e2e.md (GH#64).
+0000
+A5A5
+0102
+8000
+FFFF
+0000
+7FFD
+5AA5

@@ -83,7 +83,7 @@ foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
 
 set mem_dir    [file join $repo_root spikenaut-core-sv mem]
 # GH#66 golden vectors (generated; see docs/golden-lif-vectors.md).
@@ -125,6 +125,17 @@ foreach tb_top $core_tb_tops {
             "BITMAP_FILE=[file normalize [file join $golden_dir outlayer_golden_bitmap.mem]]" \
             "RESULT_FILE=[file normalize [file join $golden_dir outlayer_golden_exp_result.mem]]" \
             "COUNT_FILE=[file normalize [file join $golden_dir outlayer_golden_count.mem]]" \
+        ] [get_filesets sim_1]
+    } elseif {$tb_top eq "tb_SocFrameGolden"} {
+        # GH#64 golden UART frame vectors, absolute for the same reason.
+        set_property generic [list \
+            "COUNT_FILE=[file normalize [file join $golden_dir frame_golden_count.mem]]" \
+            "HOST_TX_FILE=[file normalize [file join $golden_dir frame_golden_host_tx.mem]]" \
+            "SOC_RX_FILE=[file normalize [file join $golden_dir frame_golden_soc_rx.mem]]" \
+            "STIMULI_FILE=[file normalize [file join $golden_dir frame_golden_stimuli.mem]]" \
+            "POTENTIALS_FILE=[file normalize [file join $golden_dir frame_golden_potentials.mem]]" \
+            "SPIKES_FILE=[file normalize [file join $golden_dir frame_golden_spikes.mem]]" \
+            "AUX_FILE=[file normalize [file join $golden_dir frame_golden_aux.mem]]" \
         ] [get_filesets sim_1]
     } elseif {$tb_top eq "tb_spikenaut_soc_basys3_top"} {
         set_property generic [list \

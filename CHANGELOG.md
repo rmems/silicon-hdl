@@ -31,6 +31,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Golden SiliconBridge v3.0 UART frame vectors and a host ↔ SoC E2E runbook (addresses #64).
+  - `spikenaut-core-sv/mem/golden/frame_golden_*.mem` are generated 33-byte request / 36-byte
+    response byte streams that pin the wire framing this repo shares with the
+    [`rmems/silicon-bridge`](https://github.com/rmems/silicon-bridge) host crate: byte count,
+    big-endian word order, lane 0 first, bit `i` = neuron `i`, and signed Q8.8. `exp-025` cases
+    decode words already committed under `spikenaut-core-sv/mem/`; synthetic cases are tagged and
+    reach framing edges the bank cannot express.
+  - New `tb_SocFrameGolden` replays every golden pair through the real `SocProtocolFsm` in both
+    directions, idle and under bridge back-pressure, and fails if a 37th response byte appears —
+    one stray byte would desynchronize every later host `read_exact(36)` permanently.
+  - `tb_spikenaut_soc_basys3_top` gained tests 13a/13b: 13b demodulates the real `uart_tx` line
+    and checks the assembled `SocProtocolFsm` → `SiliconBridge` → `UartTx` chain delivers exactly
+    36 bytes, with expectations sampled from the top-level `membrane_potentials` / `spike_bitmap` /
+    `sw_sync_1` nets rather than the serializer's own snapshot registers. 13a compares
+    `status_word[15:13]` against the live `OutputLayer.result` by value — test 9 could only mirror
+    it against the hold register that drives it.
+  - `scripts/gen_golden_frame_vectors.py --check` is a drift gate wired into `scripts/quality.sh`,
+    `.github/workflows/sim.yml`, and `tests/test_golden_frame_vectors.py`.
+  - `tests/test_golden_frame_vectors.py` runs a model of the crate's `process_stimuli` against the
+    committed bytes and asserts that wrong decodes (unsigned, little-endian, reversed lanes,
+    reversed spike bits) disagree — so a framing change made here fails here, not on a board.
+  - #72's output-class flags stay LED-only (`status_word[15:13]`); both frame lengths are
+    unchanged and are now asserted at elaboration and in the Python suite.
+  - `scripts/q88.py` gained byte-stream `.mem` I/O (`read_bytes` / `write_bytes` /
+    `q88_to_be_bytes` / `q88_from_be_bytes`); it remains the single Q8.8 codec.
+  - New [`docs/host-soc-e2e.md`](docs/host-soc-e2e.md): frame layout, case table, simulation-only
+    and board-in-loop runbooks, and a troubleshooting table.
+
 - Golden f32 → Q8.8 → `.mem` → Verilator LIF vectors (addresses #66).
   - `spikenaut-core-sv/mem/golden/` holds generated stimulus and expected traces derived from
     the pinned exp-025 Dale bank (Spikenaut-SNN#47 @ `6965e12a`) — no weight is authored by

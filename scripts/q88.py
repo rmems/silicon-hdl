@@ -203,3 +203,76 @@ def write_words(path: str | Path, words: list[int], *, header: str | None = None
             raise ValueError(f"word {word} does not fit in 16 bits")
         lines.append(f"{word:04X}")
     Path(path).write_text("\n".join(lines) + "\n")
+
+
+#: Hex digits per byte-stream ``.mem`` word. ``$readmemh`` sizes each token by
+#: the target array element, so a byte image must not carry 4-digit words.
+BYTE_HEX_DIGITS = 2
+
+
+def read_bytes(path: str | Path) -> list[int]:
+    """Read a ``.mem`` image as a list of **8-bit** values.
+
+    Counterpart of :func:`write_bytes`, for wire-protocol frame images whose
+    ``$readmemh`` target is a ``logic [7:0]`` array (GH#64). Rejects any token
+    that is not exactly two hex digits: a 4-digit word here would be silently
+    truncated to its low byte by ``$readmemh``, so the whole frame would shift
+    and the mismatch would surface as a confusing byte-offset error instead of
+    a load error.
+    """
+    values: list[int] = []
+    for lineno, line in enumerate(Path(path).read_text().splitlines(), start=1):
+        stripped = _COMMENT_RE.sub("", line).strip()
+        if not stripped:
+            continue
+        for token in stripped.split():
+            if len(token) != BYTE_HEX_DIGITS:
+                raise ValueError(
+                    f"{path}:{lineno}: '{token}' is not a {BYTE_HEX_DIGITS}-digit "
+                    "hex byte; byte images must not carry 16-bit words"
+                )
+            try:
+                value = int(token, 16)
+            except ValueError as exc:
+                raise ValueError(f"{path}:{lineno}: '{token}' is not hex") from exc
+            values.append(value)
+    return values
+
+
+def write_bytes(path: str | Path, values: list[int], *, header: str | None = None) -> None:
+    """Write 8-bit values as a ``$readmemh`` image, one byte per line.
+
+    Used for the GH#64 golden UART frame images. Kept separate from
+    :func:`write_words` because the element width is part of the contract: the
+    testbench reads these into ``logic [7:0]``.
+    """
+    lines = ["// SPDX-License-Identifier: MIT OR Apache-2.0"]
+    if header:
+        lines.extend(f"// {line}" if line else "//" for line in header.splitlines())
+    for value in values:
+        if not (0 <= value <= 0xFF):
+            raise ValueError(f"byte {value} does not fit in 8 bits")
+        lines.append(f"{value:02X}")
+    Path(path).write_text("\n".join(lines) + "\n")
+
+
+def q88_to_be_bytes(raw: int) -> tuple[int, int]:
+    """Split a signed raw Q8.8 word into the wire's (high, low) byte pair.
+
+    The SiliconBridge v3.0 wire protocol is big-endian per word in both
+    directions (``silicon-bridge`` ``fpga_bridge.rs``: ``q8_8.to_be_bytes()``
+    on TX, ``i16::from_be_bytes`` on RX).
+    """
+    if not (Q88_RAW_MIN <= raw <= Q88_RAW_MAX):
+        raise ValueError(f"raw {raw} is outside signed Q8.8 range")
+    unsigned = raw & 0xFFFF
+    return (unsigned >> 8) & 0xFF, unsigned & 0xFF
+
+
+def q88_from_be_bytes(high: int, low: int) -> int:
+    """Reassemble a signed raw Q8.8 word from the wire's (high, low) byte pair."""
+    for name, value in (("high", high), ("low", low)):
+        if not (0 <= value <= 0xFF):
+            raise ValueError(f"{name} byte {value} does not fit in 8 bits")
+    unsigned = (high << 8) | low
+    return unsigned - (1 << WORD_BITS) if unsigned & 0x8000 else unsigned

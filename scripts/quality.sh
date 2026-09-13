@@ -61,6 +61,17 @@ else
   record "golden_vectors/drift" "FAIL"
 fi
 
+# Golden UART frame-vector drift gate (GH#64). Same reasoning as above: a stale
+# frame vector set would make tb_SocFrameGolden check the wire framing against
+# a trace that no longer describes the contract.
+echo ""
+echo "=== Golden frame vector drift check ==="
+if python3 scripts/gen_golden_frame_vectors.py --check; then
+  record "golden_frames/drift" "PASS"
+else
+  record "golden_frames/drift" "FAIL"
+fi
+
 VERILATOR_FLAGS=(--binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD)
 TBS=(
   "LifNeuron:LifNeuron"
@@ -180,6 +191,23 @@ if verilator "${VERILATOR_FLAGS[@]}" \
   record "verilator/tb_SocStatusLeds" "PASS"
 else
   record "verilator/tb_SocStatusLeds" "FAIL"
+fi
+
+echo ""
+echo "=== Verilator tb_SocFrameGolden ==="
+# GH#64: replays the committed golden 33-byte request / 36-byte response frame
+# pairs through the real SocProtocolFsm. Golden .mem paths are repo-root
+# relative, and this script already cd'd to the repo root.
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_SocFrameGolden \
+    -Ispikenaut-soc-sv/rtl \
+    spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+    spikenaut-soc-sv/tb/tb_SocFrameGolden.sv \
+  && ./obj_dir/Vtb_SocFrameGolden; then
+  record "verilator/tb_SocFrameGolden" "PASS"
+else
+  record "verilator/tb_SocFrameGolden" "FAIL"
 fi
 
 echo ""

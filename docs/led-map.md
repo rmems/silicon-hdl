@@ -90,7 +90,9 @@ tick, it needs no stretching for visibility. Expect exactly one of these
 three lit whenever the design has completed a tick since reset. See
 [`mem/README.md`](../spikenaut-core-sv/mem/README.md) and
 [`interface-alignment.md`](interface-alignment.md). This is LED-only: the
-36-byte UART response frame is unchanged (see [#64](https://github.com/rmems/silicon-hdl/issues/64)).
+36-byte UART response frame is unchanged (see [#64](https://github.com/rmems/silicon-hdl/issues/64)
+and [`host-soc-e2e.md`](host-soc-e2e.md), where `tb_SocFrameGolden` and `tb_Basys3_Top` test 13b
+assert that length).
 
 `rx_abort` is sticky rather than stretched on purpose: the inter-byte idle
 timeout is silent everywhere else in the design, so a truncated host frame
