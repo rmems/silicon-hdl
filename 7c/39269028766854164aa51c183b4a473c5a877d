@@ -1,0 +1,72 @@
+spikenaut-core-sv/mem/golden/frame_golden_soc_rx.mem
+  s_c7954be637f460::t_ce976b187c24c6 1-294
+scripts/sim_core.tcl
+  s_c7954be637f460::t_71797b6bd27fc5 86
+  s_c7954be637f460::t_90ebea68a597a7 129-139
+docs/host-soc-e2e.md
+  s_c7954be637f460::t_dc48fd9736c1b9 77-78,80,82-83
+  s_c7954be637f460::t_eff392931b35fd 1-76,79,81,84-257
+AGENTS.md
+  s_c7954be637f460::t_934437c0c3619c 162-183
+  s_c7954be637f460::t_be514c4fafe821 73,77-80
+spikenaut-core-sv/mem/golden/frame_golden_spikes.mem
+  s_c7954be637f460::t_ce976b187c24c6 1-14
+docs/led-map.md
+  s_c7954be637f460::t_12c5848fa15e7a 93-95
+.github/workflows/sim.yml
+  s_c7954be637f460::t_6405be26324381 50-56,209-221
+CHANGELOG.md
+  s_c7954be637f460::t_901938b0d769d1 34-61
+docs/golden-lif-vectors.md
+  s_c7954be637f460::t_12c5848fa15e7a 215
+spikenaut-core-sv/mem/golden/frame_golden_stimuli.mem
+  s_c7954be637f460::t_ce976b187c24c6 1-134
+scripts/q88.py
+  s_c7954be637f460::t_d3eebeaf00caec 206-278
+spikenaut-core-sv/mem/golden/frame_golden_count.mem
+  s_c7954be637f460::t_ce976b187c24c6 1-7
+spikenaut-core-sv/mem/golden/frame_golden_host_tx.mem
+  s_c7954be637f460::t_ce976b187c24c6 1-270
+spikenaut-soc-sv/tb/tb_Basys3_Top.sv
+  s_c7954be637f460::t_d736e8ca79079b 408-493
+  s_c7954be637f460::t_cc37fca9cd1c6f 27-33
+  s_c7954be637f460::t_d6a59bbee6d773 143-153
+  s_c7954be637f460::t_9406d5e84db282 494-500,505,507-512,514,516-523
+  s_c7954be637f460::t_4f1dc07cded5dc 501-504,506,513,515
+  s_c7954be637f460::t_aab5ffb1798d99 95-120
+  s_c7954be637f460::t_e0beb9f8be7655 1098-1197
+spikenaut-core-sv/mem/golden/frame_golden_aux.mem
+  s_c7954be637f460::t_ce976b187c24c6 1-14
+spikenaut-core-sv/mem/golden/frame_golden_vectors.json
+  s_c7954be637f460::t_ce976b187c24c6 1-726
+tests/test_golden_frame_vectors.py
+  s_c7954be637f460::t_50304480d96a08 350-357,360-361
+  s_c7954be637f460::t_d00d5f9060479e 1-349,358-359,362-368,387-500
+  s_c7954be637f460::t_f7421e2e563acf 369-386
+spikenaut-core-sv/mem/README.md
+  s_c7954be637f460::t_12c5848fa15e7a 59-64
+spikenaut-core-sv/mem/golden/frame_golden_potentials.mem
+  s_c7954be637f460::t_ce976b187c24c6 1-134
+spikenaut-soc-sv/tb/tb_SocFrameGolden.sv
+  s_c7954be637f460::t_04e2c520a4b89a 1-418
+scripts/gen_golden_frame_vectors.py
+  s_c7954be637f460::t_606ecb986d67aa 1-562
+scripts/quality.sh
+  s_c7954be637f460::t_71797b6bd27fc5 64-74,196-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7c39269028766854164aa51c183b4a473c5a877d",
+  "prompts": {},
+  "sessions": {
+    "s_c7954be637f460": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ffaa399-5f9e-4396-89bc-bf5ca65de325",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
