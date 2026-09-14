@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `AGENTS.md` no longer asserts that branch protection on `main` guards the
+  self-hosted Vivado CI `push` path. Re-measured 2026-09-14: `main` is
+  `protected: false` with no rulesets; a direct push still runs repo scripts on
+  the Vivado workstation with no review gate. Recommended follow-ups are listed
+  but not claimed as enabled (addresses #87).
+
 - `docs/interface-alignment.md` now records the host-side `.mem` encoder as **signed**
   two's-complement Q8.8. silicon-bridge
   [#60](https://github.com/rmems/silicon-bridge/pull/60) (`e201514`) made
