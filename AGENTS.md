@@ -34,8 +34,9 @@ synthesis and bitstream generation.
   `404 Branch not protected` (admin token) or `403 Resource not accessible by
   integration` (this cloud-agent token). There is **no** review gate between a
   direct push to `main` and execution on that machine. This is not a live
-  exploit — it needs write access — but do **not** treat branch protection,
-  a ruleset, or runner-group restriction as enabled; they are not.
+  exploit — it needs write access — but do **not** treat branch protection
+  or a ruleset as enabled; they are not. Runner-group restriction was not
+  re-measured here — treat it as unknown until confirmed in Actions settings.
 - **Fork PRs are skipped** when they leave this workflow file alone
   (`head.repo.full_name == github.repository` job `if:`). Residual risk: GitHub
   runs the workflow from the PR *head*, so a fork that edits `vivado-ci.yml` can
