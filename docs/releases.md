@@ -36,17 +36,21 @@ How `silicon-hdl` versions are published under **[`rmems/silicon-hdl`](https://g
 
 ## Cutting a release (checklist)
 
+Generic template — replace `vX.Y.Z` with the version in `CHANGELOG.md`. For the
+F0+F1+F2 demo-complete cut, use the **After merging** section below rather than
+this template (do not mint `v0.2.0` until that gate).
+
 ```bash
 # 1. main is green; CHANGELOG has a version section for this cut
 git checkout main && git pull --ff-only
 
-# 2. Annotated tag (example)
-git tag -a v0.2.0 -m "v0.2.0: F0+F1+F2 demo-complete (epic #54 / #69)"
+# 2. Annotated tag (placeholder — not the live v0.2.0 cut)
+git tag -a vX.Y.Z -m "vX.Y.Z: <changelog title>"
 
 # 3. Push tag and create GitHub Release
-git push origin v0.2.0
-gh release create v0.2.0 --target main --title "v0.2.0 — demo-complete F0+F1+F2" --notes-file - <<'EOF'
-See CHANGELOG.md [0.2.0] for the honest demo-complete scope.
+git push origin vX.Y.Z
+gh release create vX.Y.Z --target main --title "vX.Y.Z" --notes-file - <<'EOF'
+See CHANGELOG.md for details.
 EOF
 ```
 
@@ -54,18 +58,18 @@ Or one shot with **GitHub-generated** release notes (`--generate-notes` summariz
 commits/PRs since the previous tag; it does **not** read `CHANGELOG.md`):
 
 ```bash
-gh release create v0.2.0 --target main --generate-notes
+gh release create vX.Y.Z --target main --generate-notes
 ```
 
-Paste or attach the matching `CHANGELOG.md` `[0.2.0]` section separately when you want
-that text as the release body. Prefer the changelog over `--generate-notes` for this
-cut: the notes must keep STDP writeback, AER, FPGA↔Julia parity, Stage-1 axons, and
-board UART sessions **out** of the demo-complete claim.
+Paste or attach the matching `CHANGELOG.md` section separately when you want that
+text as the release body.
 
 ## After merging the #69 CHANGELOG PR (human: Raul)
 
 Do this on `main` only, after free CI on the merge commit is green. Do **not** tag from
-the docs branch.
+the docs branch. Prefer this changelog body over `--generate-notes`: the notes must
+keep STDP writeback, AER, FPGA↔Julia parity, Stage-1 axons, and board UART sessions
+**out** of the demo-complete claim.
 
 ```bash
 git checkout main && git pull --ff-only
