@@ -13,9 +13,11 @@ How `silicon-hdl` versions are published under **[`rmems/silicon-hdl`](https://g
 3. **`CHANGELOG.md`** is the human source of truth. When cutting a release, move items
    from `[Unreleased]` into a dated `## [x.y.z] - YYYY-MM-DD` section in the same
    change that creates the tag (or immediately before).
-4. Tag only from **`main`** after free CI is green (Verilator + Deduplication Guardian).
-   Self-hosted **Vivado CI** also runs on `push` to `main` and publishes
-   `vivado-ci-reports` (synth/sim/WNS only; no board flash).
+4. Tag only from **`main`** after the release PR is merged with free CI green
+   (Verilator + Deduplication Guardian on that PR). Guardian is
+   `pull_request`-only; Verilator also runs on `push` to `main`. Self-hosted
+   **Vivado CI** also runs on `push` to `main` and publishes `vivado-ci-reports`
+   (synth/sim/WNS only; no board flash).
 5. Free-runner CI does **not** auto-publish tags. Optional later: a notes-only workflow
    trigger on tag push (not required for v0.y.z), for example:
 
@@ -66,10 +68,11 @@ text as the release body.
 
 ## After merging the #69 CHANGELOG PR (human: Raul)
 
-Do this on `main` only, after free CI on the merge commit is green. Do **not** tag from
-the docs branch. Prefer this changelog body over `--generate-notes`: the notes must
-keep STDP writeback, AER, FPGA↔Julia parity, Stage-1 axons, and board UART sessions
-**out** of the demo-complete claim.
+Do this on `main` only, after the #69 PR is merged with Verilator + Deduplication
+Guardian green on that PR (Guardian does not run on `push` to `main`; Verilator
+does). Do **not** tag from the docs branch. Prefer this changelog body over
+`--generate-notes`: the notes must keep STDP writeback, AER, FPGA↔Julia parity,
+Stage-1 axons, and board UART sessions **out** of the demo-complete claim.
 
 ```bash
 git checkout main && git pull --ff-only
@@ -85,7 +88,8 @@ F0+F1+F2 demo-complete for epic https://github.com/rmems/silicon-hdl/issues/54.
 
 Honest scope is in CHANGELOG.md [0.2.0]: signed Dale E/I LIF, output-class LEDs
 (status_word[15:13], FRAME_BYTES stays 36), golden f32→Q8.8→Verilator, SiliconBridge
-36-byte E2E, Phase C heartbeat smoke, README maturity table, signed .mem encoder.
+Verilator 36-byte E2E (not a board UART session), Phase C heartbeat smoke, README
+maturity table, signed .mem encoder.
 
 Not claimed: STDP writeback (#70), AER (#71), FPGA↔Julia parity, Stage-1 axons,
 inventing weights, UART host session on the board.
@@ -95,8 +99,9 @@ EOF
 
 ## What not to do
 
-- Do not cut **`v0.2.0`** until the `#69` CHANGELOG section is on `main` and free CI
-  (Verilator + Deduplication Guardian) is green on that merge. Parent epic:
+- Do not cut **`v0.2.0`** until the `#69` CHANGELOG PR is merged with Verilator +
+  Deduplication Guardian green on that PR (Guardian is a pre-merge `pull_request`
+  check; it does not run on the post-merge `main` commit). Parent epic:
   [#54](https://github.com/rmems/silicon-hdl/issues/54).
 - Do not rewrite published release notes silently; ship a patch release if needed.
 - Do not tag from feature branches.
