@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-09 -->
+<!-- Last updated: 2026-09-14 -->
 # AGENTS.md
 
 Companion agent guidance for `silicon-hdl`. Claude Code loads this file via `@AGENTS.md` from
@@ -24,18 +24,38 @@ synthesis and bitstream generation.
 - Workflow: `.github/workflows/vivado-ci.yml` (issue #12 / epic #23 Phase B)
 - Triggers: **same-repo** pull_request (`opened` / `synchronize` / `reopened` /
   `ready_for_review`), **`push` to `main`** (intentional — reports on every
-  default-branch update), plus **Actions → Vivado CI → Run workflow**
-- Because `push` to `main` runs repo-controlled scripts on the self-hosted
-  runner unconditionally, **branch protection on `main` is what keeps that
-  path trusted** — require reviewed PRs (and/or restrict the `vivado` runner
-  group) rather than relying on the workflow file alone
+  default-branch update; coverage is load-bearing — do not drop this trigger
+  without a human decision), plus **Actions → Vivado CI → Run workflow**
+- **Residual risk (measured, not mitigated):** `push` to `main` runs
+  repo-controlled scripts (`scripts/build_soc.tcl`, `scripts/sim_core.tcl`) on
+  the self-hosted Vivado workstation. Re-measured 2026-09-14: repo is
+  **public**; `GET /branches/main` → `{name: main, protected: false}`;
+  `GET /rulesets` → `[]`. Classic `GET /branches/main/protection` is either
+  `404 Branch not protected` (admin token) or `403 Resource not accessible by
+  integration` (this cloud-agent token). There is **no** review gate between a
+  direct push to `main` and execution on that machine. This is not a live
+  exploit — it needs write access — but do **not** treat branch protection,
+  a ruleset, or runner-group restriction as enabled; they are not.
 - **Fork PRs are skipped** when they leave this workflow file alone
   (`head.repo.full_name == github.repository` job `if:`). Residual risk: GitHub
   runs the workflow from the PR *head*, so a fork that edits `vivado-ci.yml` can
-  drop the gate — keep **Require approval for all outside collaborators** (or
-  restrict the self-hosted runner group) enabled for real fork isolation
+  drop the gate. **Require approval for all outside collaborators** (or
+  restrict the `vivado` runner group) would isolate that path; this file does
+  **not** assert either setting is on — confirm in the repo Actions settings.
 - After a run, open the PR **Checks** tab or **Actions → Vivado CI**
 - Runner: `silicon-hdl-vivado` labels `self-hosted`,`vivado` (`~/actions-runner/silicon-hdl-runner`)
+- **Human follow-ups** (not enabled here; do not invent that they are):
+  - Ruleset or classic branch protection on `main` requiring a pull request
+    before merge
+  - Decide whether `push: branches: [main]` on `vivado-ci.yml` should stay
+    (current default: keep it — do not weaken coverage) or become PR +
+    `workflow_dispatch` only
+  - Tighten Actions `allowed_actions` (`all` → `selected`) and require SHA
+    pinning for self-hosted jobs (issue #87 measured `allowed_actions: all`
+    and `sha_pinning_required: false`; this token cannot re-read Actions
+    permissions)
+  - Confirm **Require approval for all outside collaborators** for fork
+    workflows
 
 
 ### Verilator (core unit testbenches)
