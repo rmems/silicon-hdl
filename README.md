@@ -143,6 +143,9 @@ grep -R "module synapse_demo_basys3_top"   . --include="*.sv"  # expect 1 hit
 Versions use SemVer git tags (`vX.Y.Z`) plus GitHub Releases under
 [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl/releases). Process:
 [`docs/releases.md`](docs/releases.md). Changelog: [`CHANGELOG.md`](CHANGELOG.md).
+F0+F1+F2 demo-complete scope is **`v0.2.0`**
+([#69](https://github.com/rmems/silicon-hdl/issues/69)); do not treat git tag
+`v0.1.0` as that cut.
 
 ## License
 

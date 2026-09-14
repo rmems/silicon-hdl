@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-08-15 -->
+<!-- Last updated: 2026-09-14 -->
 
 # Releases and GitHub tags
 
@@ -13,9 +13,11 @@ How `silicon-hdl` versions are published under **[`rmems/silicon-hdl`](https://g
 3. **`CHANGELOG.md`** is the human source of truth. When cutting a release, move items
    from `[Unreleased]` into a dated `## [x.y.z] - YYYY-MM-DD` section in the same
    change that creates the tag (or immediately before).
-4. Tag only from **`main`** after free CI is green (Verilator + Deduplication Guardian).
-   Self-hosted **Vivado CI** also runs on `push` to `main` and publishes
-   `vivado-ci-reports` (synth/sim/WNS only; no board flash).
+4. Tag only from **`main`** after the release PR is merged with free CI green
+   (Verilator + Deduplication Guardian on that PR). Guardian is
+   `pull_request`-only; Verilator also runs on `push` to `main`. Self-hosted
+   **Vivado CI** also runs on `push` to `main` and publishes `vivado-ci-reports`
+   (synth/sim/WNS only; no board flash).
 5. Free-runner CI does **not** auto-publish tags. Optional later: a notes-only workflow
    trigger on tag push (not required for v0.y.z), for example:
 
@@ -27,22 +29,29 @@ How `silicon-hdl` versions are published under **[`rmems/silicon-hdl`](https://g
    ```
 
    or `workflow_dispatch` for manual release-note jobs. Do not use free CI to mint tags.
-6. Pre-1.0: use `v0.y.z` for milestones. **`v0.1.0`** is reserved for F1 demo-complete
-   ([#69](https://github.com/rmems/silicon-hdl/issues/69) — tag + GitHub Release required,
-   not optional).
+   Cloud agents and bots do **not** push release tags or run `gh release create`.
+6. Pre-1.0: use `v0.y.z` for milestones. **`v0.2.0`** is the F0+F1+F2 demo-complete
+   cut ([#69](https://github.com/rmems/silicon-hdl/issues/69) — annotated tag + GitHub
+   Release required, not optional). Annotated git tag `v0.1.0` already exists on
+   `306498d` (2026-08-21, after bridge unit TBs / before N=16) with **no** GitHub
+   Release; do not treat `v0.1.0` as demo-complete.
 
 ## Cutting a release (checklist)
+
+Generic template — replace `vX.Y.Z` with the version in `CHANGELOG.md`. For the
+F0+F1+F2 demo-complete cut, use the **After merging** section below rather than
+this template (do not mint `v0.2.0` until that gate).
 
 ```bash
 # 1. main is green; CHANGELOG has a version section for this cut
 git checkout main && git pull --ff-only
 
-# 2. Annotated tag (example)
-git tag -a v0.0.1 -m "v0.0.1: post-transfer hygiene and classical STDP"
+# 2. Annotated tag (placeholder — not the live v0.2.0 cut)
+git tag -a vX.Y.Z -m "vX.Y.Z: <changelog title>"
 
 # 3. Push tag and create GitHub Release
-git push origin v0.0.1
-gh release create v0.0.1 --target main --title "v0.0.1" --notes-file - <<'EOF'
+git push origin vX.Y.Z
+gh release create vX.Y.Z --target main --title "vX.Y.Z" --notes-file - <<'EOF'
 See CHANGELOG.md for details.
 EOF
 ```
@@ -51,18 +60,52 @@ Or one shot with **GitHub-generated** release notes (`--generate-notes` summariz
 commits/PRs since the previous tag; it does **not** read `CHANGELOG.md`):
 
 ```bash
-gh release create v0.0.1 --target main --generate-notes
+gh release create vX.Y.Z --target main --generate-notes
 ```
 
-Paste or attach the matching `CHANGELOG.md` section separately when you want that text
-as the release body.
+Paste or attach the matching `CHANGELOG.md` section separately when you want that
+text as the release body.
+
+## After merging the #69 CHANGELOG PR (human: Raul)
+
+Do this on `main` only, after the #69 PR is merged with Verilator + Deduplication
+Guardian green on that PR (Guardian does not run on `push` to `main`; Verilator
+does). Do **not** tag from the docs branch. Prefer this changelog body over
+`--generate-notes`: the notes must keep STDP writeback, AER, FPGA↔Julia parity,
+Stage-1 axons, and board UART sessions **out** of the demo-complete claim.
+
+```bash
+git checkout main && git pull --ff-only
+git log -1 --oneline   # merge commit of the #69 CHANGELOG PR; descendant of ba5d521
+
+git tag -a v0.2.0 -m "v0.2.0: F0+F1+F2 demo-complete (epic #54 / #69)"
+git push origin v0.2.0
+
+gh release create v0.2.0 --target main \
+  --title "v0.2.0 — demo-complete F0+F1+F2" \
+  --notes-file - <<'EOF'
+F0+F1+F2 demo-complete for epic https://github.com/rmems/silicon-hdl/issues/54.
+
+Honest scope is in CHANGELOG.md [0.2.0]: signed Dale E/I LIF, output-class LEDs
+(status_word[15:13], FRAME_BYTES stays 36), golden f32→Q8.8→Verilator, SiliconBridge
+Verilator 36-byte E2E (not a board UART session), Phase C heartbeat smoke, README
+maturity table, signed .mem encoder.
+
+Not claimed: STDP writeback (#70), AER (#71), FPGA↔Julia parity, Stage-1 axons,
+inventing weights, UART host session on the board.
+
+EOF
+```
 
 ## What not to do
 
-- Do not cut **`v0.1.0`** until F1 demo path acceptance on epic
-  [#54](https://github.com/rmems/silicon-hdl/issues/54) is met (#69).
+- Do not cut **`v0.2.0`** until the `#69` CHANGELOG PR is merged with Verilator +
+  Deduplication Guardian green on that PR (Guardian is a pre-merge `pull_request`
+  check; it does not run on the post-merge `main` commit). Parent epic:
+  [#54](https://github.com/rmems/silicon-hdl/issues/54).
 - Do not rewrite published release notes silently; ship a patch release if needed.
 - Do not tag from feature branches.
+- Do not auto-publish from free-runner CI or from a cloud agent.
 
 ## Wiki
 

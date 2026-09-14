@@ -246,4 +246,4 @@ plus a matching **GitHub Release**. See [`docs/releases.md`](docs/releases.md).
 
 - Cut `CHANGELOG.md` `[Unreleased]` → `[x.y.z] - YYYY-MM-DD` when tagging.
 - Do **not** auto-publish from free-runner CI (manual / `gh release create`).
-- **`v0.1.0`** is reserved for F1 demo-complete ([#69](https://github.com/rmems/silicon-hdl/issues/69)).
+- **`v0.2.0`** is the F0+F1+F2 demo-complete cut ([#69](https://github.com/rmems/silicon-hdl/issues/69)). Annotated tag `v0.1.0` exists on `306498d` with no GitHub Release and is not that cut.

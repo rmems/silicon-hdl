@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-14
+
+F0+F1+F2 **demo-complete** cut for epic
+[#54](https://github.com/rmems/silicon-hdl/issues/54)
+([#69](https://github.com/rmems/silicon-hdl/issues/69)). Pin: `ba5d521` on
+`main` ([#101](https://github.com/rmems/silicon-hdl/pull/101), 2026-09-14).
+
+This is the first changelogged GitHub Release. Annotated git tag `v0.1.0`
+already exists on `306498d` (2026-08-21, after bridge unit TBs / before N=16)
+with **no** matching GitHub Release; that tag is **not** F1 demo-complete.
+
+### Demo-complete scope
+
+Honest F1/F2 wiring on `main` — SoC integration, not “every module in the
+tree is finished.” Status vocabulary matches the README maturity table
+([#100](https://github.com/rmems/silicon-hdl/pull/100) /
+[#67](https://github.com/rmems/silicon-hdl/issues/67)). Live bank: exp-025 Dale
+health-PASS (12:4 E/I),
+[Spikenaut-SNN#47](https://github.com/rmems/Spikenaut-SNN/pull/47) @ `6965e12a`.
+
+| Area | Status | Evidence |
+|---|---|---|
+| Core primitives | **works** — signed Q8.8 `LifNeuron` / `LifNeuronArray` (Dale-I subtracts, leak recovers toward 0 from either side, integrate saturates) | [#91](https://github.com/rmems/silicon-hdl/pull/91) / [#73](https://github.com/rmems/silicon-hdl/issues/73) |
+| Basys SoC demo | **partial** — N=16 `spikenaut_soc_basys3_top` in Verilator; live board evidence is a one-time heartbeat smoke (LED0 blink, DONE high), **not** a UART host session | [#68](https://github.com/rmems/silicon-hdl/issues/68) PASS @ `7208d8c`; [`docs/phase-c-board-smoke.md`](docs/phase-c-board-smoke.md) |
+| STDP | **not wired** — `StdpController` instantiated (Bi–Poo polarity) but write ports stay open | [#55](https://github.com/rmems/silicon-hdl/issues/55); writeback [#70](https://github.com/rmems/silicon-hdl/issues/70) (open) |
+| Host UART protocol | **works** — SiliconBridge v3.0: 33-byte `0xAA` request / **36-byte** response / 5-byte `0xA5` RAM write. Output class is **not** in the frame | [#96](https://github.com/rmems/silicon-hdl/pull/96) / [#64](https://github.com/rmems/silicon-hdl/issues/64); `0xA5` [#63](https://github.com/rmems/silicon-hdl/issues/63) |
+| Output-class LEDs | **works** — 3-class argmax on `status_word[15:13]` (SW15 = 1). LED-only; `FRAME_BYTES` stays 36 | [#94](https://github.com/rmems/silicon-hdl/pull/94) / [#72](https://github.com/rmems/silicon-hdl/issues/72) |
+| `.mem` INIT banks | **works** — four signed Q8.8 images; host encoder signed; golden f32→Q8.8→Verilator traces pin the bank | [#95](https://github.com/rmems/silicon-hdl/pull/95) / [#66](https://github.com/rmems/silicon-hdl/issues/66); encoder honesty [#98](https://github.com/rmems/silicon-hdl/pull/98) / [#99](https://github.com/rmems/silicon-hdl/pull/99); silicon-bridge [#60](https://github.com/rmems/silicon-bridge/pull/60) |
+| Docs honesty | **works** — README maturity table; `AGENTS.md` no longer claims branch protection on `main` | [#100](https://github.com/rmems/silicon-hdl/pull/100) / [#67](https://github.com/rmems/silicon-hdl/issues/67); [#101](https://github.com/rmems/silicon-hdl/pull/101) / [#87](https://github.com/rmems/silicon-hdl/issues/87) |
+
+### Not demo-complete
+
+These are **not** part of the v0.2.0 claim. Do not read this tag as “product
+complete.”
+
+| Non-goal | Why it is out |
+|---|---|
+| STDP writeback on the demo path | [#70](https://github.com/rmems/silicon-hdl/issues/70) — write ports stay detached |
+| Multi-hop AER / routing table | [#71](https://github.com/rmems/silicon-hdl/issues/71) — F3 |
+| FPGA↔Julia spike/action parity | [Spikenaut-SNN#6](https://github.com/rmems/Spikenaut-SNN/issues/6) Stage 3 — out of this repo |
+| Stage-1 axons 5–15 | Bank columns 5–15 are structurally zero (`unused_axons`); not a missing RTL wire |
+| Extending `FRAME_BYTES` | 36-byte response is the SiliconBridge v3.0 contract; class bits stay LED-only |
+| Inventing weights | Retrain/export from the vault / Hub; do not hand-author `.mem` hex |
+| UART host session on the board | Phase C smoke is heartbeat-only; host↔SoC E2E is Verilator / documented runbook |
+
 ### Added
 
 - README maturity table for what actually works on `main` (addresses #67): core
@@ -17,50 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wired plus evidence PRs. Explicit non-goals: Stage-1 axons 5–15, STDP
   writeback on the demo path, FPGA↔Julia spike/action parity, extending
   `FRAME_BYTES`, inventing weights. Live bank pin: Spikenaut-SNN#47 / exp-025.
-
-### Changed
-
-- `AGENTS.md` no longer asserts that branch protection on `main` guards the
-  self-hosted Vivado CI `push` path. Re-measured 2026-09-14: `main` is
-  `protected: false` with no rulesets; a direct push still runs repo scripts on
-  the Vivado workstation with no review gate. Recommended follow-ups are listed
-  but not claimed as enabled (addresses #87).
-
-- `docs/interface-alignment.md` now records the host-side `.mem` encoder as **signed**
-  two's-complement Q8.8. silicon-bridge
-  [#60](https://github.com/rmems/silicon-bridge/pull/60) (`e201514`) made
-  `FpgaParameterExporter`'s `FixedPointEncode::encode_q88` return `encode_q88_signed`, so
-  the §1.3.1 "host-encoder compatibility gap" opened by #73 is closed upstream.
-  §1.1, §1.2, §1.3, §1.4, the §3 compatibility table, and the §5 findings table were
-  corrected (including `FpgaParameters` fields, which are `Vec<i16>`), and §1.3.1 was
-  rewritten from an open mismatch into the resolved history with an explicit *Correction:*
-  note. The #73/#91 entries below are left as written — they describe what was true at the
-  time. The `spikenaut_soc_basys3_top` sign-bit-set threshold/leak write guard stays: it
-  defends against any host, not only an out-of-date encoder. Matches the corrections already
-  made to `scripts/q88.py` and `docs/host-soc-e2e.md` in
-  [#96](https://github.com/rmems/silicon-hdl/pull/96).
-
-### Fixed
-
-- Signed Dale E/I (inhibitory) path for `LifNeuron` / `LifNeuronArray` (addresses #73).
-  - `weight` and `membrane_potential` are now read as signed two's-complement Q8.8 instead of
-    unsigned, so an inhibitory weight (e.g. `0xFF00` = `-1.0`) subtracts from the membrane instead
-    of misreading as a large positive integer and looking excitatory.
-  - Leak now decays the membrane symmetrically toward the 0 resting potential from either side
-    (a negative/inhibited membrane recovers upward, clamped at 0) instead of only draining a
-    positive one; integration saturates at the signed Q8.8 extremes (`16'h7FFF` / `16'h8000`)
-    instead of wrapping.
-  - `tb_LifNeuron`, `tb_LifNeuronArray`, and `tb_spikenaut_soc_basys3_top` gained mixed-sign
-    coverage proving no false spikes from inhibitory rows under the old unsigned misread.
-  - `spikenaut-core-sv/mem/README.md` documents the signed Q8.8 contract for every `.mem` image
-    and the host runtime-write path.
-  - `spikenaut_soc_basys3_top` now rejects a sign-bit-set threshold write instead of storing it:
-    since the threshold compare is signed, a negative threshold would make an idle neuron spike
-    continuously (relevant while the host-side `FixedPointEncode` encoder is still unsigned-only,
-    see `docs/interface-alignment.md` §1.3.1). Weight writes are exempt — a negative weight is the
-    intended inhibitory case.
-
-### Added
 
 - Golden SiliconBridge v3.0 UART frame vectors and a host ↔ SoC E2E runbook (addresses #64).
   - `spikenaut-core-sv/mem/golden/frame_golden_*.mem` are generated 33-byte request / 36-byte
@@ -142,7 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `scripts/dedup_guardian.py` + `.github/workflows/dedup-guardian.yml` enforce the canonical single-source-of-truth on every PR.
   - Strict duplicate detection for all registered modules + near-duplicate "Dupe Radar" with diffs + Purity Score.
   - Fails the check on violations; posts beautiful radar comment on PRs.
-- Release process doc: [`docs/releases.md`](docs/releases.md) — SemVer tags + GitHub Releases under `rmems` (see also #69 for v0.1.0).
+- Release process doc: [`docs/releases.md`](docs/releases.md) — SemVer tags + GitHub Releases under `rmems` (see also #69 for v0.2.0).
 - Logical timestep ADR: [`docs/timestep-contract.md`](docs/timestep-contract.md) — 1 ms SoC `step_en` (#57).
 - SoC-level testbench `tb_spikenaut_soc_basys3_top` (`spikenaut-soc-sv/tb/tb_Basys3_Top.sv`) —
   direct simulation of the 1 ms `step_en` divider (reset phase, one-cycle pulse width, exact
@@ -171,6 +172,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `AGENTS.md` no longer asserts that branch protection on `main` guards the
+  self-hosted Vivado CI `push` path. Re-measured 2026-09-14: `main` is
+  `protected: false` with no rulesets; a direct push still runs repo scripts on
+  the Vivado workstation with no review gate. Recommended follow-ups are listed
+  but not claimed as enabled (addresses #87).
+
+- `docs/interface-alignment.md` now records the host-side `.mem` encoder as **signed**
+  two's-complement Q8.8. silicon-bridge
+  [#60](https://github.com/rmems/silicon-bridge/pull/60) (`e201514`) made
+  `FpgaParameterExporter`'s `FixedPointEncode::encode_q88` return `encode_q88_signed`, so
+  the §1.3.1 "host-encoder compatibility gap" opened by #73 is closed upstream.
+  §1.1, §1.2, §1.3, §1.4, the §3 compatibility table, and the §5 findings table were
+  corrected (including `FpgaParameters` fields, which are `Vec<i16>`), and §1.3.1 was
+  rewritten from an open mismatch into the resolved history with an explicit *Correction:*
+  note. The #73/#91 entries below are left as written — they describe what was true at the
+  time. The `spikenaut_soc_basys3_top` sign-bit-set threshold/leak write guard stays: it
+  defends against any host, not only an out-of-date encoder. Matches the corrections already
+  made to `scripts/q88.py` and `docs/host-soc-e2e.md` in
+  [#96](https://github.com/rmems/silicon-hdl/pull/96).
+
 - `LifNeuron` and `StdpController` update only when `step_en` is high; SoC pulses it at 1 kHz (#60).
 - [`docs/resource-budget-n16.md`](docs/resource-budget-n16.md) refreshed against a real routed
   build: 892 LUTs / 1660 FFs / 1.5 BRAM tiles / 0 DSPs / 36 IOBs, WNS +1.230 ns, WHS +0.106 ns,
@@ -194,8 +215,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Signed Dale E/I (inhibitory) path for `LifNeuron` / `LifNeuronArray` (addresses #73).
+  - `weight` and `membrane_potential` are now read as signed two's-complement Q8.8 instead of
+    unsigned, so an inhibitory weight (e.g. `0xFF00` = `-1.0`) subtracts from the membrane instead
+    of misreading as a large positive integer and looking excitatory.
+  - Leak now decays the membrane symmetrically toward the 0 resting potential from either side
+    (a negative/inhibited membrane recovers upward, clamped at 0) instead of only draining a
+    positive one; integration saturates at the signed Q8.8 extremes (`16'h7FFF` / `16'h8000`)
+    instead of wrapping.
+  - `tb_LifNeuron`, `tb_LifNeuronArray`, and `tb_spikenaut_soc_basys3_top` gained mixed-sign
+    coverage proving no false spikes from inhibitory rows under the old unsigned misread.
+  - `spikenaut-core-sv/mem/README.md` documents the signed Q8.8 contract for every `.mem` image
+    and the host runtime-write path.
+  - `spikenaut_soc_basys3_top` now rejects a sign-bit-set threshold write instead of storing it:
+    since the threshold compare is signed, a negative threshold would make an idle neuron spike
+    continuously (relevant while the host-side `FixedPointEncode` encoder is still unsigned-only,
+    see `docs/interface-alignment.md` §1.3.1). Weight writes are exempt — a negative weight is the
+    intended inhibitory case.
+
 - STDP polarity inversion vs Bi–Poo / Song–Miller–Abbott convention (#55).
 - SoC protocol snapshot capture stays inline NBA in `always_ff` (Verilator and
   XSim reject `task automatic ... ref` from sequential logic). `frame_send` is
   armed only after a consumed host `0xAA` frame, not on every 1 ms `tick_done`
   (#62).
+
+[Unreleased]: https://github.com/rmems/silicon-hdl/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rmems/silicon-hdl/compare/v0.1.0...v0.2.0
