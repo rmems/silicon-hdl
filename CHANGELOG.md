@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Closed-loop STDP writeback on the SoC demo path (addresses #70). New
+  `StdpWriteback` (`spikenaut-core-sv/rtl/StdpWriteback.sv`) snapshots the
+  selected input column after `tick_done`, pulses one `StdpController` per post
+  neuron (Bi–Poo polarity, traces still in logical ticks), and serializes
+  changed weights into `WeightRam` while the LIF PE is idle. SW14 is the
+  optional-learn gate (default 0, so F1 demo weights stay at `INIT_FILE` /
+  host `0xA5` until opted in). `StdpController` saturates ±1 LSB at the signed
+  Q8.8 extremes (`16'h7FFF` / `16'h8000`) so an inhibitory weight can LTP back
+  toward zero instead of freezing at `16'hFFFF`. Host weight writes wait for
+  `stdp_busy`. `tb_StdpWriteback` and SoC TB test 14 lock the gate, LTP, and
+  the deferred host write.
+
 ## [0.2.0] - 2026-09-14
 
 F0+F1+F2 **demo-complete** cut for epic

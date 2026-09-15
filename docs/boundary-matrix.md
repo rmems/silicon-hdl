@@ -72,7 +72,7 @@ lib_bridge  →  lib_core  →  lib_soc / lib_synapse
 
 | Library | Path | Contents |
 |---------|------|----------|
-| `lib_core` | `spikenaut-core-sv/rtl` | `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, `StdpController` |
+| `lib_core` | `spikenaut-core-sv/rtl` | `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, `StdpController`, `StdpWriteback`, `OutputLayer` |
 | `lib_bridge` | `spikenaut-bridge-sv/rtl` | `UartRx`, `UartTx`, `SiliconBridge` |
 | `lib_soc` | `spikenaut-soc-sv/rtl` | `SocProtocolFsm` application codec, `SocStatusLeds` LED/status mux, and Basys 3 SoC top (`spikenaut_soc_basys3_top`) |
 | `lib_synapse` | `synapse-link-hdl/src` | `SynapseRouter`; demo top `synapse_demo_basys3_top` |
@@ -93,7 +93,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 | Runtime RAM write (UART / host rewrite) | **On** — `SocProtocolFsm` `0xA5` frames pulse `we` on `WeightRam` and both `NeuronParamRam` instances; PE read addr is restored when idle; `INIT_FILE` remains the cold start | [#63](https://github.com/rmems/silicon-hdl/issues/63) |
 | RAM address used by the PE | **Swept** — threshold/leak addresses walk `0..15`; the flattened weight address is `neuron_row * 16 + input_index`, where `input_index` is an **external input channel** (never another neuron's index — there is no neuron-to-neuron recurrence in this design). #62 selects the lowest active decoded host lane, so the binary-event SoC path can walk any one input channel across all 16 rows. See [`docs/lif-array-connectivity-model.md`](lif-array-connectivity-model.md) (#92) | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#92](https://github.com/rmems/silicon-hdl/issues/92) |
 | Neuron count | **N=16** `LifNeuronArray` time-multiplexes one shared datapath across 16 neuron slots and commits a board-agnostic 16-bit `spike_bitmap`; `spikenaut_soc_basys3_top` maps that bitmap to `led[15:0]` in spike mode (SW15=0). SW15 selects the stretched status word. See [`docs/led-map.md`](led-map.md) | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#65](https://github.com/rmems/silicon-hdl/issues/65) |
-| STDP | `StdpController` is instantiated (classical Bi–Poo, [#55](https://github.com/rmems/silicon-hdl/issues/55)) and gated by `step_en`, but **writeback is open**: `weight_we` / `weight_addr_out` / `weight_out` are unconnected; `weight_addr` is `'0` | [#70](https://github.com/rmems/silicon-hdl/issues/70) |
+| STDP | `StdpWriteback` instantiates one `StdpController` per post neuron (classical Bi–Poo, [#55](https://github.com/rmems/silicon-hdl/issues/55)), snapshots the selected input column after `tick_done`, and writes changed weights into `WeightRam`. SW14 (`learn_en`, default 0) is the optional-online-learn gate; signed ±1 saturates at `16'h7FFF` / `16'h8000` | [#70](https://github.com/rmems/silicon-hdl/issues/70) |
 | Host UART protocol | **Implemented #62 / #63** — `SocProtocolFsm` consumes `0xAA` + 32 payload bytes, commits a 16-word big-endian stimulus frame, and holds it until `step_en`; it serializes 16 membrane words, spike flags, and aux state while respecting `tx_busy`. Distinct `0xA5` write frames pulse RAM `we` for one cycle. The present PE selects the lowest active binary stimulus lane; it does not yet accumulate multi-active vectors | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#63](https://github.com/rmems/silicon-hdl/issues/63) / [#64](https://github.com/rmems/silicon-hdl/issues/64) |
 | Logical timestep | **1 ms** `step_en` (100_000 fabric cycles @ 100 MHz) | [#57](https://github.com/rmems/silicon-hdl/issues/57) / [#60](https://github.com/rmems/silicon-hdl/issues/60); [`docs/timestep-contract.md`](timestep-contract.md) |
 
@@ -229,7 +229,7 @@ Clarifications:
 - Today’s Basys 3 SoC demo **does** load Q8.8 `.mem` images at elaboration / bitstream
   init (`INIT_FILE` / `$readmemh`) and implements the #62 host frame/readback codec.
   Runtime `0xA5` RAM writes are on (#63); the N=16 PE performs its swept read
-  addresses, and STDP writeback remains unconnected (#70). Host-board E2E and
+  addresses, and STDP writeback is on (#70) behind SW14. Host-board E2E and
   multi-active-lane accumulation remain sequenced under
   [#54](https://github.com/rmems/silicon-hdl/issues/54) /
   [#64](https://github.com/rmems/silicon-hdl/issues/64).
@@ -284,12 +284,11 @@ Clarifications:
 1. Landed: this boundary matrix, [`docs/interface-alignment.md`](interface-alignment.md),
    and SoC `INIT_FILE` `$readmemh` (E1/E2).
 2. Implemented under [#54](https://github.com/rmems/silicon-hdl/issues/54): #62's
-   16-word protocol parser, deterministic single input-column selector, and TX response.
-   Remaining work is host E2E
-   ([#64](https://github.com/rmems/silicon-hdl/issues/64)) and STDP time-mux/writeback
-   ([#70](https://github.com/rmems/silicon-hdl/issues/70)). Runtime RAM write
-   ([#63](https://github.com/rmems/silicon-hdl/issues/63)) is implemented as a
-   `SocProtocolFsm` `0xA5` extension.
+   16-word protocol parser, deterministic single input-column selector, TX
+   response, runtime RAM write (#63), and STDP time-mux/writeback
+   ([#70](https://github.com/rmems/silicon-hdl/issues/70), SW14). Remaining
+   work is host-board E2E ([#64](https://github.com/rmems/silicon-hdl/issues/64)
+   is Verilator-complete; live UART session is still open).
 3. Add or extend cross-repo golden vectors (float → Q8.8 → `.mem` → RTL readback) without
    merging repositories.
 4. Only then consider new board tops or extra on-chip features.

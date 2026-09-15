@@ -31,6 +31,11 @@
 //                          hold register that drives it; (b) the real uart_tx
 //                          line delivers exactly 36 bytes and then stops
 //                          (GH#64, docs/host-soc-e2e.md).
+//  14. STDP writeback    — SW14=0 leaves WeightRam untouched by STDP; SW14=1
+//                          applies signed Bi–Poo ±1 to the selected column
+//                          after tick_done, and a host 0xA5 weight write that
+//                          lands during the walk is held until stdp_busy
+//                          clears (GH#70).
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
@@ -401,6 +406,24 @@ module tb_spikenaut_soc_basys3_top #(
                 if (dut.u_lif_array.tick_done === 1'b1) break;
                 if (waited > NUM_NEURONS + 2)
                     $fatal(1, "wait_lif_sweep_done: no tick_done within %0d cycles", waited);
+            end
+        end
+    endtask
+
+    // STDP writeback starts the cycle after tick_done and walks one column.
+    // Bound: 2 cycles/read * 16 + update/handoff + 16 writes, plus slack.
+    // Always sample one cycle first so a call on the tick_done negedge does
+    // not return before the engine has left IDLE.
+    task automatic wait_stdp_idle();
+        int unsigned waited;
+        begin
+            @(negedge clk);
+            waited = 0;
+            while (dut.stdp_busy === 1'b1) begin
+                @(negedge clk);
+                waited++;
+                if (waited > 8 * NUM_NEURONS + 16)
+                    $fatal(1, "wait_stdp_idle: still busy after %0d cycles", waited);
             end
         end
     endtask
@@ -1193,6 +1216,96 @@ module tb_spikenaut_soc_basys3_top #(
                     quiet++;
                 end
             end
+        end
+
+        // ------------------------------------------------------------
+        // Test 14: optional STDP writeback (GH#70).
+        //
+        // SW14 is the learn gate and powers up 0, so every test above must
+        // still see INIT_FILE / host-written weights. This block first proves
+        // a pre-then-post pair is a no-op with the switch low, then flips
+        // SW14, replays the pair, and checks the selected column synapse
+        // moved by exactly +1 LSB. A host weight write that lands while
+        // stdp_busy is high must wait, matching test 12's PE-hold pattern.
+        // ------------------------------------------------------------
+        begin
+            localparam int STDP_ROW = SPIKE_TEST_NEURON;
+            localparam logic [7:0] STDP_WEIGHT_ADDR = 8'(STDP_ROW * NUM_NEURONS + STDP_ROW);
+            localparam logic [15:0] STDP_WEIGHT_SEED = 16'd200;
+            localparam logic [7:0] STDP_HOST_ADDR = 8'h06;
+            localparam logic [15:0] STDP_HOST_DATA = 16'h3456;
+
+            check(dut.learn_en === 1'b0,
+                  "test 14: SW14 must still be low after the status-mode tests");
+            check(dut.stdp_busy === 1'b0,
+                  "test 14: STDP engine must be idle while learn is off");
+
+            dut.u_wram.mem[STDP_WEIGHT_ADDR]        = STDP_WEIGHT_SEED;
+            dut.u_npram_threshold.mem[STDP_ROW]     = 16'h0001;
+            dut.u_npram_leak.mem[STDP_ROW]          = 16'h0000;
+
+            uart_send_stimulus_frame(STDP_ROW);
+            wait_for_stimuli_pending();
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            check(dut.u_lif_array.spike_bitmap[STDP_ROW] === 1'b1,
+                  "test 14: gated-off pair must still produce a PE spike");
+            @(negedge clk);
+            check(dut.stdp_busy === 1'b0,
+                  "test 14: learn_en=0 must not start a column walk after tick_done");
+            check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === STDP_WEIGHT_SEED,
+                  "test 14: learn_en=0 must leave the selected synapse unchanged");
+
+            sw = sw | 16'h4000; // SW14=1, keep SW15 status mode
+            repeat (SW_SYNC_LATENCY) @(negedge clk);
+            check(dut.learn_en === 1'b1,
+                  "test 14: SW14 must enable learn_en after 2FF sync");
+
+            // First coincident pre+post with empty traces: no write, traces load.
+            uart_send_stimulus_frame(STDP_ROW);
+            wait_for_stimuli_pending();
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check(dut.stdp_busy === 1'b1,
+                  "test 14: learn_en=1 must start a column walk after tick_done");
+            wait_stdp_idle();
+            check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === STDP_WEIGHT_SEED,
+                  "test 14: the trace-load tick must not change the synapse");
+
+            // Refractory follow-up: traces decay one tick, stay live.
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            wait_stdp_idle();
+
+            // Second event: post while pre_trace is live → LTP +1.
+            uart_send_stimulus_frame(STDP_ROW);
+            wait_for_stimuli_pending();
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            wait_stdp_idle();
+            check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === 16'(STDP_WEIGHT_SEED + 16'd1),
+                  "test 14: pre-then-post with learn on must LTP the selected synapse");
+
+            // Host weight write held across the STDP walk, then committed.
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check(dut.stdp_busy === 1'b1,
+                  "test 14: a learn-enabled tick must keep stdp_busy high after the sweep");
+            inject_host_strobe(2'd0, STDP_HOST_ADDR, STDP_HOST_DATA);
+            check(dut.wr_pending === 1'b1,
+                  "test 14: a mid-walk host weight write must be held");
+            check(dut.weight_we === 1'b0,
+                  "test 14: held host write must not steal the RAM port from STDP");
+            check(dut.u_wram.mem[STDP_HOST_ADDR] !== STDP_HOST_DATA,
+                  "test 14: held host write must not commit until STDP is idle");
+            wait_stdp_idle();
+            repeat (4) @(negedge clk);
+            check(dut.u_wram.mem[STDP_HOST_ADDR] === STDP_HOST_DATA,
+                  "test 14: held host write must commit after STDP is idle");
+            check(dut.wr_pending === 1'b0,
+                  "test 14: host pending must clear after the deferred strobe");
         end
 
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");

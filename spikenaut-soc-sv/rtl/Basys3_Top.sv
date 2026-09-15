@@ -16,6 +16,7 @@
 //   spikenaut-core-sv/rtl/WeightRam.sv
 //   spikenaut-core-sv/rtl/NeuronParamRam.sv
 //   spikenaut-core-sv/rtl/StdpController.sv
+//   spikenaut-core-sv/rtl/StdpWriteback.sv
 //   spikenaut-core-sv/rtl/OutputLayer.sv
 //   spikenaut-bridge-sv/rtl/UartRx.sv
 //   spikenaut-bridge-sv/rtl/UartTx.sv
@@ -41,7 +42,8 @@ module spikenaut_soc_basys3_top #(
     // UART
     input  logic        uart_rx,
     output logic        uart_tx,
-    // Switches: SW15 selects LED mode; the full bus is published as aux. See docs/led-map.md.
+    // Switches: SW15 selects LED mode; SW14 enables optional STDP writeback.
+    // The full bus is published as aux. See docs/led-map.md.
     input  logic [15:0] sw,
     // LEDs: spike bitmap or status word. See docs/led-map.md.
     output logic [15:0] led
@@ -181,7 +183,8 @@ module spikenaut_soc_basys3_top #(
     // we/addr/din from SocProtocolFsm; the SoC holds a write that lands
     // during PREFETCH/SWEEP and applies it only while the PE is idle, so
     // a one-cycle host strobe cannot steal a sweep read.  STDP writeback
-    // stays open (#70).
+    // (#70) is a third WeightRam client: it runs after tick_done and the
+    // host path also waits for stdp_busy.
     // The time-multiplexed LIF PE sweeps the 16 parameter entries on each
     // logical tick; its address outputs account for registered RAM read latency.
     // Timestep: LifNeuronArray / StdpController update only on step_en (1 ms).
@@ -200,6 +203,8 @@ module spikenaut_soc_basys3_top #(
     logic                              lif_tick_done;
     logic        pe_ram_busy;
     logic        pe_busy;
+    logic        stdp_busy;
+    logic        wr_block;
     logic        wr_pending;
     logic        wr_fire;
     logic [1:0]  wr_pending_target;
@@ -221,7 +226,11 @@ module spikenaut_soc_basys3_top #(
             pe_ram_busy <= 1'b0;
     end
 
-    assign pe_busy = pe_ram_busy || step_en;
+    assign pe_busy  = pe_ram_busy || step_en;
+    // Host 0xA5 writes wait for both the LIF sweep and the STDP column
+    // walk.  pe_busy stays PE-only so existing SoC TB checks keep their
+    // meaning; wr_block is the combined RAM-hold.
+    assign wr_block = pe_busy || stdp_busy;
 
     always_ff @(posedge clk) begin
         if (!rst) begin
@@ -229,7 +238,7 @@ module spikenaut_soc_basys3_top #(
             wr_pending_target <= '0;
             wr_pending_addr   <= '0;
             wr_pending_data   <= '0;
-        end else if (host_wr_en && pe_busy) begin
+        end else if (host_wr_en && wr_block) begin
             wr_pending        <= 1'b1;
             wr_pending_target <= host_wr_target;
             wr_pending_addr   <= host_wr_addr;
@@ -244,7 +253,7 @@ module spikenaut_soc_basys3_top #(
         wr_sel_target = wr_pending_target;
         wr_sel_addr   = wr_pending_addr;
         wr_sel_data   = wr_pending_data;
-        if (!pe_busy) begin
+        if (!wr_block) begin
             if (host_wr_en) begin
                 wr_fire       = 1'b1;
                 wr_sel_target = host_wr_target;
@@ -304,6 +313,37 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     logic [DATA_WIDTH-1:0] weight_dout;
     logic [WEIGHT_ADDR_W-1:0] weight_addr;
+    logic        stdp_we;
+    logic [WEIGHT_ADDR_W-1:0] stdp_addr;
+    logic [DATA_WIDTH-1:0] stdp_din;
+    logic        wram_we;
+    logic [WEIGHT_ADDR_W-1:0] wram_addr;
+    logic [DATA_WIDTH-1:0] wram_din;
+    logic        learn_en;
+
+    // SW14 default 0 (reset/sync to 0): F1 demo weights stay at INIT_FILE /
+    // host 0xA5 until the operator opts into online learn.
+    assign learn_en = sw_sync_1[14];
+
+    // PE owns the port during the LIF sweep; STDP owns it for the post-tick
+    // column walk; the host write wins only when both are idle.  weight_we
+    // stays the host-only strobe so tb_Basys3_Top's #63 checks keep working.
+    always_comb begin
+        wram_we   = 1'b0;
+        wram_addr = weight_addr;
+        wram_din  = wr_sel_data;
+        if (pe_busy) begin
+            wram_addr = weight_addr;
+        end else if (stdp_busy) begin
+            wram_we   = stdp_we;
+            wram_addr = stdp_addr;
+            wram_din  = stdp_din;
+        end else if (weight_we) begin
+            wram_we   = 1'b1;
+            wram_addr = wr_sel_addr[WEIGHT_ADDR_W-1:0];
+            wram_din  = wr_sel_data;
+        end
+    end
 
     WeightRam #(
         .ADDR_WIDTH (WEIGHT_ADDR_W),
@@ -312,9 +352,9 @@ module spikenaut_soc_basys3_top #(
     ) u_wram (
         .clk  (clk),
         .rst_n (rst),
-        .we   (weight_we),
-        .addr (weight_we ? wr_sel_addr[WEIGHT_ADDR_W-1:0] : weight_addr),
-        .din  (wr_sel_data),
+        .we   (wram_we),
+        .addr (wram_addr),
+        .din  (wram_din),
         .dout (weight_dout)
     );
 
@@ -358,8 +398,8 @@ module spikenaut_soc_basys3_top #(
     // frame change (see docs/interface-alignment.md / #64). Triggered on
     // lif_tick_done, not step_en: spike_bitmap only updates on tick_done,
     // so triggering on step_en would score the *previous* tick's spikes.
-    // No runtime write path for this bank -- we/din tied off, matching the
-    // precedent of u_stdp's intentionally-dangling write ports below.
+    // No runtime write path for this bank -- we/din tied off. The main
+    // WeightRam's write port is shared by host 0xA5 and STDP writeback.
     // ----------------------------------------------------------------
     logic [DATA_WIDTH-1:0] output_weight_dout;
     logic [OUTPUT_WEIGHT_ADDR_W-1:0] output_weight_addr;
@@ -453,25 +493,32 @@ module spikenaut_soc_basys3_top #(
     );
 
     // ----------------------------------------------------------------
-    // STDP controller
+    // STDP writeback (#70)
     // ----------------------------------------------------------------
-    // #70 exclusion: STDP is still the original single-address controller.
-    // Time-multiplexed STDP and WeightRam writeback are intentionally out of
-    // scope, so it observes output row 0 and its write ports remain detached.
-    StdpController #(
-        .DATA_WIDTH   (DATA_WIDTH),
-        .ADDR_WIDTH   (WEIGHT_ADDR_W)
+    // Optional closed-loop learn: SW14 (learn_en) must be high. The engine
+    // instantiates one StdpController per post neuron, snapshots the selected
+    // input column after tick_done (when spike_bitmap is committed), then
+    // serializes any weight_we strobes into WeightRam while the PE is idle.
+    // Traces still count logical ticks — the local stdp_tick is one pulse
+    // per 1 ms SoC tick, not a fabric-clock update.
+    StdpWriteback #(
+        .DATA_WIDTH  (DATA_WIDTH),
+        .NUM_NEURONS (NUM_NEURONS),
+        .ADDR_WIDTH  (WEIGHT_ADDR_W)
     ) u_stdp (
-        .clk            (clk),
-        .rst_n          (rst),
-        .step_en        (step_en),
-        .pre_spike      (stimulus_event),
-        .post_spike     (spike_bitmap[0]),
-        .weight_addr    ('0),
-        .weight_in      (weight_dout),
-        .weight_we      (),
-        .weight_addr_out(),
-        .weight_out     ()
+        .clk         (clk),
+        .rst_n       (rst),
+        .learn_en    (learn_en),
+        .step_en     (step_en),
+        .tick_done   (lif_tick_done),
+        .pre_spike   (stimulus_event),
+        .post_spikes (spike_bitmap),
+        .input_index (stimulus_input_index),
+        .weight_dout (weight_dout),
+        .busy        (stdp_busy),
+        .weight_we   (stdp_we),
+        .weight_addr (stdp_addr),
+        .weight_din  (stdp_din)
     );
 
     // ----------------------------------------------------------------
