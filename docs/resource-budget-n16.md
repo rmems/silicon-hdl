@@ -107,11 +107,10 @@ Three things this settles:
   synchronizer (32), the `step_cnt` divider (17) and `step_en` (1), plus `stimuli_pending`
   and `response_armed` (1 each).
 
-`StdpController`, `WeightRam` and the two `NeuronParamRam` instances do not appear as
-separate rows. The RAMs are inferred as the three top-level `RAMB18E1` primitives, and
-`u_stdp` contributes no reportable logic because its writeback ports are still detached
-(the [#70](https://github.com/rmems/silicon-hdl/issues/70) exclusion documented in
-`AGENTS.md`) — so most of it optimizes away. Expect its cost to appear once #70 lands.
+`u_stdp` (`StdpWriteback`) now owns a real `WeightRam` walk when SW14 is high, so
+its controllers are no longer optimized away. A routed utilization delta for #70
+is not in this file yet — treat the #73 / #72 rows as the last measured baseline
+and expect additional LUTs/FFs once a Vivado build of this change lands.
 
 WNS variance across recent builds of nearly identical trees has been ±0.2 ns
 (1.200 / 1.323 / 1.405 / 1.230 ns), so treat small movements as placement noise

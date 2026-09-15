@@ -84,6 +84,7 @@ symbols or tops conflict.
 | `tb_WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/tb/tb_WeightRam.sv` |
 | `tb_NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam.sv` |
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
+| `tb_StdpWriteback` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/rtl/StdpWriteback.sv` + `spikenaut-core-sv/tb/tb_StdpWriteback.sv` |
 | `tb_OutputLayer` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer.sv` |
 | `tb_LifNeuron_golden` | `spikenaut-core-sv/rtl/LifNeuron.sv` + `spikenaut-core-sv/tb/tb_LifNeuron_golden.sv` |
 | `tb_OutputLayer_golden` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer_golden.sv` |
@@ -119,6 +120,7 @@ verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD
   spikenaut-core-sv/rtl/LifNeuron.sv spikenaut-core-sv/rtl/LifNeuronArray.sv \
   spikenaut-core-sv/rtl/WeightRam.sv spikenaut-core-sv/rtl/NeuronParamRam.sv \
   spikenaut-core-sv/rtl/StdpController.sv \
+  spikenaut-core-sv/rtl/StdpWriteback.sv \
   spikenaut-core-sv/rtl/OutputLayer.sv \
   spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
   spikenaut-soc-sv/rtl/SocStatusLeds.sv \

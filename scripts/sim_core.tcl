@@ -48,6 +48,7 @@ read_verilog -sv [list \
     [file join $core_rtl WeightRam.sv]      \
     [file join $core_rtl NeuronParamRam.sv] \
     [file join $core_rtl StdpController.sv] \
+    [file join $core_rtl StdpWriteback.sv]  \
     [file join $core_rtl OutputLayer.sv]    \
 ]
 
@@ -83,7 +84,7 @@ foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_StdpWriteback tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
 
 set mem_dir    [file join $repo_root spikenaut-core-sv mem]
 # GH#66 golden vectors (generated; see docs/golden-lif-vectors.md).

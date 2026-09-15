@@ -56,8 +56,7 @@ actual SoC wiring, that reading doesn't hold:
   `spikenaut_soc_basys3_top` derives `stimulus_input_index` (and therefore
   `input_index`) purely by decoding the host's `0xAA` stimulus frame
   (`protocol_stimuli`) — never from `spike_bitmap`. `spike_bitmap` only feeds
-  the host readback (`spike_flags`) and `StdpController.post_spike` (itself
-  disconnected, [#70](https://github.com/rmems/silicon-hdl/issues/70)). A
+  the host readback (`spike_flags`) and `StdpWriteback.post_spikes` (GH#70). A
   neuron's own spike can never select `input_index` for any neuron's next
   read, so "neuron 6 fires and broadcasts to column 6" cannot occur as
   described in the original #92 report.
