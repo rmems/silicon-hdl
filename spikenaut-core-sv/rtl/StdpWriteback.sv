@@ -53,7 +53,7 @@ module StdpWriteback #(
     generate
         if (NUM_NEURONS < 1)
             $error("StdpWriteback: NUM_NEURONS (%0d) must be at least 1", NUM_NEURONS);
-        if (ADDR_WIDTH < 2 * INDEX_WIDTH)
+        if (ADDR_WIDTH < ((NUM_NEURONS > 1) ? $clog2(NUM_NEURONS * NUM_NEURONS) : 1))
             $error("StdpWriteback: ADDR_WIDTH (%0d) is too small for a %0dx%0d matrix",
                    ADDR_WIDTH, NUM_NEURONS, NUM_NEURONS);
     endgenerate
