@@ -1,0 +1,31 @@
+spikenaut-core-sv/tb/tb_StdpWriteback.sv
+  s_73530400eb975b::t_f4b70cfa31b6ff 23,27
+  s_73530400eb975b::t_2237fe07d7cdb1 201-213,218
+docs/boundary-matrix.md
+  s_73530400eb975b::t_322152c961fc4d 96
+spikenaut-soc-sv/rtl/Basys3_Top.sv
+  s_73530400eb975b::t_37b24c8c2da5ef 499-500
+docs/interface-alignment.md
+  s_73530400eb975b::t_934a44eaff3f49 329-332
+CHANGELOG.md
+  s_73530400eb975b::t_897ea5c7b6183b 16-17,23-25
+spikenaut-core-sv/rtl/StdpWriteback.sv
+  s_73530400eb975b::t_938098b9e4500e 14-19,27-31
+  s_73530400eb975b::t_94a1917a83fe36 155-159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1ed1c01cb2b880c46b6dfd558ab6b8aba4a30686",
+  "prompts": {},
+  "sessions": {
+    "s_73530400eb975b": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "7c0dbead-eda9-4b4e-b942-e73b16a1d01d",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
