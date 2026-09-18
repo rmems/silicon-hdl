@@ -154,6 +154,18 @@ jobs:
             spikenaut-core-sv/tb/tb_StdpController.sv
           ./obj_dir/Vtb_StdpController
 
+      - name: Run tb_StdpWriteback
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_StdpWriteback \
+            -Ispikenaut-core-sv/rtl \
+            spikenaut-core-sv/rtl/WeightRam.sv \
+            spikenaut-core-sv/rtl/StdpController.sv \
+            spikenaut-core-sv/rtl/StdpWriteback.sv \
+            spikenaut-core-sv/tb/tb_StdpWriteback.sv
+          ./obj_dir/Vtb_StdpWriteback
+
       - name: Run tb_UartRx
         run: |
           rm -rf obj_dir
@@ -239,6 +251,7 @@ jobs:
             spikenaut-core-sv/rtl/WeightRam.sv \
             spikenaut-core-sv/rtl/NeuronParamRam.sv \
             spikenaut-core-sv/rtl/StdpController.sv \
+            spikenaut-core-sv/rtl/StdpWriteback.sv \
             spikenaut-core-sv/rtl/OutputLayer.sv \
             spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
             spikenaut-soc-sv/rtl/SocStatusLeds.sv \

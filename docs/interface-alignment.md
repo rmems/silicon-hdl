@@ -27,7 +27,7 @@ either side of the contract changes.
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
 | Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
 | Logical timestep / `step_en` | **Documented** | [`docs/timestep-contract.md`](timestep-contract.md); SoC 1 ms divider (#57 / #60) |
-| SoC demo maturity (F0 honesty) | **Partial** | `INIT_FILE`, N=16 time-multiplexed LIF, 0xAA frame decode, UART TX readback, and runtime `0xA5` RAM writes are wired. Multi-active-lane vector accumulation, STDP writeback, and host E2E remain sequenced work. See [#54](https://github.com/rmems/silicon-hdl/issues/54) |
+| SoC demo maturity (F0 honesty) | **Partial** | `INIT_FILE`, N=16 time-multiplexed LIF, 0xAA frame decode, UART TX readback, runtime `0xA5` RAM writes, and optional STDP writeback (SW14) are wired. Multi-active-lane vector accumulation and host-board E2E remain sequenced work. See [#54](https://github.com/rmems/silicon-hdl/issues/54) |
 
 Foundational RTL correctness that supports this alignment landed earlier via
 PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
@@ -121,7 +121,7 @@ that history and what is still worth knowing about it.
 | `NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` | `PARAM_WIDTH = 16` | `2**ADDR_WIDTH`, `ADDR_WIDTH = 8` → 256 | **One** parameter type per instance (threshold **or** leak, not both) |
 | `LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16` | n/a | LIF dynamics; requires `PARAM_WIDTH == DATA_WIDTH` at elaborate time |
 | `LifNeuronArray` | `spikenaut-core-sv/rtl/LifNeuronArray.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16`, `NUM_NEURONS = 16` | 16 membrane words + one shared datapath | Time-multiplexed N=16 LIF PE; commits a 16-bit bitmap and exports packed membrane readback after each sweep |
-| `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; unsigned saturate (#55). `WINDOW_WIDTH` is in logical ticks; traces update only on `step_en`. |
+| `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; signed Q8.8 saturate at `16'h7FFF` / `16'h8000` (#55 / #70). `WINDOW_WIDTH` is in logical ticks; traces update once per SoC tick via `StdpWriteback`. |
 
 **LIF semantics vs Q8.8 (signed as of #73):**
 
@@ -325,9 +325,11 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   `active_aux_state` / `pending_aux_state` on the `frame_send` capture edge, so
   response bytes 34–35 are that sampled value held for the whole ~3.1 ms
   transmission — not a live view of the switches.
-- `StdpController` is instantiated (classical Bi–Poo, `step_en`-gated) but
-  writeback is **open**: `weight_we` / `weight_addr_out` / `weight_out` are left
-  unconnected ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
+- `StdpWriteback` closes the STDP loop ([#70](https://github.com/rmems/silicon-hdl/issues/70)):
+  one `StdpController` per post neuron, originating-pre-column snapshot after
+  `tick_done`, serialized `WeightRam` writeback while the PE is idle. SW14
+  (`learn_en`) gates it; default 0 leaves F1 weights untouched.
+  `StdpController` ±1 is signed Q8.8, saturating at `16'h7FFF` / `16'h8000`.
 - TX emits the documented 36 bytes in big-endian order. It asserts `tx_send`
   only when `tx_busy` is low and holds the current byte across stalls. Because
   one 36-byte 115200-baud response takes about 3.125 ms, the FSM keeps one
@@ -349,7 +351,8 @@ extension while preserving the bridge as the canonical byte transport:
    frame (`target`, `addr`, big-endian Q8.8). Target `0` = weight, `1` =
    threshold, `2` = leak. `we` is a one-cycle strobe; `addr` returns to the
    PE read path when idle. `INIT_FILE` remains the cold start. STDP
-   writeback stays unconnected ([#70](https://github.com/rmems/silicon-hdl/issues/70)).
+   writeback (#70) is a third `WeightRam` client and waits behind the PE;
+   host writes also wait for `stdp_busy`. SW14 enables it.
 3. Keeps the 8-bit transport module unchanged (single source of truth).
 
 The write sync is **not** `0xAA`. Reusing the stimulus sync would make a
@@ -441,7 +444,8 @@ tracked under finishing epic
 - Runtime RAM writes are implemented in `SocProtocolFsm` (#63). Vector
   accumulation for multiple active stimulus lanes remains outside the
   binary-event PE mapping.
-- STDP time-multiplexing and writeback into `WeightRam` ([#70](https://github.com/rmems/silicon-hdl/issues/70))
+- STDP time-multiplexing and writeback into `WeightRam` is implemented
+  ([#70](https://github.com/rmems/silicon-hdl/issues/70)); SW14 opts in.
 
 ---
 

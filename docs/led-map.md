@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-13 -->
+<!-- Last updated: 2026-09-15 -->
 
 # LED and status map
 
@@ -109,6 +109,7 @@ response, `[3]` dark.
 mode. `sw_sync_1` is the only copy used in the fabric:
 
 - `mode_sel = sw_sync_1[15]`
+- `learn_en = sw_sync_1[14]` — optional STDP writeback ([#70](https://github.com/rmems/silicon-hdl/issues/70)). Default 0 after reset, so online learn is off until the switch is flipped.
 - `SocProtocolFsm.aux_state = sw_sync_1` (host response bytes 34–35). The FSM
   latches it on the `frame_send` capture edge, so those bytes report the switch
   position at the start of the response, held for the whole ~3.1 ms frame — a
@@ -125,5 +126,4 @@ Vivado error (`[Common 17-55]`) that aborts `synth_design`.
 ## Non-goals
 
 - Live board program in CI ([#68](https://github.com/rmems/silicon-hdl/issues/68))
-- STDP writeback to `WeightRam` ([#70](https://github.com/rmems/silicon-hdl/issues/70))
 - Seven-segment display, PWM dimming, or a reset synchronizer

@@ -8,6 +8,12 @@
 //   - Post-then-pre (pre_spike while post_trace active) → LTD (weight - 1)
 // Prior to #55 the LTP/LTD arms were inverted relative to this convention.
 //
+// Arithmetic is signed two's-complement Q8.8 (GH#73 / GH#70): ±1 LSB with
+// saturate at the signed extremes 16'h7FFF / 16'h8000. Unsigned saturate at
+// 16'hFFFF would wrap a max-excitatory weight into max-inhibitory, and would
+// treat 16'hFFFF (−1) as "already max" so an inhibitory synapse could never
+// LTP back toward zero. Timing locked by tb_StdpController.
+//
 // Traces and LTP/LTD update only when step_en is 1. WINDOW_WIDTH is in
 // logical ticks, not fabric clocks (docs/timestep-contract.md).
 //
@@ -41,6 +47,13 @@ module StdpController #(
     logic [WINDOW_WIDTH-1:0] pre_trace;
     logic [WINDOW_WIDTH-1:0] post_trace;
 
+    // Signed Q8.8 saturation extremes (see file header, GH#73 / GH#70).
+    localparam logic signed [DATA_WIDTH-1:0] MAX_W = {1'b0, {(DATA_WIDTH-1){1'b1}}};
+    localparam logic signed [DATA_WIDTH-1:0] MIN_W = {1'b1, {(DATA_WIDTH-1){1'b0}}};
+
+    logic signed [DATA_WIDTH-1:0] weight_signed;
+    assign weight_signed = $signed(weight_in);
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             pre_trace       <= '0;
@@ -53,25 +66,25 @@ module StdpController #(
             post_trace <= post_spike ? {WINDOW_WIDTH{1'b1}} : (post_trace >> 1);
             // weight_we asserts only when the selected LTP/LTD branch changes weight.
             // LTP has priority if both conditions are true in the same cycle.
-            // Saturation (LTP at max / LTD at zero) holds weight_out and keeps weight_we low.
-            // Basys3_Top leaves weight_we unconnected; consumers treat it as "weight changed".
+            // Saturation (LTP at signed max / LTD at signed min) holds weight_out
+            // and keeps weight_we low.
             weight_addr_out <= weight_addr;
             if (post_spike && pre_trace != '0) begin
-                // LTP (classical): pre-then-post – saturate at maximum value
-                if (weight_in == {DATA_WIDTH{1'b1}}) begin
+                // LTP (classical): pre-then-post – saturate at signed maximum
+                if (weight_signed == MAX_W) begin
                     weight_out <= weight_in;
                     weight_we  <= 1'b0;
                 end else begin
-                    weight_out <= weight_in + 1;
+                    weight_out <= weight_signed + 1;
                     weight_we  <= 1'b1;
                 end
             end else if (pre_spike && post_trace != '0) begin
-                // LTD (classical): post-then-pre – saturate at zero
-                if (weight_in == '0) begin
+                // LTD (classical): post-then-pre – saturate at signed minimum
+                if (weight_signed == MIN_W) begin
                     weight_out <= weight_in;
                     weight_we  <= 1'b0;
                 end else begin
-                    weight_out <= weight_in - 1;
+                    weight_out <= weight_signed - 1;
                     weight_we  <= 1'b1;
                 end
             end else begin
