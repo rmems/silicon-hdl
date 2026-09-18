@@ -326,10 +326,10 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   response bytes 34–35 are that sampled value held for the whole ~3.1 ms
   transmission — not a live view of the switches.
 - `StdpWriteback` closes the STDP loop ([#70](https://github.com/rmems/silicon-hdl/issues/70)):
-  one `StdpController` per post neuron, column snapshot after `tick_done`,
-  serialized `WeightRam` writeback while the PE is idle. SW14 (`learn_en`)
-  gates it; default 0 leaves F1 weights untouched. `StdpController` ±1 is
-  signed Q8.8, saturating at `16'h7FFF` / `16'h8000`.
+  one `StdpController` per post neuron, originating-pre-column snapshot after
+  `tick_done`, serialized `WeightRam` writeback while the PE is idle. SW14
+  (`learn_en`) gates it; default 0 leaves F1 weights untouched.
+  `StdpController` ±1 is signed Q8.8, saturating at `16'h7FFF` / `16'h8000`.
 - TX emits the documented 36 bytes in big-endian order. It asserts `tx_send`
   only when `tx_busy` is low and holds the current byte across stalls. Because
   one 36-byte 115200-baud response takes about 3.125 ms, the FSM keeps one

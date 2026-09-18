@@ -11,9 +11,12 @@
 // tick_done, and spike_bitmap only commits on tick_done.
 //
 // Per-tick contract:
-//   1. step_en latches this tick's pre_spike / input_index (the binary-event
-//      column). Those combos are gone by tick_done — stimuli_pending clears
-//      on the tick edge.
+//   1. step_en latches this tick's pre_spike. input_index is captured only
+//      on a pre event so the column walk follows the originating pre
+//      channel: a later post (or an idle SoC tick that defaults
+//      input_index to 0) must not LTP a different synapse from that
+//      pre-trace. Those combos are gone by tick_done — stimuli_pending
+//      clears on the tick edge.
 //   2. tick_done && learn_en starts a column snapshot: read
 //      weight[neuron][column] for every post neuron (registered RAM latency).
 //   3. One local stdp_tick pulses every StdpController together, so traces
@@ -21,9 +24,11 @@
 //   4. The handoff cycle captures weight_we / weight_out / weight_addr_out
 //      and serializes any writes back into WeightRam while the PE is idle.
 //
-// learn_en is the optional-online-learn gate. When low the engine stays
-// IDLE — no RAM access, traces frozen — so the F1 demo path is unchanged
-// until SW14 (or a TB force) enables it.
+// learn_en is the optional-online-learn gate. It is sampled only in ST_IDLE.
+// When low the engine stays idle — no new RAM access, traces frozen — so
+// the F1 demo path is unchanged until SW14 (or a TB force) enables it. An
+// in-flight walk (tens of fabric cycles) always finishes: ST_UPDATE already
+// advances traces, so aborting ST_WRITEBACK would leave WeightRam stale.
 //
 // Addressing matches LifNeuronArray / docs/lif-array-connectivity-model.md:
 //   addr = neuron_row * NUM_NEURONS + input_column.
@@ -147,7 +152,11 @@ module StdpWriteback #(
         end else begin
             if (step_en) begin
                 pre_q <= pre_spike;
-                col_q <= input_index;
+                // Hold the last pre's column across post-only / idle ticks
+                // so LTP writes the originating synapse, not the PE's
+                // current (or default-0) input_index.
+                if (pre_spike)
+                    col_q <= input_index;
             end
 
             case (state)

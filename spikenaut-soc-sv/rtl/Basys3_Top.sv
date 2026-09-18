@@ -496,8 +496,8 @@ module spikenaut_soc_basys3_top #(
     // STDP writeback (#70)
     // ----------------------------------------------------------------
     // Optional closed-loop learn: SW14 (learn_en) must be high. The engine
-    // instantiates one StdpController per post neuron, snapshots the selected
-    // input column after tick_done (when spike_bitmap is committed), then
+    // instantiates one StdpController per post neuron, snapshots the
+    // originating pre column after tick_done (when spike_bitmap is committed), then
     // serializes any weight_we strobes into WeightRam while the PE is idle.
     // Traces still count logical ticks — the local stdp_tick is one pulse
     // per 1 ms SoC tick, not a fabric-clock update.
