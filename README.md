@@ -39,7 +39,7 @@ Do not invent hex.
 |---|---|---|---|
 | Core primitives | **works** | Signed two's-complement Q8.8 `LifNeuron` / `LifNeuronArray`: Dale-I weights subtract (`0xFF00` = −1.0), leak recovers toward 0 from either side, integrate saturates at `16'h7FFF` / `16'h8000`. `WeightRam`, `NeuronParamRam`, and `OutputLayer` have self-checking Verilator TBs. | [#91](https://github.com/rmems/silicon-hdl/pull/91) / [#73](https://github.com/rmems/silicon-hdl/issues/73) |
 | Basys SoC demo | **partial** | N=16 `spikenaut_soc_basys3_top`: 1 ms `step_en`, `$readmemh` INIT banks, `SocProtocolFsm` host frames, combinational LED mux. Verilator `tb_spikenaut_soc_basys3_top` covers the tick divider and UART-event → tick handoff. Live board evidence is a one-time heartbeat smoke (LED0 blink, DONE high) — **not** a UART host session. | [#68](https://github.com/rmems/silicon-hdl/issues/68) PASS @ `7208d8c`; [`docs/phase-c-board-smoke.md`](docs/phase-c-board-smoke.md) |
-| STDP | **not wired** | `StdpController` is instantiated (classical Bi–Poo polarity) but observes neuron 0 only; `weight_we` / `weight_addr_out` / `weight_out` are left open. Demo-path WeightRam writeback is still open work. | [#55](https://github.com/rmems/silicon-hdl/issues/55) / [#77](https://github.com/rmems/silicon-hdl/pull/77); writeback [#70](https://github.com/rmems/silicon-hdl/issues/70) (open) |
+| STDP | **works (optional)** | `StdpWriteback` instantiates one `StdpController` per post neuron and pulses all controllers during `ST_UPDATE`, while time-multiplexing access to the shared `WeightRam`. SW14 (default 0) is the online-learn gate; signed Q8.8 ±1 saturate at `16'h7FFF` / `16'h8000`. Host `0xA5` weight writes wait for `stdp_busy`. | [#70](https://github.com/rmems/silicon-hdl/issues/70); polarity [#55](https://github.com/rmems/silicon-hdl/issues/55) / [#77](https://github.com/rmems/silicon-hdl/pull/77) |
 | Host UART protocol | **works** | SiliconBridge v3.0: 33-byte `0xAA` request / **36-byte** response / 5-byte `0xA5` RAM write (weight/threshold/leak only). Golden 36-byte frames + `tb_SocFrameGolden` + SoC TB 13b demodulate `uart_tx`. Output class is **not** in the frame. | [#96](https://github.com/rmems/silicon-hdl/pull/96) / [#64](https://github.com/rmems/silicon-hdl/issues/64); `0xA5` [#63](https://github.com/rmems/silicon-hdl/issues/63) |
 | Output-class LEDs | **works** | 3-class argmax of `spike_bitmap` × `merged_v2_output_weights.mem`, latched onto `status_word[15:13]` (SW15 = 1). LED-only; `FRAME_BYTES` stays 36. | [#94](https://github.com/rmems/silicon-hdl/pull/94) / [#72](https://github.com/rmems/silicon-hdl/issues/72); SoC TB 13a |
 | `.mem` INIT banks | **works** | Four signed Q8.8 images loaded at synth/sim: weights, thresholds, decay, output weights. Host `.mem` encoder is signed as of silicon-bridge [#60](https://github.com/rmems/silicon-bridge/pull/60). Golden f32→Q8.8→Verilator traces pin the bank; generators decode committed words only. Runtime `0xA5` cannot rewrite the output-weight bank (`INIT_FILE` is its only load path). | [#95](https://github.com/rmems/silicon-hdl/pull/95) / [#66](https://github.com/rmems/silicon-hdl/issues/66); encoder honesty [#98](https://github.com/rmems/silicon-hdl/pull/98) / [#99](https://github.com/rmems/silicon-hdl/pull/99) |
@@ -49,7 +49,6 @@ Do not invent hex.
 | Non-goal | Why it is out |
 |---|---|
 | Stage-1 axons 5–15 | Bank columns 5–15 are structurally zero (`unused_axons`); not a missing RTL wire. See [`docs/lif-array-connectivity-model.md`](docs/lif-array-connectivity-model.md). |
-| STDP writeback on the demo path | [#70](https://github.com/rmems/silicon-hdl/issues/70) — write ports stay detached. |
 | FPGA↔Julia spike/action parity | [Spikenaut-SNN#6](https://github.com/rmems/Spikenaut-SNN/issues/6) Stage 3 — out of this repo. |
 | Extending `FRAME_BYTES` | 36-byte response is the SiliconBridge v3.0 contract; class bits stay LED-only. |
 | Inventing weights | Retrain/export from the vault / Hub; do not hand-author `.mem` hex. |
@@ -59,7 +58,7 @@ Do not invent hex.
 ```
 silicon-hdl/
 ├── spikenaut-core-sv/         # lib_core  – canonical SNN logic
-│   ├── rtl/                   #   LifNeuron, WeightRam, NeuronParamRam, StdpController
+│   ├── rtl/                   #   LifNeuron, WeightRam, NeuronParamRam, StdpController, StdpWriteback
 │   ├── tb/                    #   Unit testbenches
 │   └── doc/
 ├── spikenaut-soc-sv/          # lib_soc  – SoC wrappers only
@@ -91,6 +90,7 @@ silicon-hdl/
 | `WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` |
 | `NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` |
 | `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` |
+| `StdpWriteback` | `spikenaut-core-sv/rtl/StdpWriteback.sv` |
 | `UartRx` | `spikenaut-bridge-sv/rtl/UartRx.sv` |
 | `UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` |
 | `SiliconBridge` | `spikenaut-bridge-sv/rtl/SiliconBridge.sv` |
@@ -101,7 +101,7 @@ silicon-hdl/
 | `synapse_demo_basys3_top` | `synapse-link-hdl/examples/basys3/Basys3_Top.sv` |
 
 > **Note:** `spikenaut-soc-sv/rtl` does **not** contain copies of core or bridge modules.
-> All build scripts source `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, and `StdpController`
+> All build scripts source `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, `StdpController`, and `StdpWriteback`
 > exclusively from `spikenaut-core-sv/rtl`.
 
 ## Vivado build
@@ -130,6 +130,7 @@ grep -R "module LifNeuron"       . --include="*.sv"  # expect 1 hit
 grep -R "module WeightRam"       . --include="*.sv"  # expect 1 hit
 grep -R "module NeuronParamRam"  . --include="*.sv"  # expect 1 hit
 grep -R "module StdpController"  . --include="*.sv"  # expect 1 hit
+grep -R "module StdpWriteback"   . --include="*.sv"  # expect 1 hit
 grep -R "module UartRx"          . --include="*.sv"  # expect 1 hit
 grep -R "module UartTx"          . --include="*.sv"  # expect 1 hit
 grep -R "module SiliconBridge"   . --include="*.sv"  # expect 1 hit

@@ -100,6 +100,24 @@ for entry in "${TBS[@]}"; do
   fi
 done
 
+# tb_StdpWriteback needs WeightRam + StdpController + StdpWriteback, so it
+# does not fit the single-DUT TBS loop above.
+echo ""
+echo "=== Verilator tb_StdpWriteback ==="
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_StdpWriteback \
+    -Ispikenaut-core-sv/rtl \
+    spikenaut-core-sv/rtl/WeightRam.sv \
+    spikenaut-core-sv/rtl/StdpController.sv \
+    spikenaut-core-sv/rtl/StdpWriteback.sv \
+    spikenaut-core-sv/tb/tb_StdpWriteback.sv \
+  && ./obj_dir/Vtb_StdpWriteback; then
+  record "verilator/tb_StdpWriteback" "PASS"
+else
+  record "verilator/tb_StdpWriteback" "FAIL"
+fi
+
 # tb_OutputLayer needs two DUT files (it drives a real WeightRam), so it does
 # not fit the single-DUT TBS loop above.
 echo ""
@@ -227,6 +245,8 @@ if verilator "${VERILATOR_FLAGS[@]}" \
     spikenaut-core-sv/rtl/WeightRam.sv \
     spikenaut-core-sv/rtl/NeuronParamRam.sv \
     spikenaut-core-sv/rtl/StdpController.sv \
+    spikenaut-core-sv/rtl/StdpWriteback.sv \
+    spikenaut-core-sv/rtl/OutputLayer.sv \
     spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
     spikenaut-soc-sv/rtl/SocStatusLeds.sv \
     spikenaut-soc-sv/rtl/Basys3_Top.sv \

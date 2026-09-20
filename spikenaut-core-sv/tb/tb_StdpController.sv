@@ -140,7 +140,21 @@ module tb_StdpController;
         @(negedge clk);
         check(weight_we == 1'b0, "weight_we deasserts after spike cycle");
 
-        // Saturation at max: LTP at max stays at max and must not assert weight_we
+        // Saturation at signed max: LTP at 16'h7FFF stays put and must not
+        // assert weight_we. 16'hFFFF is signed −1, not max (GH#70 / GH#73).
+        pre_spike = 1'b1;
+        @(negedge clk);
+        pre_spike = 1'b0;
+        @(negedge clk);
+
+        weight_in  = 16'h7FFF;
+        post_spike = 1'b1;
+        @(negedge clk);
+        post_spike = 1'b0;
+        check(weight_out == 16'h7FFF, "saturation: LTP at signed max stays at signed max");
+        check(weight_we == 1'b0, "saturation: weight_we low when LTP at signed max (no change)");
+
+        // Contrast: LTP at 16'hFFFF (−1) must increment toward 0, not freeze.
         pre_spike = 1'b1;
         @(negedge clk);
         pre_spike = 1'b0;
@@ -150,10 +164,24 @@ module tb_StdpController;
         post_spike = 1'b1;
         @(negedge clk);
         post_spike = 1'b0;
-        check(weight_out == 16'hFFFF, "saturation: LTP at max stays at max");
-        check(weight_we == 1'b0, "saturation: weight_we low when LTP at max (no change)");
+        check(weight_out == 16'h0000, "signed LTP: −1 + 1 LSB must reach 0");
+        check(weight_we == 1'b1, "signed LTP: weight_we high when −1 potentiates toward 0");
 
-        // Saturation at zero: LTD at zero stays at zero and must not assert weight_we
+        // Saturation at signed min: LTD at 16'h8000 stays put and must not
+        // assert weight_we. Zero is no longer a floor.
+        post_spike = 1'b1;
+        @(negedge clk);
+        post_spike = 1'b0;
+        @(negedge clk);
+
+        weight_in  = 16'h8000;
+        pre_spike  = 1'b1;
+        @(negedge clk);
+        pre_spike  = 1'b0;
+        check(weight_out == 16'h8000, "saturation: LTD at signed min stays at signed min");
+        check(weight_we == 1'b0, "saturation: weight_we low when LTD at signed min (no change)");
+
+        // Contrast: LTD at 0 must decrement to −1, not freeze at zero.
         post_spike = 1'b1;
         @(negedge clk);
         post_spike = 1'b0;
@@ -163,8 +191,8 @@ module tb_StdpController;
         pre_spike = 1'b1;
         @(negedge clk);
         pre_spike = 1'b0;
-        check(weight_out == 16'd0, "saturation: LTD at zero stays at zero");
-        check(weight_we == 1'b0, "saturation: weight_we low when LTD at zero (no change)");
+        check(weight_out == 16'hFFFF, "signed LTD: 0 − 1 LSB must reach −1");
+        check(weight_we == 1'b1, "signed LTD: weight_we high when 0 depresses to −1");
 
         // step_en=0: pre_spike must not load pre_trace (no LTP on later post)
         rst_n      = 1'b0;

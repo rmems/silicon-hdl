@@ -30,7 +30,7 @@ create_project -force $project_name $project_dir -part $part
 # sourced ONLY from their lib dirs, never copied into soc-sv/rtl or examples).
 # Full list (traced from build order + insts in Basys3_Top + XDC):
 #   bridge: UartRx.sv UartTx.sv SiliconBridge.sv (spikenaut-bridge-sv/rtl)
-#   core:   LifNeuron.sv LifNeuronArray.sv WeightRam.sv NeuronParamRam.sv StdpController.sv OutputLayer.sv (spikenaut-core-sv/rtl)
+#   core:   LifNeuron.sv LifNeuronArray.sv WeightRam.sv NeuronParamRam.sv StdpController.sv StdpWriteback.sv OutputLayer.sv (spikenaut-core-sv/rtl)
 #   mem:    merged_v2_{weights,thresholds,decay,output_weights}.mem (spikenaut-core-sv/mem) — E2 / #72 INIT
 #   soc:    SocProtocolFsm.sv SocStatusLeds.sv Basys3_Top.sv (spikenaut-soc-sv/rtl)  -- top=spikenaut_soc_basys3_top
 #   xdc:    constraints/basys3.xdc (shared ports) + constraints/basys3_soc.xdc (SoC-only sw)
@@ -62,6 +62,7 @@ read_verilog -sv [list \
     [file join $core_rtl WeightRam.sv]       \
     [file join $core_rtl NeuronParamRam.sv]  \
     [file join $core_rtl StdpController.sv]  \
+    [file join $core_rtl StdpWriteback.sv]   \
     [file join $core_rtl OutputLayer.sv]     \
 ]
 
