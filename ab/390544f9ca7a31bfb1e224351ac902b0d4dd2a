@@ -1,0 +1,28 @@
+.gitignore
+  ai_agent 86-92
+.beads/.gitignore
+  ai_agent 1-77
+.beads/metadata.json
+  ai_agent 1-7
+.beads/config.yaml
+  s_5209decdcb07dd::t_895f933a8d9145 1-3
+  ai_agent 4-5
+.beads/README.md
+  ai_agent 1-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ab390544f9ca7a31bfb1e224351ac902b0d4dd2a",
+  "prompts": {},
+  "sessions": {
+    "s_5209decdcb07dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c1c1-c9ec-73c0-b33e-2e1613e41fc3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
