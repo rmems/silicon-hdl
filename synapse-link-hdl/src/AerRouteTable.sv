@@ -25,6 +25,7 @@ module AerRouteTable #(
     input  logic [15:0]           cfg_data
 );
     localparam int HOP_COUNT_WIDTH = (MAX_HOPS > 1) ? $clog2(MAX_HOPS) : 1;
+    localparam int ENTRY_INDEX_WIDTH = (ENTRY_COUNT > 1) ? $clog2(ENTRY_COUNT) : 1;
 
     logic [15:0] route_mem [0:ENTRY_COUNT-1];
     logic [ADDR_WIDTH-1:0] current_addr;
@@ -59,16 +60,25 @@ module AerRouteTable #(
         if (MAX_HOPS < 1) begin : gen_bad_max_hops
             $error("AerRouteTable: MAX_HOPS (%0d) must be at least one", MAX_HOPS);
         end
+
+        // ADDR_WIDTH=14 consumes every bit below terminal, so there is no
+        // reserved field to validate. Keep this as an elaboration-time branch:
+        // a part-select such as [13:14] would instead include the terminal bit.
+        if (ADDR_WIDTH == 14) begin : gen_no_reserved_bits
+            assign cfg_reserved_clear     = 1'b1;
+            assign current_reserved_clear = 1'b1;
+        end else begin : gen_reserved_bits
+            assign cfg_reserved_clear     = !(|cfg_data[13:ADDR_WIDTH]);
+            assign current_reserved_clear = !(|current_entry[13:ADDR_WIDTH]);
+        end
     endgenerate
 
     always_comb begin
         current_addr_valid = (current_addr < ENTRY_COUNT);
         cfg_addr_valid     = (cfg_addr < ENTRY_COUNT);
-        cfg_reserved_clear = !(|cfg_data[13:ADDR_WIDTH]);
         current_entry      = '0;
         if (current_addr_valid)
-            current_entry = route_mem[current_addr];
-        current_reserved_clear = !(|current_entry[13:ADDR_WIDTH]);
+            current_entry = route_mem[current_addr[ENTRY_INDEX_WIDTH-1:0]];
     end
 
     // Configuration owns the idle cycle in which cfg_we is asserted, so a
@@ -110,7 +120,7 @@ module AerRouteTable #(
                 end
             end else if (cfg_we) begin
                 if (cfg_addr_valid && cfg_reserved_clear)
-                    route_mem[cfg_addr] <= cfg_data;
+                    route_mem[cfg_addr[ENTRY_INDEX_WIDTH-1:0]] <= cfg_data;
                 else
                     route_fault <= 1'b1;
             end else if (in_valid) begin

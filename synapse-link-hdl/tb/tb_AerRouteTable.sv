@@ -30,6 +30,16 @@ module tb_AerRouteTable #(
     logic [ADDR_WIDTH-1:0] init_out_addr;
     logic                  init_busy;
     logic                  init_route_fault;
+    logic                  wide_in_valid;
+    logic                  wide_in_ready;
+    logic [13:0]           wide_in_addr;
+    logic                  wide_out_valid;
+    logic [13:0]           wide_out_addr;
+    logic                  wide_busy;
+    logic                  wide_route_fault;
+    logic                  wide_cfg_we;
+    logic [13:0]           wide_cfg_addr;
+    logic [15:0]           wide_cfg_data;
 
     int errors = 0;
 
@@ -52,6 +62,27 @@ module tb_AerRouteTable #(
         .cfg_we     (cfg_we),
         .cfg_addr   (cfg_addr),
         .cfg_data   (cfg_data)
+    );
+
+    // Boundary instance: with ADDR_WIDTH=14 there are no reserved bits below
+    // terminal. This catches accidental [13:14] checks that reject bit 14.
+    AerRouteTable #(
+        .ADDR_WIDTH (14),
+        .ENTRY_COUNT(2),
+        .MAX_HOPS   (MAX_HOPS)
+    ) wide_dut (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .in_valid   (wide_in_valid),
+        .in_ready   (wide_in_ready),
+        .in_addr    (wide_in_addr),
+        .out_valid  (wide_out_valid),
+        .out_addr   (wide_out_addr),
+        .busy       (wide_busy),
+        .route_fault(wide_route_fault),
+        .cfg_we     (wide_cfg_we),
+        .cfg_addr   (wide_cfg_addr),
+        .cfg_data   (wide_cfg_data)
     );
 
     AerRouteTable #(
@@ -167,6 +198,11 @@ module tb_AerRouteTable #(
         cfg_data = '0;
         init_in_valid = 1'b0;
         init_in_addr  = '0;
+        wide_in_valid = 1'b0;
+        wide_in_addr  = '0;
+        wide_cfg_we   = 1'b0;
+        wide_cfg_addr = '0;
+        wide_cfg_data = '0;
 
         repeat (3) @(negedge clk);
         rst_n = 1'b1;
@@ -174,6 +210,25 @@ module tb_AerRouteTable #(
 
         check(in_ready && !busy && !out_valid && !route_fault,
               "reset must leave the router idle and ready");
+
+        // At the maximum supported address width, bit 14 remains terminal;
+        // there is no reserved field, so this write and route must succeed.
+        wide_cfg_addr = 14'd0;
+        wide_cfg_data = {1'b1, 1'b1, 14'd1};
+        wide_cfg_we   = 1'b1;
+        @(negedge clk);
+        wide_cfg_we   = 1'b0;
+        check(!wide_route_fault,
+              "ADDR_WIDTH=14 terminal write must not be rejected as reserved");
+        wide_in_addr  = 14'd0;
+        wide_in_valid = 1'b1;
+        @(negedge clk);
+        wide_in_valid = 1'b0;
+        while (!wide_out_valid && !wide_route_fault)
+            @(negedge clk);
+        check(wide_out_valid && !wide_route_fault && wide_out_addr == 14'd1,
+              "ADDR_WIDTH=14 terminal entry must route successfully");
+        @(negedge clk);
 
         // The generated fixture differs from the built-in identity fallback,
         // so 0 -> 2 proves $readmemh actually populated this second instance.
