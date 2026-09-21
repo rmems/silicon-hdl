@@ -16,10 +16,12 @@ depend on Rust or nir-rs.
 | silicon-bridge | Optionally lower validated NIR plus an explicit hardware route plan into a silicon-hdl-v3 + aer-route-v1 bundle; encode route entries and provide target-3 runtime writes |
 | silicon-hdl | Load and consume the 16-word route image, expose safe runtime writes, route the selected ingress lane before LIF/STDP, and prove the implementation in simulation, Vivado, and on Basys 3 |
 
-Standard NIR edges do not describe physical FPGA hops. The current feed-forward
-Spikenaut graph has canonical input ordering and therefore lowers honestly to
-identity routing. The synthetic 0 -> 1 -> 2 case proves a hardware capability;
-it is not claimed to be topology extracted from that graph.
+Standard NIR edges do not describe physical FPGA hops. The committed identity
+image in this repository is only the silicon-hdl reset/default fixture; it was
+not produced from a `nir-rs` `NirGraph` and carries no Spikenaut provenance.
+The future producer may lower the current feed-forward graph to identity after
+validating that graph and recording its provenance. The synthetic 0 -> 1 -> 2
+case proves a hardware capability; it is not topology extracted from NIR.
 
 ## Entry ABI
 
@@ -33,8 +35,10 @@ budget is four lookups.
 | 13:4 | reserved | Must be zero; a runtime write or lookup with any bit set fails closed |
 | 3:0 | next_addr | Address delivered or used for the next lookup |
 
-Identity entry i is 0xC000 OR i. The committed generated image is
+Identity entry i is 0xC000 OR i. The committed default image is
 synapse-link-hdl/mem/aer_routes_identity_n16.mem with matching JSON metadata.
+Its metadata explicitly records `nir_derived: false`; it is not a substitute
+for the pending silicon-bridge/Spikenaut producer artifact.
 Regenerate it only through:
 
     python3 scripts/gen_aer_route_vectors.py
@@ -127,4 +131,3 @@ real 36-byte response matches the simulator/golden expectation, synthetic
 0 -> 1 -> 2 changes the observed computation as predicted, and invalid/cyclic
 routes produce a normal response plus sticky LD3 that clears on the next valid
 frame. A bitstream build or heartbeat-only smoke does not satisfy that gate.
-

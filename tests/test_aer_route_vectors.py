@@ -83,8 +83,10 @@ def test_metadata_pins_the_hardware_abi_and_image_digest() -> None:
     assert metadata["max_hops"] == 4
     assert metadata["route_file"] == ROUTE_IMAGE.name
     assert metadata["sha256"] == canonical_digest(words)
-    assert metadata["origin"]["kind"] == "canonical-nir-input-order"
+    assert metadata["origin"]["kind"] == "silicon-hdl-default"
     assert metadata["origin"]["routing"] == "identity"
+    assert metadata["origin"]["nir_derived"] is False
+    assert "no NIR source graph" in metadata["origin"]["claim"]
 
 
 def test_encoder_rejects_reserved_bits_and_out_of_range_addresses() -> None:

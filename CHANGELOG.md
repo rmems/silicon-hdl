@@ -16,9 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     entries, four-bit ready/valid source and result, one event in flight,
     MAX_HOPS=4, fail-closed invalid/reserved/hop-limit behavior, runtime
     configuration, and optional INIT_FILE.
-  - Generated identity image and metadata under synapse-link-hdl/mem/,
-    reproduced by scripts/gen_aer_route_vectors.py --check and Python
-    contract tests.
+  - Generated default identity image and metadata under synapse-link-hdl/mem/,
+    reproduced by scripts/gen_aer_route_vectors.py --check and Python contract
+    tests. Metadata explicitly records that this repository-local fallback is
+    not NIR-derived and has no Spikenaut producer provenance.
   - Unit coverage for all identity addresses, two/three/four-lookup routes,
     invalid entries, self and multi-entry cycles, malformed writes, active
     lookup collisions, immediate rewrites, and back-to-back ready/valid use.

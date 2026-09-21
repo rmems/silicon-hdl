@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // GENERATED FILE -- do not edit by hand.
 // Regenerate: python3 scripts/gen_aer_route_vectors.py
-// aer-route-v1 identity image for canonical NIR input ordering.
+// aer-route-v1 default identity image; not derived from NIR.
 C000
 C001
 C002

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Generate the canonical N=16 identity image for the aer-route-v1 ABI.
+"""Generate the silicon-hdl default N=16 identity aer-route-v1 image.
 
-The current Spikenaut feed-forward graph has canonical input ordering but no
-physical nonidentity route plan, so its honest hardware lowering is identity.
-Synthetic multi-hop capability is exercised by RTL tests and board writes; it
-is not encoded into this model-derived image.
+This repository-local fallback is not derived from a NIR graph.  A producer
+such as silicon-bridge must replace it with a provenance-bearing image before
+an end-to-end NIR-to-hardware claim is made.
 """
 
 from __future__ import annotations
@@ -77,7 +76,7 @@ def _emit_to(output_dir: Path) -> None:
         "// SPDX-License-Identifier: MIT OR Apache-2.0\n"
         "// GENERATED FILE -- do not edit by hand.\n"
         "// Regenerate: python3 scripts/gen_aer_route_vectors.py\n"
-        "// aer-route-v1 identity image for canonical NIR input ordering.\n"
+        "// aer-route-v1 default identity image; not derived from NIR.\n"
     )
     body = "".join(f"{word:04X}\n" for word in words)
     (output_dir / IMAGE_NAME).write_text(banner + body)
@@ -101,11 +100,12 @@ def _emit_to(output_dir: Path) -> None:
         "route_file": IMAGE_NAME,
         "sha256": canonical_digest(words),
         "origin": {
-            "kind": "canonical-nir-input-order",
+            "kind": "silicon-hdl-default",
             "routing": "identity",
+            "nir_derived": False,
             "claim": (
-                "Identity ordering is the lowering for the current feed-forward "
-                "Spikenaut graph; it does not claim NIR edges encode FPGA hops."
+                "Repository-local fallback with no NIR source graph or producer "
+                "provenance; do not present it as a NIR-derived artifact."
             ),
         },
     }
