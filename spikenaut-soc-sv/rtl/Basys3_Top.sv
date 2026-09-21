@@ -232,7 +232,10 @@ module spikenaut_soc_basys3_top #(
                 route_lookup_pending  <= 1'b1;
             end
 
-            if (route_out_valid) begin
+            // Ignore a completion from a lookup that a newer accepted frame
+            // superseded. The router still drains that old lookup, but only a
+            // result associated with the frame we are awaiting may resolve it.
+            if (route_out_valid && route_lookup_pending) begin
                 route_lookup_pending <= 1'b0;
                 route_resolved       <= 1'b1;
                 route_drop_pending   <= 1'b0;

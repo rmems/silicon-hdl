@@ -1132,6 +1132,9 @@ module tb_spikenaut_soc_basys3_top #(
         begin
             int unsigned response_before;
             int unsigned cfg_before;
+            logic [3:0] routed_before;
+            logic resolved_before;
+            logic drop_before;
 
             // The top-level high-address gate and the route table's reserved
             // bit validation are distinct failure sources. Exercise both
@@ -1171,6 +1174,24 @@ module tb_spikenaut_soc_basys3_top #(
                   "test 12b: target-3 write must program route entry 0");
             check(dut.u_aer_router.route_mem[1] === 16'hC002,
                   "test 12b: target-3 write must program route entry 1");
+
+            // A drained/superseded lookup may still pulse the router output.
+            // With no lookup associated with the pending frame, that stale
+            // completion must not mutate the SoC handoff state.
+            check(dut.route_lookup_pending === 1'b0,
+                  "test 12b: stale-result guard precondition must be idle");
+            routed_before   = dut.routed_input_index;
+            resolved_before = dut.route_resolved;
+            drop_before     = dut.route_drop_pending;
+            force dut.route_out_valid = 1'b1;
+            force dut.route_out_addr = 4'd9;
+            @(negedge clk);
+            release dut.route_out_valid;
+            release dut.route_out_addr;
+            check(dut.route_resolved === resolved_before &&
+                  dut.route_drop_pending === drop_before &&
+                  dut.routed_input_index === routed_before,
+                  "test 12b: stale route result must be ignored without a pending lookup");
 
             expected_input_index = 4'd2;
             response_before = frame_send_count;
