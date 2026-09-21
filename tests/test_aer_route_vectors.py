@@ -94,6 +94,51 @@ def test_encoder_rejects_reserved_bits_and_out_of_range_addresses() -> None:
         gen.encode_entry(valid=True, terminal=True, next_addr=0, reserved=1)
     with pytest.raises(ValueError, match="next_addr"):
         gen.encode_entry(valid=True, terminal=True, next_addr=16)
+    with pytest.raises(ValueError, match="next_addr"):
+        gen.encode_entry(valid=True, terminal=True, next_addr=-1)
+
+
+def test_emitter_writes_complete_reproducible_bundle(tmp_path: Path) -> None:
+    gen._emit_to(tmp_path)
+
+    assert read_words(tmp_path / gen.IMAGE_NAME) == gen.identity_words()
+    assert read_words(tmp_path / gen.TEST_IMAGE_NAME) == gen.test_multihop_words()
+    metadata = json.loads((tmp_path / gen.METADATA_NAME).read_text())
+    assert metadata["sha256"] == gen.canonical_digest(gen.identity_words())
+    assert metadata["origin"]["nir_derived"] is False
+
+
+def test_check_committed_detects_and_reports_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(gen, "DEFAULT_OUTPUT_DIR", tmp_path)
+    gen._emit_to(tmp_path)
+    assert gen.check_committed() == 0
+    assert "artifacts are current" in capsys.readouterr().out
+
+    (tmp_path / gen.IMAGE_NAME).write_text("stale\n")
+    assert gen.check_committed() == 1
+    output = capsys.readouterr().out
+    assert gen.IMAGE_NAME in output
+    assert "gen_aer_route_vectors.py" in output
+
+
+def test_main_covers_check_and_write_modes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(gen, "DEFAULT_OUTPUT_DIR", tmp_path)
+    gen._emit_to(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["gen_aer_route_vectors.py", "--check"])
+    assert gen.main() == 0
+
+    destination = tmp_path / "written"
+    monkeypatch.setattr(gen, "DEFAULT_OUTPUT_DIR", destination)
+    monkeypatch.setattr(sys, "argv", ["gen_aer_route_vectors.py"])
+    assert gen.main() == 0
+    output = capsys.readouterr().out
+    assert str(destination / gen.IMAGE_NAME) in output
+    assert str(destination / gen.METADATA_NAME) in output
+    assert str(destination / gen.TEST_IMAGE_NAME) in output
 
 
 def test_generated_files_are_marked_and_spdx_licensed() -> None:
