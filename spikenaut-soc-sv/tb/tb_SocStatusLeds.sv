@@ -24,6 +24,7 @@ module tb_SocStatusLeds;
     logic rx_busy;
     logic rx_commit;
     logic rx_abort;
+    logic route_fault;
     logic tx_frame_active;
     logic stimuli_pending;
     logic response_armed;
@@ -47,6 +48,7 @@ module tb_SocStatusLeds;
         .rx_busy         (rx_busy),
         .rx_commit       (rx_commit),
         .rx_abort        (rx_abort),
+        .route_fault     (route_fault),
         .tx_frame_active (tx_frame_active),
         .stimuli_pending (stimuli_pending),
         .response_armed  (response_armed),
@@ -76,6 +78,7 @@ module tb_SocStatusLeds;
             rx_busy          = 1'b0;
             rx_commit        = 1'b0;
             rx_abort         = 1'b0;
+            route_fault      = 1'b0;
             tx_frame_active  = 1'b0;
             stimuli_pending  = 1'b0;
             response_armed   = 1'b0;
@@ -140,7 +143,7 @@ module tb_SocStatusLeds;
             word[0]     = dut.tick_cnt[8];
             word[1]     = dut.rx_busy_held;
             word[2]     = dut.rx_commit_held;
-            word[3]     = dut.abort_sticky;
+            word[3]     = dut.ingress_fault_sticky;
             word[4]     = dut.tx_frame_held;
             word[5]     = dut.stimuli_pending_held;
             word[6]     = dut.response_armed_held;
@@ -157,7 +160,8 @@ module tb_SocStatusLeds;
 
         repeat (3) @(negedge clk);
         check(led === '0, "reset: spike-mode LED must be clear");
-        check(dut.abort_sticky === 1'b0, "reset: abort_sticky must be clear");
+        check(dut.ingress_fault_sticky === 1'b0,
+              "reset: ingress_fault_sticky must be clear");
         check(dut.tick_cnt === '0, "reset: tick_cnt must be clear");
         rst_n = 1'b1;
         @(negedge clk);
@@ -205,12 +209,14 @@ module tb_SocStatusLeds;
         check(led[12:8] === 5'd3, "status[12:8] must count ones in spike_hold");
         check(led[15:13] === 3'b000, "reserved status[15:13] must stay 0");
 
-        // Stretch clear drops held flags and spike_hold, not abort_sticky.
+        // Protocol abort and AER route failures share the sticky ingress-fault
+        // indicator. The stretch window must not erase either cause.
         @(negedge clk);
         rx_abort = 1'b1;
         @(negedge clk);
         rx_abort = 1'b0;
-        check(dut.abort_sticky === 1'b1, "rx_abort must set abort_sticky");
+        check(dut.ingress_fault_sticky === 1'b1,
+              "rx_abort must set ingress_fault_sticky");
         wait_stretch_tick();
         @(negedge clk);
         check(dut.rx_busy_held === 1'b0, "stretch_tick must clear rx_busy_held");
@@ -221,17 +227,44 @@ module tb_SocStatusLeds;
         check(dut.response_armed_held === 1'b0,
               "stretch_tick must clear response_armed_held");
         check(dut.spike_hold === '0, "stretch_tick must clear spike_hold");
-        check(dut.abort_sticky === 1'b1,
-              "stretch_tick must not clear abort_sticky");
-        check(led[3] === 1'b1, "status[3] must remain abort_sticky through stretch");
+        check(dut.ingress_fault_sticky === 1'b1,
+              "stretch_tick must not clear ingress_fault_sticky");
+        check(led[3] === 1'b1,
+              "status[3] must remain ingress_fault_sticky through stretch");
 
-        // abort_sticky clears only on rx_commit (or reset).
+        // ingress_fault_sticky clears only on rx_commit (or reset).
         @(negedge clk);
         rx_commit = 1'b1;
         @(negedge clk);
         rx_commit = 1'b0;
-        check(dut.abort_sticky === 1'b0, "rx_commit must clear abort_sticky");
+        check(dut.ingress_fault_sticky === 1'b0,
+              "rx_commit must clear ingress_fault_sticky");
         check(led[3] === 1'b0, "status[3] must fall after rx_commit");
+
+        @(negedge clk);
+        route_fault = 1'b1;
+        @(negedge clk);
+        route_fault = 1'b0;
+        check(dut.ingress_fault_sticky === 1'b1,
+              "route_fault must set ingress_fault_sticky");
+        check(led[3] === 1'b1, "status[3] must expose a route fault");
+
+        // Fault-set wins if a route failure coincides with the next accepted
+        // stimulus frame; otherwise the diagnostic could disappear unseen.
+        @(negedge clk);
+        rx_commit   = 1'b1;
+        route_fault = 1'b1;
+        @(negedge clk);
+        rx_commit   = 1'b0;
+        route_fault = 1'b0;
+        check(dut.ingress_fault_sticky === 1'b1,
+              "route_fault must win over simultaneous rx_commit clear");
+        @(negedge clk);
+        rx_commit = 1'b1;
+        @(negedge clk);
+        rx_commit = 1'b0;
+        check(dut.ingress_fault_sticky === 1'b0,
+              "a later accepted stimulus must clear the route fault");
 
         // Heartbeat is tick_cnt[8] after 256 step_en increments (~1.95 Hz).
         check(dut.tick_cnt === '0, "heartbeat test must start from a clear tick_cnt");

@@ -11,7 +11,8 @@
 // 0xAA stimulus and does not need a parallel HostWriteFsm on the same byte
 // pipe):
 //   [0]    = 0xA5                 write sync
-//   [1]    = target               0=WeightRam, 1=threshold, 2=leak
+//   [1]    = target               0=WeightRam, 1=threshold, 2=leak,
+//                                  3=AER route table
 //   [2]    = addr                 8-bit RAM address
 //   [3:4]  = Q8.8 data            big-endian, same packing as stimulus words
 // A complete write pulses wr_en for one fabric cycle.  Invalid targets and
@@ -62,8 +63,8 @@ module SocProtocolFsm #(
     input  logic                                 frame_send,
 
     // Host RAM write path (#63).  wr_en is a one-cycle strobe after a
-    // complete 0xA5 frame with target 0/1/2.  The SoC muxes these onto the
-    // RAM write ports and returns addr to the PE read path when wr_en is low.
+    // complete 0xA5 frame with target 0/1/2/3. The SoC muxes these onto the
+    // RAM and AER configuration ports and restores the read paths afterward.
     output logic                                 wr_en,
     output logic [1:0]                           wr_target,
     output logic [7:0]                           wr_addr,
@@ -81,7 +82,7 @@ module SocProtocolFsm #(
     localparam int WRITE_PAYLOAD_BYTES = 4;
     localparam int MAX_RX_PAYLOAD_BYTES =
         (PAYLOAD_BYTES > WRITE_PAYLOAD_BYTES) ? PAYLOAD_BYTES : WRITE_PAYLOAD_BYTES;
-    localparam logic [7:0] WR_TARGET_MAX = 8'd2;
+    localparam logic [7:0] WR_TARGET_MAX = 8'd3;
     localparam int FRAME_BYTES    = PAYLOAD_BYTES + (2 * BYTES_PER_WORD);
     localparam int RX_COUNT_WIDTH = (MAX_RX_PAYLOAD_BYTES > 1)
         ? $clog2(MAX_RX_PAYLOAD_BYTES) : 1;
@@ -208,7 +209,7 @@ module SocProtocolFsm #(
 
                 // Collect target, addr, data_hi, data_lo.  Mid-payload 0xAA
                 // or 0xA5 is legal data, never a resync.  The last byte both
-                // assembles wr_* and pulses wr_en when the target is 0/1/2.
+                // assembles wr_* and pulses wr_en when the target is 0/1/2/3.
                 RX_WRITE_COLLECT: begin
                     if (rx_valid) begin
                         rx_idle_count <= '0;

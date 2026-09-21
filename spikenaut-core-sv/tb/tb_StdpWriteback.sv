@@ -89,6 +89,17 @@ module tb_StdpWriteback;
         end
     endtask
 
+    task automatic check_word(
+        input logic [DATA_WIDTH-1:0] actual,
+        input logic [DATA_WIDTH-1:0] expected,
+        input string msg
+    );
+        if (actual !== expected) begin
+            errors++;
+            $display("FAIL: %s (expected %0d, got %0d)", msg, expected, actual);
+        end
+    endtask
+
     task automatic pulse_tick(
         input logic                pre,
         input logic [NUM_NEURONS-1:0] post
@@ -168,8 +179,8 @@ module tb_StdpWriteback;
         // LTP: post while pre_trace is live.
         pulse_tick(1'b0, NUM_NEURONS'(1 << POST_N));
         wait_idle();
-        check(u_wram.mem[SYN_ADDR] == 16'd101,
-              "LTP: selected synapse must increment by 1 LSB");
+        check_word(u_wram.mem[SYN_ADDR], 16'd101,
+                   "LTP: selected synapse must increment by 1 LSB");
         check(u_wram.mem[OTHER_ADDR] == 16'd50,
               "LTP: a neuron that did not spike must not change");
 
@@ -195,8 +206,8 @@ module tb_StdpWriteback;
         wait_idle();
         pulse_tick(1'b1, NUM_NEURONS'(1 << POST_N));
         wait_idle();
-        check(u_wram.mem[SYN_ADDR] == 16'd101,
-              "same-tick pre+post with live pre_trace must LTP, not LTD");
+        check_word(u_wram.mem[SYN_ADDR], 16'd101,
+                   "same-tick pre+post with live pre_trace must LTP, not LTD");
 
         // Pre-trace is still live on COL. Selecting a different input
         // channel and posting must LTP the originating pre column, not
@@ -205,8 +216,8 @@ module tb_StdpWriteback;
         input_index = INDEX_WIDTH'(SWITCH_COL);
         pulse_tick(1'b0, NUM_NEURONS'(1 << POST_N));
         wait_idle();
-        check(u_wram.mem[SYN_ADDR] == 16'd102,
-              "LTP after a column switch must follow the originating pre column");
+        check_word(u_wram.mem[SYN_ADDR], 16'd102,
+                   "LTP after a column switch must follow the originating pre column");
         check(u_wram.mem[SWITCH_ADDR] == 16'd70,
               "LTP after a column switch must not write the newly selected column");
         input_index = INDEX_WIDTH'(COL);
@@ -215,8 +226,8 @@ module tb_StdpWriteback;
         learn_en = 1'b0;
         pulse_tick(1'b0, NUM_NEURONS'(1 << POST_N));
         check(busy == 1'b0, "learn_en falling must leave the engine idle");
-        check(u_wram.mem[SYN_ADDR] == 16'd102,
-              "learn_en falling must freeze the last written weight");
+        check_word(u_wram.mem[SYN_ADDR], 16'd102,
+                   "learn_en falling must freeze the last written weight");
 
         if (errors == 0) begin
             $display("TB_STDPWRITEBACK: ALL TESTS PASSED");

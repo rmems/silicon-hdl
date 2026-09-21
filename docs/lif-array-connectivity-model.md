@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-13 -->
+<!-- Last updated: 2026-09-20 -->
 
 # N=16 PE connectivity model
 
@@ -18,7 +18,7 @@ neurons.
 | --- | --- |
 | Weight matrix shape | `weight[neuron][channel]`, flattened `neuron * NUM_NEURONS + channel` |
 | `address_neuron` | The neuron currently being updated (destination) |
-| `address_input` / `input_index` | The selected **external input channel**, not another neuron's index |
+| `address_input` / `input_index` | The routed **external input channel**, not another neuron's index |
 | Recurrence | **None.** No signal path exists from `spike_bitmap` back into `input_index` anywhere in `spikenaut_soc_basys3_top` |
 | Addressing formula | `weight_addr = address_neuron * NUM_NEURONS + address_input` — **already correct** for this model; no RTL change needed |
 
@@ -53,10 +53,11 @@ actual SoC wiring, that reading doesn't hold:
   the pattern only makes sense as "11 unused external channels," not as
   "neurons 5-15 never fire."
 - **The wired SoC has no feedback path to create recurrence anyway.**
-  `spikenaut_soc_basys3_top` derives `stimulus_input_index` (and therefore
-  `input_index`) purely by decoding the host's `0xAA` stimulus frame
-  (`protocol_stimuli`) — never from `spike_bitmap`. `spike_bitmap` only feeds
-  the host readback (`spike_flags`) and `StdpWriteback.post_spikes` (GH#70). A
+  `spikenaut_soc_basys3_top` derives the source lane purely by decoding the
+  host's `0xAA` stimulus frame (`protocol_stimuli`), then resolves that
+  external address through `AerRouteTable` before driving `input_index` —
+  never from `spike_bitmap`. `spike_bitmap` feeds host readback and
+  `StdpWriteback.post_spikes`, but never the route source. A
   neuron's own spike can never select `input_index` for any neuron's next
   read, so "neuron 6 fires and broadcasts to column 6" cannot occur as
   described in the original #92 report.
@@ -65,6 +66,16 @@ Given that, a Dale-inhibitory row's genuine negative weights (columns 0-4)
 are reachable exactly like every other row's: whenever the host's stimulus
 frame selects one of the 5 legal channels. There is no addressing bug and no
 transpose needed.
+
+## AER selection does not add recurrence
+
+RM-259 inserts a bounded address transform between lowest-active-lane decode
+and the PE/STDP consumers. For example, a synthetic table may route source 0
+through entry 1 and deliver external channel 2. That changes which column of
+every neuron's external-input row is selected; it does not feed a neuron's
+output spike back as an input and it does not reinterpret the matrix as a
+neuron-to-neuron adjacency matrix. See
+[`aer-routing-contract.md`](aer-routing-contract.md).
 
 ## Non-goals
 

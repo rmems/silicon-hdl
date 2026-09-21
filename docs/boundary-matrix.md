@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-06 -->
+<!-- Last updated: 2026-09-20 -->
 
 # silicon-hdl runtime / deployment boundary matrix
 
@@ -30,11 +30,11 @@ deduplicated, Vivado-ready SystemVerilog monorepo of neuromorphic / spiking-neur
 It provides:
 
 1. **Canonical RTL** for SNN compute (`LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`,
-   `StdpController`)
+   `StdpController`, `StdpWriteback`)
 2. **On-chip communication primitives** (`UartRx`, `UartTx`, `SiliconBridge`) that the
    host-side `silicon-bridge` crate talks to over UART
 3. **Thin board tops** only (`spikenaut_soc_basys3_top`, `synapse_demo_basys3_top`) plus
-   AER routing (`SynapseRouter`)
+   AER routing (`AerRouteTable` for the main SoC; `SynapseRouter` for the standalone demo)
 4. **Build / sim / quality tooling** for Verilator iteration and optional Vivado synth /
    bitstream (no assumption of a local Vivado license)
 
@@ -66,16 +66,16 @@ training / runtime crates (Rust)
 Within `silicon-hdl`, library ownership is fixed and compile-order constrained:
 
 ```text
-lib_bridge  →  lib_core  →  lib_soc / lib_synapse
- (UART)        (SNN)        (thin tops / AER demo)
+lib_bridge + lib_core + lib_synapse  →  lib_soc
+       (UART / SNN / AER)               (thin SoC top)
 ```
 
 | Library | Path | Contents |
 |---------|------|----------|
-| `lib_core` | `spikenaut-core-sv/rtl` | `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, `StdpController`, `StdpWriteback`, `OutputLayer` |
+| `lib_core` | `spikenaut-core-sv/rtl` | `LifNeuron`, `LifNeuronArray`, `WeightRam`, `NeuronParamRam`, `StdpController`, `StdpWriteback` |
 | `lib_bridge` | `spikenaut-bridge-sv/rtl` | `UartRx`, `UartTx`, `SiliconBridge` |
 | `lib_soc` | `spikenaut-soc-sv/rtl` | `SocProtocolFsm` application codec, `SocStatusLeds` LED/status mux, and Basys 3 SoC top (`spikenaut_soc_basys3_top`) |
-| `lib_synapse` | `synapse-link-hdl/src` | `SynapseRouter`; demo top `synapse_demo_basys3_top` |
+| `lib_synapse` | `synapse-link-hdl/src` | Canonical bounded `AerRouteTable`; identity-only `SynapseRouter` remains for `synapse_demo_basys3_top` |
 
 Single-source-of-truth rule: no module is defined in more than one place (enforced by the
 Deduplication Guardian). SoC and demo wrappers **instantiate** core/bridge modules; they
@@ -90,11 +90,11 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 | Capability | On `main` | Tracker |
 |------------|-----------|---------|
 | Elaboration / bitstream `.mem` init | **Wired** — `INIT_FILE` `$readmemh` on `WeightRam` / `NeuronParamRam`; SoC defaults to `spikenaut-core-sv/mem/merged_v2_{weights,thresholds,decay}.mem`; `scripts/build_soc.tcl` overrides with absolute paths | [#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52) (E1/E2) |
-| Runtime RAM write (UART / host rewrite) | **On** — `SocProtocolFsm` `0xA5` frames pulse `we` on `WeightRam` and both `NeuronParamRam` instances; PE read addr is restored when idle; `INIT_FILE` remains the cold start | [#63](https://github.com/rmems/silicon-hdl/issues/63) |
-| RAM address used by the PE | **Swept** — threshold/leak addresses walk `0..15`; the flattened weight address is `neuron_row * 16 + input_index`, where `input_index` is an **external input channel** (never another neuron's index — there is no neuron-to-neuron recurrence in this design). #62 selects the lowest active decoded host lane, so the binary-event SoC path can walk any one input channel across all 16 rows. See [`docs/lif-array-connectivity-model.md`](lif-array-connectivity-model.md) (#92) | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#92](https://github.com/rmems/silicon-hdl/issues/92) |
+| Runtime RAM/route write (UART / host rewrite) | **On** — `SocProtocolFsm` `0xA5` targets 0/1/2 update weight/threshold/leak and target 3 updates the AER table; unsafe/malformed route writes fail closed; `INIT_FILE` remains the cold start | [#63](https://github.com/rmems/silicon-hdl/issues/63) / [#71](https://github.com/rmems/silicon-hdl/issues/71) |
+| RAM address used by the PE | **Swept + routed** — threshold/leak walk `0..15`; weight address is `neuron_row * 16 + routed_input_index`. The lowest active external lane passes through bounded `AerRouteTable` before both LIF and STDP; there is still no neuron-to-neuron recurrence. | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#71](https://github.com/rmems/silicon-hdl/issues/71) / [#92](https://github.com/rmems/silicon-hdl/issues/92) |
 | Neuron count | **N=16** `LifNeuronArray` time-multiplexes one shared datapath across 16 neuron slots and commits a board-agnostic 16-bit `spike_bitmap`; `spikenaut_soc_basys3_top` maps that bitmap to `led[15:0]` in spike mode (SW15=0). SW15 selects the stretched status word. See [`docs/led-map.md`](led-map.md) | [#61](https://github.com/rmems/silicon-hdl/issues/61) / [#65](https://github.com/rmems/silicon-hdl/issues/65) |
-| STDP | `StdpWriteback` instantiates one `StdpController` per post neuron (classical Bi–Poo, [#55](https://github.com/rmems/silicon-hdl/issues/55)), snapshots the originating pre column after `tick_done`, and writes changed weights into `WeightRam`. SW14 (`learn_en`, default 0) is the optional-online-learn gate; signed ±1 saturates at `16'h7FFF` / `16'h8000` | [#70](https://github.com/rmems/silicon-hdl/issues/70) |
-| Host UART protocol | **Implemented #62 / #63** — `SocProtocolFsm` consumes `0xAA` + 32 payload bytes, commits a 16-word big-endian stimulus frame, and holds it until `step_en`; it serializes 16 membrane words, spike flags, and aux state while respecting `tx_busy`. Distinct `0xA5` write frames pulse RAM `we` for one cycle. The present PE selects the lowest active binary stimulus lane; it does not yet accumulate multi-active vectors | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#63](https://github.com/rmems/silicon-hdl/issues/63) / [#64](https://github.com/rmems/silicon-hdl/issues/64) |
+| STDP | Optional `StdpWriteback` closes the WeightRam loop when SW14 is high; its captured pre column is the routed input address. Host writes wait while its serialized column walk is busy. | [#70](https://github.com/rmems/silicon-hdl/issues/70) / [#103](https://github.com/rmems/silicon-hdl/pull/103) |
+| Host UART protocol | **Implemented without frame growth** — fixed 33-byte `0xAA` request and 36-byte response; `0xA5` target 3 configures AER. Failed routes become no-input ticks with a normal response. Multi-active-lane accumulation remains out of scope. | [#62](https://github.com/rmems/silicon-hdl/issues/62) / [#64](https://github.com/rmems/silicon-hdl/issues/64) / [#71](https://github.com/rmems/silicon-hdl/issues/71) |
 | Logical timestep | **1 ms** `step_en` (100_000 fabric cycles @ 100 MHz) | [#57](https://github.com/rmems/silicon-hdl/issues/57) / [#60](https://github.com/rmems/silicon-hdl/issues/60); [`docs/timestep-contract.md`](timestep-contract.md) |
 
 ---
@@ -105,7 +105,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 |------|--------|
 | SNN FPGA primitives | Canonical RTL for LIF, weight/param RAMs, on-chip STDP controller |
 | On-chip host bridge RTL | UART RX/TX and `SiliconBridge` framing aligned with host `silicon-bridge` |
-| AER routing primitive | `SynapseRouter` and its demo integration |
+| AER routing primitive | `AerRouteTable`, the `aer-route-v1` consumer ABI, SoC integration, and physical-board evidence; `SynapseRouter` remains the standalone demo |
 | Board integration tops | Thin Basys 3 tops only; pin/constraint ownership under `constraints/` |
 | Vivado/Verilator flows | Scripts and CI hooks that build/sim **this** RTL tree |
 | Vivado report **gate** in this repo | `scripts/check_wns.py` + `.github/workflows/vivado-ci.yml` fail the optional self-hosted job when WNS/WHS &lt; 0 |
@@ -128,7 +128,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 | Host-side Vivado **metrics aggregation** (e.g. library parse of timing reports for tooling) | **`silicon-bridge`** (`FpgaMetrics` and similar) — **not** this repo’s CI gate (`scripts/check_wns.py` stays in silicon-hdl) |
 | Domain adapters (trading PnL, mining telemetry, exchange feeds) | App / adapter repos — never this monorepo |
 | Full software SNN simulator | Out of scope |
-| NIR / HDF5 graph I/O | Shared IR crate (`nir-rs` if/when) — not reimplemented in HDL |
+| NIR validation/lowering, graph I/O, and bundle production | Spikenaut plus `silicon-bridge` with optional `nir-rs`; never reimplemented in HDL |
 | Repo consolidation of Rust + HDL into one tree | Explicit non-goal of LIM-9 / #3 |
 
 ---
@@ -140,6 +140,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 
 | Dependency / input | Why | Status today |
 |--------------------|-----|--------------|
+| Generated `aer-route-v1` image and metadata from `silicon-bridge` | Select the external input address consumed by LIF/STDP | **Consumer wired; producer missing**: 16 x 16-bit table, 4-bit addresses, MAX_HOPS=4, INIT image plus target-3 writes. The committed identity image is a reproducible silicon-hdl fallback marked `nir_derived: false`; cross-repo `nir-rs` producer work is not implemented here. |
 | Parameter `.mem` / hex images from `silicon-bridge` (in-tree copies under `spikenaut-core-sv/mem/`) | Elaboration / bitstream init via `$readmemh`; runtime UART rewrite via `SocProtocolFsm` | **INIT_FILE wired** (E1/E2). RAMs load when `INIT_FILE` is non-empty and not `"NONE"`; `LifNeuronArray` sweeps threshold/leak `0..15` and weight rows `0, 16, …, 240` for the current input column. Host `0xA5` frames overwrite selected entries at runtime ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
 | UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge`; `SocProtocolFsm` application codec | **0xAA stimulus + 0xA5 RAM write implemented**: 16 Q8.8 words decode atomically and a 36-byte potential/spike/aux response is serialized with `tx_busy` back-pressure safety. Host `0xA5` frames pulse RAM `we`. Host-board E2E remains #64 |
 | Xilinx Vivado (optional) | Synthesis, implementation, bitstream for Basys 3 | Available on self-hosted path |
@@ -151,7 +152,7 @@ Internal (within this monorepo only):
 
 | Edge | Rule |
 |------|------|
-| `lib_soc` → `lib_core`, `lib_bridge` | Allowed — tops instantiate canonical modules |
+| `lib_soc` → `lib_core`, `lib_bridge`, `lib_synapse` | Allowed — the top instantiates canonical modules |
 | `lib_synapse` demo → `lib_bridge` / routing sources | Allowed for demo wiring only |
 | `lib_core` → `lib_soc` / app logic | **Forbidden** — core stays free of board/app code |
 | Duplicate `module Name` in a second tree | **Forbidden** — Deduplication Guardian fails the change |
@@ -228,9 +229,10 @@ Clarifications:
   repos; RTL changes land only here; host format changes land only in `silicon-bridge`.
 - Today’s Basys 3 SoC demo **does** load Q8.8 `.mem` images at elaboration / bitstream
   init (`INIT_FILE` / `$readmemh`) and implements the #62 host frame/readback codec.
-  Runtime `0xA5` RAM writes are on (#63); the N=16 PE performs its swept read
-  addresses, and STDP writeback is on (#70) behind SW14. Host-board E2E and
-  multi-active-lane accumulation remain sequenced under
+  Runtime `0xA5` RAM/route writes are on; the N=16 PE performs its swept read
+  addresses after AER resolution, and optional STDP writeback captures the
+  routed column. NIR bundle production, host-board E2E, and multi-active-lane
+  accumulation remain separate sequenced work under
   [#54](https://github.com/rmems/silicon-hdl/issues/54) /
   [#64](https://github.com/rmems/silicon-hdl/issues/64).
 
@@ -284,11 +286,12 @@ Clarifications:
 1. Landed: this boundary matrix, [`docs/interface-alignment.md`](interface-alignment.md),
    and SoC `INIT_FILE` `$readmemh` (E1/E2).
 2. Implemented under [#54](https://github.com/rmems/silicon-hdl/issues/54): #62's
-   16-word protocol parser, deterministic single input-column selector, TX
-   response, runtime RAM write (#63), and STDP time-mux/writeback
-   ([#70](https://github.com/rmems/silicon-hdl/issues/70), SW14). Remaining
-   work is host-board E2E ([#64](https://github.com/rmems/silicon-hdl/issues/64)
-   is Verilator-complete; live UART session is still open).
+   16-word protocol parser, deterministic single input-column selector, and TX response.
+   Remaining work is host E2E
+   ([#64](https://github.com/rmems/silicon-hdl/issues/64)) and STDP time-mux/writeback
+   ([#70](https://github.com/rmems/silicon-hdl/issues/70)). Runtime RAM write
+   ([#63](https://github.com/rmems/silicon-hdl/issues/63)) is implemented as a
+   `SocProtocolFsm` `0xA5` extension.
 3. Add or extend cross-repo golden vectors (float → Q8.8 → `.mem` → RTL readback) without
    merging repositories.
 4. Only then consider new board tops or extra on-chip features.

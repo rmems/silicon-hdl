@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-13 -->
+<!-- Last updated: 2026-09-20 -->
 # HDL ↔ silicon-bridge interface alignment
 
 Cross-repo contract between **silicon-hdl** (SystemVerilog RTL) and
@@ -21,13 +21,13 @@ either side of the contract changes.
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Widths match. SoC demo loads `merged_v2_weights.mem`, `merged_v2_thresholds.mem`, `merged_v2_decay.mem`, and (since [#72](https://github.com/rmems/silicon-hdl/issues/72)) `merged_v2_output_weights.mem` via `INIT_FILE` `$readmemh` ([#51](https://github.com/rmems/silicon-hdl/issues/51) / [#52](https://github.com/rmems/silicon-hdl/issues/52) / #72). The output-weight bank feeds `OutputLayer`'s 3-class argmax, surfaced on LEDs only (`status_word[15:13]`) — no UART frame change (see [#64](https://github.com/rmems/silicon-hdl/issues/64)). Runtime UART rewrite is on via `SocProtocolFsm` `0xA5` frames ([#63](https://github.com/rmems/silicon-hdl/issues/63)) for the weight/threshold/leak banks only; the output-weight bank has no runtime write path |
+| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Four Q8.8 banks remain unchanged. Runtime `0xA5` targets 0/1/2 update weight/threshold/leak; target 3 is a non-Q8.8 `aer-route-v1` entry. The output-weight bank remains INIT-only. |
 | SiliconBridge UART framing vs `FpgaBridge` | **Implemented at SoC layer** | `SiliconBridge` remains transport-only (8-bit bytes); canonical `SocProtocolFsm` owns the host multi-byte frames ([#62](https://github.com/rmems/silicon-hdl/issues/62)) |
 | Compatibility table (Rust ↔ SV) | **Documented** | See below |
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
 | Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
 | Logical timestep / `step_en` | **Documented** | [`docs/timestep-contract.md`](timestep-contract.md); SoC 1 ms divider (#57 / #60) |
-| SoC demo maturity (F0 honesty) | **Partial** | `INIT_FILE`, N=16 time-multiplexed LIF, 0xAA frame decode, UART TX readback, runtime `0xA5` RAM writes, and optional STDP writeback (SW14) are wired. Multi-active-lane vector accumulation and host-board E2E remain sequenced work. See [#54](https://github.com/rmems/silicon-hdl/issues/54) |
+| SoC demo maturity | **Partial** | INIT banks, N=16 LIF, UART readback/writes, optional STDP writeback, and bounded AER consumption are wired. NIR bundle production, multi-active-lane accumulation, and RM-259 physical-board proof remain sequenced work. |
 
 Foundational RTL correctness that supports this alignment landed earlier via
 PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
@@ -121,7 +121,9 @@ that history and what is still worth knowing about it.
 | `NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` | `PARAM_WIDTH = 16` | `2**ADDR_WIDTH`, `ADDR_WIDTH = 8` → 256 | **One** parameter type per instance (threshold **or** leak, not both) |
 | `LifNeuron` | `spikenaut-core-sv/rtl/LifNeuron.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16` | n/a | LIF dynamics; requires `PARAM_WIDTH == DATA_WIDTH` at elaborate time |
 | `LifNeuronArray` | `spikenaut-core-sv/rtl/LifNeuronArray.sv` | `DATA_WIDTH = 16`, `PARAM_WIDTH = 16`, `NUM_NEURONS = 16` | 16 membrane words + one shared datapath | Time-multiplexed N=16 LIF PE; commits a 16-bit bitmap and exports packed membrane readback after each sweep |
-| `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; signed Q8.8 saturate at `16'h7FFF` / `16'h8000` (#55 / #70). `WINDOW_WIDTH` is in logical ticks; traces update once per SoC tick via `StdpWriteback`. |
+| `StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` | `DATA_WIDTH = 16` | n/a | Classical causal STDP (Bi–Poo): pre-then-post LTP +1, post-then-pre LTD −1; unsigned saturate (#55). `WINDOW_WIDTH` is in logical ticks; traces update only on `step_en`. |
+| `StdpWriteback` | `spikenaut-core-sv/rtl/StdpWriteback.sv` | `DATA_WIDTH = 16`, `NUM_NEURONS = 16` | one routed weight column | Optional SW14-gated serialized WeightRam writeback; captures the routed pre-event column |
+| `AerRouteTable` | `synapse-link-hdl/src/AerRouteTable.sv` | 16-bit entries, 4-bit addresses | 16 entries | Bounded single-event `aer-route-v1` consumer, `MAX_HOPS=4` |
 
 **LIF semantics vs Q8.8 (signed as of #73):**
 
@@ -212,15 +214,17 @@ Threshold and leak walk neuron addresses `0..15`; the weight map is
 `flat_addr = neuron_row * 16 + input_index` over the 256-word image, where
 `neuron_row` is the neuron being updated and `input_index` selects one of 16
 **external input channels** for that neuron's own row — not another neuron's
-index. There is no neuron-to-neuron recurrence: `input_index` is decoded
-purely from the host's stimulus frame, never from the PE's own
+index. There is no neuron-to-neuron recurrence: the source is decoded from
+the host frame and bounded `AerRouteTable` resolves the address, never from
+the PE's own
 `spike_bitmap`. Per the exp-025 bank's metadata (`legal_columns` /
 `unused_axons` in its `snn_model.json`), only 5 of the 16 channels carry
 telemetry today; the remaining 11 are structurally zero for every neuron.
 See [`docs/lif-array-connectivity-model.md`](lif-array-connectivity-model.md)
 (#92) for the full rationale. The SoC protocol mapping selects the
-lowest-index non-zero decoded stimulus lane as the binary-event `input_index`,
-so each frame can address any channel `0..15`; a frame with more than one
+lowest-index non-zero decoded stimulus lane as an AER source and uses the
+resolved address as the binary-event `input_index`, so each frame can address
+any channel `0..15`; a frame with more than one
 active lane is not vector-accumulated by the current shared-event PE. Host
 `0xA5` write frames from `SocProtocolFsm` (#63) pulse `we` for one cycle and
 steal `addr` only while `wr_en` is high; the PE read path is restored when
@@ -281,11 +285,11 @@ FPGA → Host (36 bytes):
   [32..33] = spike flags             // u16 BE, bit i = neuron i spiked
   [34..35] = switch / aux state      // u16 BE, synchronized `sw` sampled at frame_send
 
-Host → FPGA write (5 bytes, #63):
+Host → FPGA write (5 bytes, #63 / #71):
   [0]      = 0xA5                    // write sync (not 0xAA)
-  [1]      = target                  // 0=weight, 1=threshold, 2=leak
-  [2]      = addr                    // 8-bit RAM address
-  [3..4]   = Q8.8 data               // signed two's-complement, big-endian, since #73 -- same as RAM/LIF math.
+  [1]      = target                  // 0=weight, 1=threshold, 2=leak, 3=AER route
+  [2]      = addr                    // 8-bit RAM address; target 3 requires 0..15
+  [3..4]   = data                    // Q8.8 for targets 0..2; aer-route-v1 entry for target 3.
                                       // The host-side encoder (FixedPointEncode) emits signed
                                       // words too, as of silicon-bridge #60; see §1.3.1.
 ```
@@ -294,7 +298,7 @@ Host → FPGA write (5 bytes, #63):
 |-------|-------|-------------------------|
 | 8-bit UART transport | `UartRx` / `UartTx` / `SiliconBridge` | Implemented |
 | 0xAA + multi-word frame codec | `SocProtocolFsm` in `lib_soc` (not in bridge lib) | **Implemented** in `spikenaut_soc_basys3_top`: atomic 32-byte receive decode plus held 36-byte response serialization |
-| 0xA5 RAM-write frame | `SocProtocolFsm` write extension | **Implemented** (#63): one-cycle `wr_en` onto weight / threshold / leak RAMs; PE addr restored when idle |
+| 0xA5 runtime-write frame | `SocProtocolFsm` write extension | **Implemented**: targets 0/1/2 update weight/threshold/leak; target 3 updates AER when all consumers are safe |
 | Host client | silicon-bridge `FpgaBridge` (`uart` feature) | Implemented in Rust |
 
 Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
@@ -315,7 +319,8 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
 - One `LifNeuronArray` time-multiplexes 16 neuron slots. It sweeps threshold
   and leak entries `0..15` and maps `WeightRam` as
   `neuron_row * 16 + input_index`. The current shared-event PE maps the
-  lowest-index non-zero frame lane to one selected input column for that tick;
+  lowest-index non-zero frame lane through `AerRouteTable` to one selected
+  input column for that tick;
   it does not yet sum multiple simultaneously active lanes.
 - The PE exports all 16 committed membrane words and the 16-bit spike bitmap to
   the FSM. The SoC arms `frame_send` only after a host `0xAA` frame is consumed
@@ -325,11 +330,9 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   `active_aux_state` / `pending_aux_state` on the `frame_send` capture edge, so
   response bytes 34–35 are that sampled value held for the whole ~3.1 ms
   transmission — not a live view of the switches.
-- `StdpWriteback` closes the STDP loop ([#70](https://github.com/rmems/silicon-hdl/issues/70)):
-  one `StdpController` per post neuron, originating-pre-column snapshot after
-  `tick_done`, serialized `WeightRam` writeback while the PE is idle. SW14
-  (`learn_en`) gates it; default 0 leaves F1 weights untouched.
-  `StdpController` ±1 is signed Q8.8, saturating at `16'h7FFF` / `16'h8000`.
+- `StdpWriteback` optionally owns the WeightRam port after a tick when SW14 is
+  high. Its pre-event column is the routed `input_index`; host writes wait
+  until both LIF and STDP are idle.
 - TX emits the documented 36 bytes in big-endian order. It asserts `tx_send`
   only when `tx_busy` is low and holds the current byte across stalls. Because
   one 36-byte 115200-baud response takes about 3.125 ms, the FSM keeps one
@@ -347,12 +350,10 @@ There is **no** opcode register map inside `SiliconBridge`. The implemented
 extension while preserving the bridge as the canonical byte transport:
 
 1. Consumes `rx_data`/`rx_valid` and respects `tx_busy` when driving `tx_send`.
-2. Drives `WeightRam` / `NeuronParamRam` write ports from a 5-byte `0xA5`
-   frame (`target`, `addr`, big-endian Q8.8). Target `0` = weight, `1` =
-   threshold, `2` = leak. `we` is a one-cycle strobe; `addr` returns to the
-   PE read path when idle. `INIT_FILE` remains the cold start. STDP
-   writeback (#70) is a third `WeightRam` client and waits behind the PE;
-   host writes also wait for `stdp_busy`. SW14 enables it.
+2. Drives RAM or `AerRouteTable` configuration from a 5-byte `0xA5` frame.
+   Targets `0`, `1`, and `2` are weight, threshold, and leak; target `3` is
+   `aer-route-v1`. Writes are held until LIF, STDP, and routing are safe.
+   `INIT_FILE` remains the cold start.
 3. Keeps the 8-bit transport module unchanged (single source of truth).
 
 The write sync is **not** `0xAA`. Reusing the stimulus sync would make a
@@ -372,11 +373,12 @@ steal the first payload bytes of a real host frame. A parallel
 | `FpgaParameters.decay_rates` | `NeuronParamRam` (leak instance) | Mapped as **leak** in LIF (`membrane -= leak`) |
 | `FpgaParameters.weights` | `WeightRam` `.din`/`.dout` | Flattened 16×16 matrix → `neuron_row * 16 + input_index` |
 | `MemFileWriter` `.mem` lines | SoC `INIT_FILE` `$readmemh` into RAM arrays | **Wired** in demo top (`merged_v2` defaults); host rewrite via `0xA5` frames (#63) |
+| optional NIR lowering + route writer | `aer_routes_identity_n16.mem` / `AerRouteTable.INIT_FILE` | `silicon-bridge` owns validation and production; silicon-hdl consumes the versioned image and never parses NIR |
 | `EXPORT_FORMAT_VERSION` | Metadata only | No RTL parse |
 | `FpgaBridge` open @ 115200 | `SiliconBridge` `BAUD_RATE=115_200` | Match |
 | UART 8 data bits | `DATA_WIDTH=8` on bridge/UART | Match |
 | Host TX frame `0xAA` + 32 B | `SocProtocolFsm` application layer above bridge | Implemented in SoC; words decode big-endian and commit atomically |
-| Host TX write `0xA5` + 4 B | `SocProtocolFsm` `wr_en` / `wr_target` / `wr_addr` / `wr_data` | Implemented (#63); target 0/1/2 selects weight / threshold / leak |
+| Host TX write `0xA5` + 4 B | `SocProtocolFsm` `wr_en` / `wr_target` / `wr_addr` / `wr_data` | Targets 0/1/2 select weight/threshold/leak; target 3 selects a 16-bit `aer-route-v1` entry |
 | Host RX 36 B response | `SocProtocolFsm` application layer above bridge | Implemented in SoC; 16 potentials, spike word, then aux word; `tx_busy` respected |
 | Spike flag word (16 bits) | `LifNeuronArray.spike_bitmap` / LED bus | `led[i] = neuron i` in spike mode (SW15=0). SW15=1 shows the stretched status word. Bytes 34–35 carry synchronized `sw` sampled at `frame_send`. See [`docs/led-map.md`](led-map.md) |
 | `FpgaMetrics::parse_from_report` (WNS) | Vivado timing summary from SoC build | CI: see §4 |
@@ -444,8 +446,9 @@ tracked under finishing epic
 - Runtime RAM writes are implemented in `SocProtocolFsm` (#63). Vector
   accumulation for multiple active stimulus lanes remains outside the
   binary-event PE mapping.
-- STDP time-multiplexing and writeback into `WeightRam` is implemented
-  ([#70](https://github.com/rmems/silicon-hdl/issues/70)); SW14 opts in.
+- Cross-repository canonical-NIR bundle production and RM-259 physical-board
+  proof remain required before claiming that Spikenaut uses `nir-rs` on
+  hardware. See [`aer-routing-contract.md`](aer-routing-contract.md).
 
 ---
 

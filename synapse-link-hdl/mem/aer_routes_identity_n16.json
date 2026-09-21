@@ -1,0 +1,16 @@
+{
+  "address_width": 4,
+  "entry_count": 16,
+  "entry_width": 16,
+  "generated_by": "scripts/gen_aer_route_vectors.py",
+  "max_hops": 4,
+  "origin": {
+    "claim": "Repository-local fallback with no NIR source graph or producer provenance; do not present it as a NIR-derived artifact.",
+    "kind": "silicon-hdl-default",
+    "nir_derived": false,
+    "routing": "identity"
+  },
+  "route_file": "aer_routes_identity_n16.mem",
+  "schema": "aer-route-v1",
+  "sha256": "4c49b5047c25f49d8473b8b5dc7ae77261c27da80e346739b1364c5f0b824df1"
+}

@@ -72,6 +72,14 @@ else
   record "golden_frames/drift" "FAIL"
 fi
 
+echo ""
+echo "=== AER route image drift check ==="
+if python3 scripts/gen_aer_route_vectors.py --check; then
+  record "aer_routes/drift" "PASS"
+else
+  record "aer_routes/drift" "FAIL"
+fi
+
 VERILATOR_FLAGS=(--binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD)
 TBS=(
   "LifNeuron:LifNeuron"
@@ -100,8 +108,6 @@ for entry in "${TBS[@]}"; do
   fi
 done
 
-# tb_StdpWriteback needs WeightRam + StdpController + StdpWriteback, so it
-# does not fit the single-DUT TBS loop above.
 echo ""
 echo "=== Verilator tb_StdpWriteback ==="
 rm -rf obj_dir
@@ -116,6 +122,20 @@ if verilator "${VERILATOR_FLAGS[@]}" \
   record "verilator/tb_StdpWriteback" "PASS"
 else
   record "verilator/tb_StdpWriteback" "FAIL"
+fi
+
+echo ""
+echo "=== Verilator tb_AerRouteTable ==="
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_AerRouteTable \
+    -Isynapse-link-hdl/src \
+    synapse-link-hdl/src/AerRouteTable.sv \
+    synapse-link-hdl/tb/tb_AerRouteTable.sv \
+  && ./obj_dir/Vtb_AerRouteTable; then
+  record "verilator/tb_AerRouteTable" "PASS"
+else
+  record "verilator/tb_AerRouteTable" "FAIL"
 fi
 
 # tb_OutputLayer needs two DUT files (it drives a real WeightRam), so it does
@@ -247,6 +267,7 @@ if verilator "${VERILATOR_FLAGS[@]}" \
     spikenaut-core-sv/rtl/StdpController.sv \
     spikenaut-core-sv/rtl/StdpWriteback.sv \
     spikenaut-core-sv/rtl/OutputLayer.sv \
+    synapse-link-hdl/src/AerRouteTable.sv \
     spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
     spikenaut-soc-sv/rtl/SocStatusLeds.sv \
     spikenaut-soc-sv/rtl/Basys3_Top.sv \

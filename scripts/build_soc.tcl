@@ -5,6 +5,7 @@
 # Library ownership (compile order matters):
 #   lib_bridge  <- spikenaut-bridge-sv/rtl
 #   lib_core    <- spikenaut-core-sv/rtl        (NO copies in soc-sv/rtl)
+#   lib_synapse <- synapse-link-hdl/src          (AerRouteTable)
 #   lib_soc     <- spikenaut-soc-sv/rtl         (wrappers + spikenaut_soc_basys3_top only)
 #
 # Top module: spikenaut_soc_basys3_top
@@ -31,7 +32,8 @@ create_project -force $project_name $project_dir -part $part
 # Full list (traced from build order + insts in Basys3_Top + XDC):
 #   bridge: UartRx.sv UartTx.sv SiliconBridge.sv (spikenaut-bridge-sv/rtl)
 #   core:   LifNeuron.sv LifNeuronArray.sv WeightRam.sv NeuronParamRam.sv StdpController.sv StdpWriteback.sv OutputLayer.sv (spikenaut-core-sv/rtl)
-#   mem:    merged_v2_{weights,thresholds,decay,output_weights}.mem (spikenaut-core-sv/mem) — E2 / #72 INIT
+#   synapse: AerRouteTable.sv (synapse-link-hdl/src)
+#   mem:    merged_v2_{weights,thresholds,decay,output_weights}.mem plus aer_routes_identity_n16.mem
 #   soc:    SocProtocolFsm.sv SocStatusLeds.sv Basys3_Top.sv (spikenaut-soc-sv/rtl)  -- top=spikenaut_soc_basys3_top
 #   xdc:    constraints/basys3.xdc (shared ports) + constraints/basys3_soc.xdc (SoC-only sw)
 # See also sim_core.tcl, dedup greps in README, and headers in each .sv.
@@ -67,7 +69,15 @@ read_verilog -sv [list \
 ]
 
 # ---------------------------------------------------------------------------
-# 3. lib_soc  –  spikenaut-soc-sv/rtl
+# 3. lib_synapse – route table used by the main SoC
+# ---------------------------------------------------------------------------
+set synapse_rtl [file join $repo_root synapse-link-hdl src]
+read_verilog -sv [list \
+    [file join $synapse_rtl AerRouteTable.sv] \
+]
+
+# ---------------------------------------------------------------------------
+# 4. lib_soc  –  spikenaut-soc-sv/rtl
 #    SoC application codec (SocProtocolFsm), LED/status mux (SocStatusLeds),
 #    and top module (spikenaut_soc_basys3_top).
 # ---------------------------------------------------------------------------
@@ -89,17 +99,19 @@ set weight_mem [file join $core_mem merged_v2_weights.mem]
 set thresh_mem [file join $core_mem merged_v2_thresholds.mem]
 set decay_mem  [file join $core_mem merged_v2_decay.mem]
 set output_weight_mem [file join $core_mem merged_v2_output_weights.mem]
+set route_mem [file join $repo_root synapse-link-hdl mem aer_routes_identity_n16.mem]
 
-foreach mem_f [list $weight_mem $thresh_mem $decay_mem $output_weight_mem] {
+foreach mem_f [list $weight_mem $thresh_mem $decay_mem $output_weight_mem $route_mem] {
     if {![file isfile $mem_f]} {
         error "build_soc.tcl: missing mem image: $mem_f"
     }
 }
-add_files -norecurse [list $weight_mem $thresh_mem $decay_mem $output_weight_mem]
+add_files -norecurse [list $weight_mem $thresh_mem $decay_mem $output_weight_mem $route_mem]
 set_property file_type {Memory Initialization Files} [get_files $weight_mem]
 set_property file_type {Memory Initialization Files} [get_files $thresh_mem]
 set_property file_type {Memory Initialization Files} [get_files $decay_mem]
 set_property file_type {Memory Initialization Files} [get_files $output_weight_mem]
+set_property file_type {Memory Initialization Files} [get_files $route_mem]
 
 # ---------------------------------------------------------------------------
 # 4. Constraints
@@ -116,7 +128,8 @@ synth_design -top spikenaut_soc_basys3_top -part $part \
     -generic "WEIGHT_INIT_FILE=\"$weight_mem\"" \
     -generic "THRESH_INIT_FILE=\"$thresh_mem\"" \
     -generic "LEAK_INIT_FILE=\"$decay_mem\"" \
-    -generic "OUTPUT_WEIGHT_INIT_FILE=\"$output_weight_mem\""
+    -generic "OUTPUT_WEIGHT_INIT_FILE=\"$output_weight_mem\"" \
+    -generic "ROUTE_INIT_FILE=\"$route_mem\""
 
 # ---------------------------------------------------------------------------
 # 6. Implementation
@@ -136,6 +149,7 @@ report_utilization -file [file join $output_dir utilization.rpt]
 report_utilization -hierarchical \
     -file [file join $output_dir utilization_hier.rpt]
 report_timing_summary -file [file join $output_dir timing_summary.rpt]
+report_drc -file [file join $output_dir drc.rpt]
 
 # ---------------------------------------------------------------------------
 # 8. Bitstream

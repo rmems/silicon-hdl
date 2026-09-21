@@ -100,6 +100,16 @@ module StdpWriteback #(
     genvar neuron;
     generate
         for (neuron = 0; neuron < NUM_NEURONS; neuron++) begin : g_stdp
+            // Give each controller an explicitly sized address net.  Passing
+            // a function call that combines a genvar cast with the dynamic
+            // column works in Verilator, but XSim 2026.1 elaborates the
+            // controller input as X.  The sized row base is equivalent RTL
+            // and is portable across both simulators and Vivado synthesis.
+            localparam logic [ADDR_WIDTH-1:0] ROW_BASE =
+                ADDR_WIDTH'(neuron * NUM_NEURONS);
+            logic [ADDR_WIDTH-1:0] controller_weight_addr;
+            assign controller_weight_addr = ROW_BASE + ADDR_WIDTH'(col_q);
+
             StdpController #(
                 .DATA_WIDTH   (DATA_WIDTH),
                 .ADDR_WIDTH   (ADDR_WIDTH),
@@ -110,7 +120,7 @@ module StdpWriteback #(
                 .step_en         (stdp_tick),
                 .pre_spike       (pre_q),
                 .post_spike      (post_q[neuron]),
-                .weight_addr     (synapse_addr(INDEX_WIDTH'(neuron))),
+                .weight_addr     (controller_weight_addr),
                 .weight_in       (snap[neuron]),
                 .weight_we       (stdp_we[neuron]),
                 .weight_addr_out (stdp_addr_out[neuron]),
