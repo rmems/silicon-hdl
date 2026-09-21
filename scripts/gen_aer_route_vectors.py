@@ -69,7 +69,8 @@ def canonical_digest(words: list[int]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def emit(output_dir: Path) -> None:
+def _emit_to(output_dir: Path) -> None:
+    """Write artifacts to an internally selected repository or temp path."""
     output_dir.mkdir(parents=True, exist_ok=True)
     words = identity_words()
     banner = (
@@ -116,7 +117,7 @@ def emit(output_dir: Path) -> None:
 def check_committed() -> int:
     with tempfile.TemporaryDirectory(prefix="aer-route-v1-") as temp:
         generated_dir = Path(temp)
-        emit(generated_dir)
+        _emit_to(generated_dir)
         stale: list[str] = []
         for name in (IMAGE_NAME, METADATA_NAME, TEST_IMAGE_NAME):
             committed = DEFAULT_OUTPUT_DIR / name
@@ -137,16 +138,13 @@ def check_committed() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     if args.check:
-        if args.output_dir != DEFAULT_OUTPUT_DIR:
-            parser.error("--check uses the committed default output directory")
         return check_committed()
-    emit(args.output_dir)
-    print(f"wrote {args.output_dir / IMAGE_NAME}")
-    print(f"wrote {args.output_dir / METADATA_NAME}")
-    print(f"wrote {args.output_dir / TEST_IMAGE_NAME}")
+    _emit_to(DEFAULT_OUTPUT_DIR)
+    print(f"wrote {DEFAULT_OUTPUT_DIR / IMAGE_NAME}")
+    print(f"wrote {DEFAULT_OUTPUT_DIR / METADATA_NAME}")
+    print(f"wrote {DEFAULT_OUTPUT_DIR / TEST_IMAGE_NAME}")
     return 0
 
 

@@ -46,6 +46,23 @@ def test_committed_identity_image_is_current() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_generator_rejects_arbitrary_output_paths(tmp_path: Path) -> None:
+    destination = tmp_path / "outside-repository"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/gen_aer_route_vectors.py",
+            "--output-dir",
+            str(destination),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert not destination.exists()
+
+
 def test_identity_image_has_exact_aer_route_v1_words() -> None:
     assert read_words(ROUTE_IMAGE) == [0xC000 | address for address in range(16)]
 
