@@ -1,0 +1,15 @@
+{
+  "address_width": 4,
+  "entry_count": 16,
+  "entry_width": 16,
+  "generated_by": "scripts/gen_aer_route_vectors.py",
+  "max_hops": 4,
+  "origin": {
+    "claim": "Identity ordering is the lowering for the current feed-forward Spikenaut graph; it does not claim NIR edges encode FPGA hops.",
+    "kind": "canonical-nir-input-order",
+    "routing": "identity"
+  },
+  "route_file": "aer_routes_identity_n16.mem",
+  "schema": "aer-route-v1",
+  "sha256": "4c49b5047c25f49d8473b8b5dc7ae77261c27da80e346739b1364c5f0b824df1"
+}

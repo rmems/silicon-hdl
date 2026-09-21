@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-15 -->
+<!-- Last updated: 2026-09-20 -->
 
 # LED and status map
 
@@ -54,8 +54,8 @@ capture; use status mode to eyeball a running demo.
 ## Status mode
 
 SW15 = 1. Bits `[1]`, `[2]`, `[4]`, `[5]`, `[6]` and `spike_hold` are set on
-event and cleared on the shared `stretch_tick`. `abort_sticky` clears only on
-`rx_commit` or reset. `[15:13]` is neither: it is latched state, replaced as a
+event and cleared on the shared `stretch_tick`. `ingress_fault_sticky` clears
+only on `rx_commit` or reset. `[15:13]` is neither: it is latched state, replaced as a
 whole vector on each `OutputLayer.done` — see the note under the table.
 
 | Bit | Name | Source |
@@ -63,7 +63,7 @@ whole vector on each `OutputLayer.done` — see the note under the table.
 | `[0]` | heartbeat | `tick_cnt[8]` after `step_en` increments (~1.95 Hz) |
 | `[1]` | rx_busy | stretched `SocProtocolFsm.rx_busy` (`rx_state != RX_WAIT_SYNC`; includes `0xA5` write frames) |
 | `[2]` | rx_commit | stretched `stimuli_valid` |
-| `[3]` | rx_abort | sticky `SocProtocolFsm.rx_abort` (idle-timeout pulse) |
+| `[3]` | ingress_fault | sticky `SocProtocolFsm.rx_abort OR route_fault` |
 | `[4]` | tx_frame_active | stretched `tx_active` (not the `tx_busy` input) |
 | `[5]` | stimuli_pending | stretched SoC pending flag |
 | `[6]` | response_armed | stretched SoC armed flag |
@@ -94,9 +94,11 @@ three lit whenever the design has completed a tick since reset. See
 and [`host-soc-e2e.md`](host-soc-e2e.md), where `tb_SocFrameGolden` and `tb_Basys3_Top` test 13b
 assert that length).
 
-`rx_abort` is sticky rather than stretched on purpose: the inter-byte idle
-timeout is silent everywhere else in the design, so a truncated host frame
-would otherwise leave no trace on the board.
+`ingress_fault` is sticky rather than stretched. It records either an
+inter-byte idle-timeout abort or an AER lookup/configuration failure. Reset or
+the next completely accepted `0xAA` frame clears it; a coincident fault wins
+over that clear. Unit-level signals distinguish the two causes, but LD3
+intentionally combines them because all 16 physical status bits are allocated.
 
 Reading the board during a healthy host session: `[0]` blinking, `[2]` and
 `[4]` flickering together once per request, `[12:8]` tracking the population
@@ -109,7 +111,7 @@ response, `[3]` dark.
 mode. `sw_sync_1` is the only copy used in the fabric:
 
 - `mode_sel = sw_sync_1[15]`
-- `learn_en = sw_sync_1[14]` — optional STDP writeback ([#70](https://github.com/rmems/silicon-hdl/issues/70)). Default 0 after reset, so online learn is off until the switch is flipped.
+- `learn_en = sw_sync_1[14]` for optional STDP writeback
 - `SocProtocolFsm.aux_state = sw_sync_1` (host response bytes 34–35). The FSM
   latches it on the `frame_send` capture edge, so those bytes report the switch
   position at the start of the response, held for the whole ~3.1 ms frame — a

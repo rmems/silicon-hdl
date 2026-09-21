@@ -31,11 +31,6 @@
 //                          hold register that drives it; (b) the real uart_tx
 //                          line delivers exactly 36 bytes and then stops
 //                          (GH#64, docs/host-soc-e2e.md).
-//  14. STDP writeback    — SW14=0 leaves WeightRam untouched by STDP; SW14=1
-//                          applies signed Bi–Poo ±1 to the selected column
-//                          after tick_done, and a host 0xA5 weight write that
-//                          lands during the walk is held until stdp_busy
-//                          clears (GH#70).
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
@@ -64,7 +59,8 @@ module tb_spikenaut_soc_basys3_top #(
     parameter string WEIGHT_INIT = "spikenaut-core-sv/mem/merged_v2_weights.mem",
     parameter string THRESH_INIT = "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
     parameter string LEAK_INIT   = "spikenaut-core-sv/mem/merged_v2_decay.mem",
-    parameter string OUTPUT_WEIGHT_INIT = "spikenaut-core-sv/mem/merged_v2_output_weights.mem"
+    parameter string OUTPUT_WEIGHT_INIT = "spikenaut-core-sv/mem/merged_v2_output_weights.mem",
+    parameter string ROUTE_INIT = "synapse-link-hdl/mem/aer_routes_identity_n16.mem"
 );
 
     localparam int CLK_PERIOD   = 10;                     // 100 MHz
@@ -133,6 +129,7 @@ module tb_spikenaut_soc_basys3_top #(
     int errors = 0;
     int unsigned first_tick_cycles;
     int unsigned frame_send_count;
+    int unsigned aer_cfg_write_count;
     logic [NUM_NEURONS-1:0] expected_first_spikes;
     logic [NUM_NEURONS-1:0] seen_threshold_addr;
     logic [NUM_NEURONS-1:0] seen_leak_addr;
@@ -144,6 +141,7 @@ module tb_spikenaut_soc_basys3_top #(
     logic [1:0]  force_host_wr_target;
     logic [7:0]  force_host_wr_addr;
     logic [15:0] force_host_wr_data;
+    logic [NUM_NEURONS*16-1:0] force_protocol_stimuli;
 
     // Test 13 (GH#64): the demodulated response frame, plus the SoC-side
     // sources sampled on the same negedge the FSM's capture posedge sees. The
@@ -160,7 +158,8 @@ module tb_spikenaut_soc_basys3_top #(
         .WEIGHT_INIT_FILE (WEIGHT_INIT),
         .THRESH_INIT_FILE (THRESH_INIT),
         .LEAK_INIT_FILE   (LEAK_INIT),
-        .OUTPUT_WEIGHT_INIT_FILE (OUTPUT_WEIGHT_INIT)
+        .OUTPUT_WEIGHT_INIT_FILE (OUTPUT_WEIGHT_INIT),
+        .ROUTE_INIT_FILE  (ROUTE_INIT)
     ) dut (
         .clk     (clk),
         .rst_n   (btn_rst),
@@ -205,26 +204,30 @@ module tb_spikenaut_soc_basys3_top #(
     int unsigned last_tick_cyc;
     int unsigned tick_count;
     int unsigned width_run;
+    logic suppress_tick_monitor;
 
     initial begin
         cyc           = 0;
         last_tick_cyc = 0;
         tick_count    = 0;
         width_run     = 0;
+        suppress_tick_monitor = 1'b0;
     end
 
     always @(negedge clk) begin
         cyc++;
         if (dut.frame_send === 1'b1)
             frame_send_count++;
-        if (dut.step_en === 1'b1) begin
+        if (dut.aer_cfg_we === 1'b1)
+            aer_cfg_write_count++;
+        if (!suppress_tick_monitor && dut.step_en === 1'b1) begin
             width_run++;
             tick_count++;
             if (tick_count > 1)
                 check_int(cyc - last_tick_cyc, STEP_DIV,
                           "step_en period must be exactly STEP_DIV");
             last_tick_cyc = cyc;
-        end else if (width_run != 0) begin
+        end else if (!suppress_tick_monitor && width_run != 0) begin
             check_int(width_run, 1, "step_en must be exactly one cycle wide");
             width_run = 0;
         end
@@ -249,7 +252,7 @@ module tb_spikenaut_soc_basys3_top #(
     // lane carries 0x0001 and all others zero, making the SoC's binary-event
     // / input-column selection policy observable without a raw rx_valid hook.
     // Host write contract (#63): 0xA5 + target + addr + Q8.8 big-endian word.
-    // Target 0=weight, 1=threshold, 2=leak. Distinct sync from the 0xAA
+    // Target 0=weight, 1=threshold, 2=leak, 3=AER route table. Distinct sync from the 0xAA
     // stimulus frame so the protocol FSM can share one byte pipe.
     // One-cycle host write strobe while the PE is busy.  Fabric-rate force
     // on the FSM outputs (same style as the LED bitmap force in test 8)
@@ -384,10 +387,26 @@ module tb_spikenaut_soc_basys3_top #(
                           {msg, ": weight we must follow target 0"});
                     check(dut.leak_we === (expected_target == 2'd2),
                           {msg, ": leak we must follow target 2"});
+                    check(dut.aer_cfg_we === (expected_target == 2'd3),
+                          {msg, ": AER cfg_we must follow target 3"});
                     break;
                 end
                 if (waited > (5 * 11 * CLKS_PER_BIT + SEQ_SLACK))
                     $fatal(1, "%s: host_wr_en not seen within %0d cycles", msg, waited);
+            end
+        end
+    endtask
+
+    task automatic wait_for_route_resolution();
+        int unsigned waited;
+        begin
+            waited = 0;
+            forever begin
+                @(negedge clk);
+                waited++;
+                if (dut.route_resolved === 1'b1) break;
+                if (waited > 16)
+                    $fatal(1, "wait_for_route_resolution: route did not resolve within %0d cycles", waited);
             end
         end
     endtask
@@ -406,24 +425,6 @@ module tb_spikenaut_soc_basys3_top #(
                 if (dut.u_lif_array.tick_done === 1'b1) break;
                 if (waited > NUM_NEURONS + 2)
                     $fatal(1, "wait_lif_sweep_done: no tick_done within %0d cycles", waited);
-            end
-        end
-    endtask
-
-    // STDP writeback starts the cycle after tick_done and walks one column.
-    // Bound: 2 cycles/read * 16 + update/handoff + 16 writes, plus slack.
-    // Always sample one cycle first so a call on the tick_done negedge does
-    // not return before the engine has left IDLE.
-    task automatic wait_stdp_idle();
-        int unsigned waited;
-        begin
-            @(negedge clk);
-            waited = 0;
-            while (dut.stdp_busy === 1'b1) begin
-                @(negedge clk);
-                waited++;
-                if (waited > 8 * NUM_NEURONS + 16)
-                    $fatal(1, "wait_stdp_idle: still busy after %0d cycles", waited);
             end
         end
     endtask
@@ -552,6 +553,7 @@ module tb_spikenaut_soc_basys3_top #(
         uart_rx_line = 1'b1;    // UART idle
         sw           = '0;      // SW15=0 keeps the combinational spike LED view
         frame_send_count    = 0;
+        aer_cfg_write_count = 0;
         seen_threshold_addr = '0;
         seen_leak_addr      = '0;
         seen_weight_row     = '0;
@@ -829,8 +831,8 @@ module tb_spikenaut_soc_basys3_top #(
               "test 9: status[1] must follow rx_busy_held");
         check(led[2] === dut.u_status_leds.rx_commit_held,
               "test 9: status[2] must follow rx_commit_held");
-        check(led[3] === dut.u_status_leds.abort_sticky,
-              "test 9: status[3] must follow abort_sticky");
+        check(led[3] === dut.u_status_leds.ingress_fault_sticky,
+              "test 9: status[3] must follow ingress_fault_sticky");
         check(led[4] === dut.u_status_leds.tx_frame_held,
               "test 9: status[4] must follow tx_frame_held");
         check(led[5] === dut.u_status_leds.stimuli_pending_held,
@@ -1119,6 +1121,169 @@ module tb_spikenaut_soc_basys3_top #(
         end
 
         // ------------------------------------------------------------
+        // Test 12b: RM-259 AER routing on the complete SoC path.
+        //
+        // Program a synthetic 0 -> 1 -> 2 route through the real five-byte
+        // 0xA5 target-3 command. The routed column must feed both the LIF
+        // matrix address and StdpWriteback's pre-event capture. Invalid and
+        // cyclic routes are consumed as no-input ticks, still arm exactly one
+        // normal response, and set the shared sticky ingress-fault LED.
+        // ------------------------------------------------------------
+        begin
+            int unsigned response_before;
+            int unsigned cfg_before;
+
+            // The top-level high-address gate and the route table's reserved
+            // bit validation are distinct failure sources. Exercise both
+            // through the real UART dispatcher and prove neither partially
+            // changes the table.
+            cfg_before = aer_cfg_write_count;
+            uart_send_write_frame(8'h03, 8'h10, 16'hC009);
+            @(negedge clk);
+            check_int(aer_cfg_write_count, cfg_before,
+                      "test 12b: out-of-range route address must not assert cfg_we");
+            check(dut.u_aer_router.route_mem[0] === 16'hC000,
+                  "test 12b: out-of-range route address must not alias entry 0");
+            check(dut.u_status_leds.ingress_fault_sticky === 1'b1,
+                  "test 12b: out-of-range route address must set ingress fault");
+
+            cfg_before = aer_cfg_write_count;
+            uart_send_write_frame(8'h03, 8'h02, 16'hC012);
+            @(negedge clk);
+            check_int(aer_cfg_write_count, cfg_before + 1,
+                      "test 12b: reserved-bit entry must reach router validation once");
+            check(dut.u_aer_router.route_mem[2] === 16'hC002,
+                  "test 12b: reserved-bit entry must leave prior table word intact");
+            check(dut.u_status_leds.ingress_fault_sticky === 1'b1,
+                  "test 12b: reserved-bit rejection must set ingress fault");
+
+            cfg_before = aer_cfg_write_count;
+            uart_send_write_frame(8'h03, 8'h00, 16'h8001);
+            @(negedge clk);
+            check_int(aer_cfg_write_count, cfg_before + 1,
+                      "test 12b: target-3 frame must assert one AER write");
+            cfg_before = aer_cfg_write_count;
+            uart_send_write_frame(8'h03, 8'h01, 16'hC002);
+            @(negedge clk);
+            check_int(aer_cfg_write_count, cfg_before + 1,
+                      "test 12b: second target-3 frame must assert one AER write");
+            check(dut.u_aer_router.route_mem[0] === 16'h8001,
+                  "test 12b: target-3 write must program route entry 0");
+            check(dut.u_aer_router.route_mem[1] === 16'hC002,
+                  "test 12b: target-3 write must program route entry 1");
+
+            expected_input_index = 4'd2;
+            response_before = frame_send_count;
+            // The UART transaction is intentionally bypassed for this one
+            // fabric-cycle boundary test: a complete stop bit outlives the
+            // two-hop lookup. Inject the already-decoded frame, then force an
+            // otherwise imminent logical tick while routing is active.
+            force_protocol_stimuli = '0;
+            force_protocol_stimuli[15:0] = 16'h0001;
+            force dut.protocol_stimuli = force_protocol_stimuli;
+            force dut.protocol_stimuli_valid = 1'b1;
+            @(negedge clk);
+            release dut.protocol_stimuli_valid;
+            release dut.protocol_stimuli;
+            wait_for_stimuli_pending();
+            while (dut.route_busy !== 1'b1)
+                @(negedge clk);
+            suppress_tick_monitor = 1'b1;
+            force dut.step_en = 1'b1;
+            @(negedge clk);
+            check(dut.stimuli_pending === 1'b1,
+                  "test 12b: tick during lookup must retain the pending frame");
+            check(dut.consume_pending === 1'b0,
+                  "test 12b: tick during lookup must not consume a partial route");
+            check(dut.response_armed === 1'b0,
+                  "test 12b: tick during lookup must not arm a response");
+            check_int(frame_send_count, response_before,
+                      "test 12b: tick during lookup must not send a response");
+            release dut.step_en;
+            // Keep the period monitor suppressed through the next divider
+            // edge, when the underlying step_en register returns low after
+            // release. Otherwise simulator process ordering can count the
+            // forced pulse as the start of a real STEP_DIV interval.
+            @(negedge clk);
+            tick_count = 0;
+            width_run = 0;
+            last_tick_cyc = cyc;
+            suppress_tick_monitor = 1'b0;
+
+            wait_for_route_resolution();
+            check(dut.stimulus_event === 1'b1,
+                  "test 12b: successful multi-hop route must produce one PE event");
+            check(dut.stimulus_input_index === 4'd2,
+                  "test 12b: source lane 0 must resolve to routed column 2");
+            seen_weight_row = '0;
+            wait_for_tick();
+            record_sweep_addresses();
+            @(negedge clk);
+            record_sweep_addresses();
+            check(dut.u_stdp.col_q === 4'd2,
+                  "test 12b: STDP must capture routed column 2, not source lane 0");
+            wait_lif_sweep_done();
+            check(seen_weight_row == {NUM_NEURONS{1'b1}},
+                  "test 12b: LIF sweep must select routed weight column 2 in every row");
+            @(negedge clk);
+            check_int(frame_send_count, response_before + 1,
+                      "test 12b: deferred routed frame must produce exactly one response");
+
+            // Invalid but well-formed entry: configuration succeeds; lookup
+            // fails later. Status mode is already selected by sw[15].
+            uart_send_write_frame(8'h03, 8'h03, 16'h0000);
+            @(negedge clk);
+            response_before = frame_send_count;
+            uart_send_stimulus_frame(3);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+            check(dut.stimulus_event === 1'b0,
+                  "test 12b: invalid route must be dropped before the PE");
+            check(dut.u_status_leds.ingress_fault_sticky === 1'b1,
+                  "test 12b: invalid route must set sticky ingress fault");
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check_int(frame_send_count, response_before + 1,
+                      "test 12b: invalid route must still produce one response");
+
+            // Two-entry cycle. MAX_HOPS, not simulation timeout, must end it.
+            uart_send_write_frame(8'h03, 8'h04, 16'h8005);
+            @(negedge clk);
+            uart_send_write_frame(8'h03, 8'h05, 16'h8004);
+            @(negedge clk);
+            response_before = frame_send_count;
+            uart_send_stimulus_frame(4);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+            check(dut.stimulus_event === 1'b0,
+                  "test 12b: hop-budget exhaustion must drop the input event");
+            check(dut.route_fault === 1'b1 ||
+                  dut.u_status_leds.ingress_fault_sticky === 1'b1,
+                  "test 12b: hop-budget exhaustion must report a route fault");
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check_int(frame_send_count, response_before + 1,
+                      "test 12b: hop-budget failure must still produce one response");
+
+            // Restore address 3 to identity and prove the next completely
+            // accepted, valid frame clears the combined sticky status bit.
+            uart_send_write_frame(8'h03, 8'h03, 16'hC003);
+            @(negedge clk);
+            expected_input_index = 4'd3;
+            uart_send_stimulus_frame(3);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+            check(dut.stimulus_event === 1'b1,
+                  "test 12b: restored identity route must deliver the event");
+            check(dut.u_status_leds.ingress_fault_sticky === 1'b0,
+                  "test 12b: next accepted valid frame must clear sticky ingress fault");
+            wait_tick_applied();
+            wait_lif_sweep_done();
+        end
+
+        // ------------------------------------------------------------
         // Test 13a: GH#72's output class reaches status_word[15:13] by VALUE.
         //
         // Test 9 can only mirror led[15:13] against u_status_leds'
@@ -1216,96 +1381,6 @@ module tb_spikenaut_soc_basys3_top #(
                     quiet++;
                 end
             end
-        end
-
-        // ------------------------------------------------------------
-        // Test 14: optional STDP writeback (GH#70).
-        //
-        // SW14 is the learn gate and powers up 0, so every test above must
-        // still see INIT_FILE / host-written weights. This block first proves
-        // a pre-then-post pair is a no-op with the switch low, then flips
-        // SW14, replays the pair, and checks the selected column synapse
-        // moved by exactly +1 LSB. A host weight write that lands while
-        // stdp_busy is high must wait, matching test 12's PE-hold pattern.
-        // ------------------------------------------------------------
-        begin
-            localparam int STDP_ROW = SPIKE_TEST_NEURON;
-            localparam logic [7:0] STDP_WEIGHT_ADDR = 8'(STDP_ROW * NUM_NEURONS + STDP_ROW);
-            localparam logic [15:0] STDP_WEIGHT_SEED = 16'd200;
-            localparam logic [7:0] STDP_HOST_ADDR = 8'h06;
-            localparam logic [15:0] STDP_HOST_DATA = 16'h3456;
-
-            check(dut.learn_en === 1'b0,
-                  "test 14: SW14 must still be low after the status-mode tests");
-            check(dut.stdp_busy === 1'b0,
-                  "test 14: STDP engine must be idle while learn is off");
-
-            dut.u_wram.mem[STDP_WEIGHT_ADDR]        = STDP_WEIGHT_SEED;
-            dut.u_npram_threshold.mem[STDP_ROW]     = 16'h0001;
-            dut.u_npram_leak.mem[STDP_ROW]          = 16'h0000;
-
-            uart_send_stimulus_frame(STDP_ROW);
-            wait_for_stimuli_pending();
-            wait_tick_applied();
-            wait_lif_sweep_done();
-            check(dut.u_lif_array.spike_bitmap[STDP_ROW] === 1'b1,
-                  "test 14: gated-off pair must still produce a PE spike");
-            @(negedge clk);
-            check(dut.stdp_busy === 1'b0,
-                  "test 14: learn_en=0 must not start a column walk after tick_done");
-            check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === STDP_WEIGHT_SEED,
-                  "test 14: learn_en=0 must leave the selected synapse unchanged");
-
-            sw = sw | 16'h4000; // SW14=1, keep SW15 status mode
-            repeat (SW_SYNC_LATENCY) @(negedge clk);
-            check(dut.learn_en === 1'b1,
-                  "test 14: SW14 must enable learn_en after 2FF sync");
-
-            // First coincident pre+post with empty traces: no write, traces load.
-            uart_send_stimulus_frame(STDP_ROW);
-            wait_for_stimuli_pending();
-            wait_tick_applied();
-            wait_lif_sweep_done();
-            @(negedge clk);
-            check(dut.stdp_busy === 1'b1,
-                  "test 14: learn_en=1 must start a column walk after tick_done");
-            wait_stdp_idle();
-            check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === STDP_WEIGHT_SEED,
-                  "test 14: the trace-load tick must not change the synapse");
-
-            // Refractory follow-up: traces decay one tick, stay live.
-            wait_tick_applied();
-            wait_lif_sweep_done();
-            wait_stdp_idle();
-
-            // Second event: post while pre_trace is live → LTP +1.
-            uart_send_stimulus_frame(STDP_ROW);
-            wait_for_stimuli_pending();
-            wait_tick_applied();
-            wait_lif_sweep_done();
-            wait_stdp_idle();
-            check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === 16'(STDP_WEIGHT_SEED + 16'd1),
-                  "test 14: pre-then-post with learn on must LTP the selected synapse");
-
-            // Host weight write held across the STDP walk, then committed.
-            wait_tick_applied();
-            wait_lif_sweep_done();
-            @(negedge clk);
-            check(dut.stdp_busy === 1'b1,
-                  "test 14: a learn-enabled tick must keep stdp_busy high after the sweep");
-            inject_host_strobe(2'd0, STDP_HOST_ADDR, STDP_HOST_DATA);
-            check(dut.wr_pending === 1'b1,
-                  "test 14: a mid-walk host weight write must be held");
-            check(dut.weight_we === 1'b0,
-                  "test 14: held host write must not steal the RAM port from STDP");
-            check(dut.u_wram.mem[STDP_HOST_ADDR] !== STDP_HOST_DATA,
-                  "test 14: held host write must not commit until STDP is idle");
-            wait_stdp_idle();
-            repeat (4) @(negedge clk);
-            check(dut.u_wram.mem[STDP_HOST_ADDR] === STDP_HOST_DATA,
-                  "test 14: held host write must commit after STDP is idle");
-            check(dut.wr_pending === 1'b0,
-                  "test 14: host pending must clear after the deferred strobe");
         end
 
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");

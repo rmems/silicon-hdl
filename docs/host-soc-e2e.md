@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Last updated: 2026-09-13 -->
+<!-- Last updated: 2026-09-20 -->
 
 # Host ↔ SoC end-to-end runbook (SiliconBridge v3.0)
 
@@ -17,7 +17,7 @@ Linear [RM-288](https://linear.app/rpd-34/issue/RM-288). Parent epic
 | Wire protocol | SiliconBridge v3.0, N = 16, 16-bit Q8.8 words |
 | Request frame | **33 bytes** — `0xAA` sync + 16 big-endian Q8.8 stimuli |
 | Response frame | **36 bytes** — 16 potentials + spike-flag word + aux word |
-| RAM-write frame | **5 bytes** — `0xA5` sync + target + addr + Q8.8 data ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
+| Runtime-write frame | **5 bytes** — `0xA5` sync + target + addr + 16-bit data ([#63](https://github.com/rmems/silicon-hdl/issues/63), [#71](https://github.com/rmems/silicon-hdl/issues/71)) |
 | Link | 115200 baud, 8N1, no flow control |
 | SoC codec | [`spikenaut-soc-sv/rtl/SocProtocolFsm.sv`](../spikenaut-soc-sv/rtl/SocProtocolFsm.sv) |
 | Host codec | `silicon-bridge` `src/fpga_bridge.rs` (`FpgaBridge::process_stimuli`) |
@@ -68,6 +68,23 @@ one response per request, not one per tick.
 [`led-map.md`](led-map.md)) and add no response bytes. The response is 36 bytes
 before and after #72. Anything that needs the class over UART is a protocol
 version bump, not a field appended to this frame.
+
+### Runtime writes — host → SoC, 5 bytes
+
+The existing command is `0xA5, target, address, data_hi, data_lo`. Its length
+does not change for AER routing.
+
+| Target | Destination |
+| --- | --- |
+| `0` | Weight RAM |
+| `1` | Threshold RAM |
+| `2` | Leak RAM |
+| `3` | `aer-route-v1` route table |
+
+Target 3 interprets the data word as `valid[15]`, `terminal[14]`, reserved
+`[13:4]`, and `next_addr[3:0]`. Reserved bits and addresses above 15 are
+rejected. Writes wait until LIF, STDP writeback, and the route lookup engine are
+idle. See [`aer-routing-contract.md`](aer-routing-contract.md).
 
 ## Golden frame vectors
 
@@ -292,7 +309,7 @@ steps) and the `silicon-bridge` crate checked out.
 | Potentials look plausible but the wrong way round | Byte or lane order. Replay `lane_walk` / `lane15_only` against your parser. |
 | Spike bits are mirrored | Bit order — bit 0 is neuron 0. `lane_walk` (`0x0001`) and `lane15_only` (`0x8000`) separate the two conventions. |
 | Responses drift out of sync over a session | An extra or missing byte. One stray byte desynchronizes every later `read_exact(36)`. |
-| `status_word[3]` is lit | Sticky `rx_abort` — a request was abandoned mid-frame and the idle timeout fired. Idle the link before retrying. |
+| `status_word[3]` is lit | Sticky `ingress_fault`: either an abandoned/truncated request timed out or an AER lookup/configuration failed. The next completely accepted `0xAA` frame clears it unless that frame also faults. |
 | Inhibitory weights have no effect in a bank you exported | Not the UART path — check the export encoder. See the note below. |
 
 **On that last row.** `encode_q88_unsigned` flattens every negative weight to

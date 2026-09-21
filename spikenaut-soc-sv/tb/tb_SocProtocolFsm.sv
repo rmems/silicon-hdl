@@ -481,9 +481,20 @@ module tb_SocProtocolFsm;
 
             baseline_writes = wr_en_pulses;
             send_write_frame(8'h03, 8'h01, 16'h00FF);
-            check(wr_en === 1'b0, "invalid write target must not pulse wr_en");
+            check(wr_en === 1'b1, "complete AER route write must pulse wr_en");
+            check(wr_target === 2'd3, "AER route write target must be 3");
+            check(wr_addr === 8'h01, "AER route write must present the frame address");
+            check_word(wr_data, 16'h00FF,
+                       "AER route write must assemble its 16-bit entry big-endian");
+            @(negedge clk);
+            check(wr_en_pulses === baseline_writes + 1,
+                  "complete AER route write must pulse wr_en once");
+
+            baseline_writes = wr_en_pulses;
+            send_write_frame(8'h04, 8'h01, 16'h00FF);
+            check(wr_en === 1'b0, "target 4 must not pulse wr_en");
             check(wr_en_pulses === baseline_writes,
-                  "invalid write target must not increment wr_en");
+                  "target 4 must not increment wr_en");
             check(stimuli_valid_pulses === baseline_pulses,
                   "invalid write target must not publish a stimulus frame");
 
@@ -508,10 +519,10 @@ module tb_SocProtocolFsm;
             baseline_writes = wr_en_pulses;
             baseline_aborts = rx_abort_pulses;
             send_rx_byte(WRITE_SYNC_BYTE);
-            send_rx_byte(8'h00);
+            send_rx_byte(8'h03);
             send_rx_byte(8'h02);
             repeat (IDLE_TIMEOUT_CYCLES + 4) @(negedge clk);
-            check(wr_en === 1'b0, "idle timeout must not commit a partial write");
+            check(wr_en === 1'b0, "idle timeout must not commit a partial AER write");
             check(wr_en_pulses === baseline_writes,
                   "idle timeout must not pulse wr_en");
             check(rx_abort_pulses === baseline_aborts + 1,

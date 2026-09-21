@@ -6,8 +6,9 @@
 # Library ownership:
 #   lib_bridge  <- spikenaut-bridge-sv/rtl
 #   lib_core    <- spikenaut-core-sv/rtl
+#   lib_synapse <- synapse-link-hdl/src
 #   lib_soc     <- spikenaut-soc-sv/rtl
-#   lib_tb_core <- spikenaut-core-sv/tb + spikenaut-bridge-sv/tb + spikenaut-soc-sv/tb
+#   lib_tb_core <- core + bridge + synapse + SoC testbenches
 #
 # Usage (Vivado Tcl console or batch mode):
 #   vivado -mode batch -source scripts/sim_core.tcl
@@ -48,12 +49,20 @@ read_verilog -sv [list \
     [file join $core_rtl WeightRam.sv]      \
     [file join $core_rtl NeuronParamRam.sv] \
     [file join $core_rtl StdpController.sv] \
-    [file join $core_rtl StdpWriteback.sv]  \
+    [file join $core_rtl StdpWriteback.sv] \
     [file join $core_rtl OutputLayer.sv]    \
 ]
 
 # ---------------------------------------------------------------------------
-# 2b. lib_soc  –  spikenaut-soc-sv/rtl (top-level wrapper; #57 / #60)
+# 2b. lib_synapse – canonical AER routing implementation
+# ---------------------------------------------------------------------------
+set synapse_rtl [file join $repo_root synapse-link-hdl src]
+read_verilog -sv [list \
+    [file join $synapse_rtl AerRouteTable.sv] \
+]
+
+# ---------------------------------------------------------------------------
+# 2c. lib_soc  –  spikenaut-soc-sv/rtl (top-level wrapper; #57 / #60)
 # ---------------------------------------------------------------------------
 # Needed by the SoC-level testbench, which is the only sim that exercises the
 # 1 ms step_en divider and the UART-frame -> tick-domain handoff.
@@ -70,10 +79,11 @@ read_verilog -sv [list \
 # ---------------------------------------------------------------------------
 set core_tb   [file join $repo_root spikenaut-core-sv tb]
 set bridge_tb [file join $repo_root spikenaut-bridge-sv tb]
+set synapse_tb [file join $repo_root synapse-link-hdl tb]
 set soc_tb    [file join $repo_root spikenaut-soc-sv tb]
 
 # Add all testbench files in tb/ if any exist
-foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
+foreach tb_dir [list $core_tb $bridge_tb $synapse_tb $soc_tb] {
     if {[llength [glob -nocomplain [file join $tb_dir *.sv]]] > 0} {
         read_verilog -sv [glob [file join $tb_dir *.sv]]
     }
@@ -84,11 +94,38 @@ foreach tb_dir [list $core_tb $bridge_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_StdpWriteback tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_StdpWriteback tb_AerRouteTable tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
 
 set mem_dir    [file join $repo_root spikenaut-core-sv mem]
 # GH#66 golden vectors (generated; see docs/golden-lif-vectors.md).
 set golden_dir [file join $mem_dir golden]
+set route_mem_dir [file join $repo_root synapse-link-hdl mem]
+
+# XSim can return control to Tcl after a SystemVerilog $fatal without making
+# launch_simulation/run -all throw a Tcl error.  Require the testbench's own
+# success banner as the authoritative completion token so a failed or
+# truncated test cannot be reported as a green batch run.
+array set pass_banner {
+    tb_LifNeuron                 {TB_LIFNEURON: ALL TESTS PASSED}
+    tb_LifNeuron_golden          {TB_LIFNEURON_GOLDEN: ALL}
+    tb_LifNeuronArray            {TB_LIFNEURONARRAY: ALL TESTS PASSED}
+    tb_WeightRam                 {TB_WEIGHTRAM: ALL TESTS PASSED}
+    tb_WeightRam_init            {tb_WeightRam_init: PASS}
+    tb_NeuronParamRam            {TB_NEURONPARAMRAM: ALL TESTS PASSED}
+    tb_NeuronParamRam_init       {tb_NeuronParamRam_init: PASS}
+    tb_StdpController            {TB_STDPCONTROLLER: ALL TESTS PASSED}
+    tb_StdpWriteback             {TB_STDPWRITEBACK: ALL TESTS PASSED}
+    tb_AerRouteTable             {TB_AER_ROUTE_TABLE: ALL TESTS PASSED}
+    tb_OutputLayer               {TB_OUTPUTLAYER: ALL TESTS PASSED}
+    tb_OutputLayer_golden        {TB_OUTPUTLAYER_GOLDEN: ALL}
+    tb_UartRx                    {TB_UARTRX: ALL TESTS PASSED}
+    tb_UartTx                    {TB_UARTTX: ALL TESTS PASSED}
+    tb_SiliconBridge             {TB_SILICONBRIDGE: ALL TESTS PASSED}
+    tb_SocProtocolFsm            {TB_SOCPROTOCOLFSM: ALL TESTS PASSED}
+    tb_SocFrameGolden            {TB_SOC_FRAME_GOLDEN: ALL}
+    tb_SocStatusLeds             {TB_SOCSTATUSLEDS: ALL TESTS PASSED}
+    tb_spikenaut_soc_basys3_top  {TB_BASYS3_TOP: ALL TESTS PASSED}
+}
 
 foreach tb_top $core_tb_tops {
     set_property top $tb_top [get_filesets sim_1]
@@ -140,7 +177,12 @@ foreach tb_top $core_tb_tops {
             "THRESH_INIT=[file normalize [file join $mem_dir merged_v2_thresholds.mem]]" \
             "LEAK_INIT=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
             "OUTPUT_WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_output_weights.mem]]" \
+            "ROUTE_INIT=[file normalize [file join $route_mem_dir aer_routes_identity_n16.mem]]" \
         ] [get_filesets sim_1]
+    } elseif {$tb_top eq "tb_AerRouteTable"} {
+        set_property generic \
+            "NONIDENTITY_INIT_FILE=[file normalize [file join $route_mem_dir aer_routes_test_multihop_n16.mem]]" \
+            [get_filesets sim_1]
     } elseif {$tb_top eq "tb_LifNeuronArray"} {
         # #92 bank-data regression $readmemh's the shipped bank directly.
         set_property generic [list \
@@ -171,6 +213,18 @@ foreach tb_top $core_tb_tops {
     # on the same PR catches it far sooner.
     run -all
     close_sim
+
+    set sim_log [file join $project_dir ${project_name}.sim sim_1 behav xsim simulate.log]
+    if {![file exists $sim_log]} {
+        error "$tb_top: XSim did not produce $sim_log"
+    }
+    set sim_fd [open $sim_log r]
+    set sim_text [read $sim_fd]
+    close $sim_fd
+    if {[string first $pass_banner($tb_top) $sim_text] < 0} {
+        error "$tb_top: required success banner '$pass_banner($tb_top)' was not present in simulate.log"
+    }
+    puts "=== $tb_top: verified success banner ==="
 }
 
 puts "=== sim_core.tcl complete ==="

@@ -84,7 +84,8 @@ symbols or tops conflict.
 | `tb_WeightRam` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/tb/tb_WeightRam.sv` |
 | `tb_NeuronParamRam` | `spikenaut-core-sv/rtl/NeuronParamRam.sv` + `spikenaut-core-sv/tb/tb_NeuronParamRam.sv` |
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
-| `tb_StdpWriteback` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/rtl/StdpWriteback.sv` + `spikenaut-core-sv/tb/tb_StdpWriteback.sv` |
+| `tb_StdpWriteback` | `WeightRam.sv` + `StdpController.sv` + `StdpWriteback.sv` + `tb_StdpWriteback.sv` |
+| `tb_AerRouteTable` | `synapse-link-hdl/src/AerRouteTable.sv` + `synapse-link-hdl/tb/tb_AerRouteTable.sv` |
 | `tb_OutputLayer` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer.sv` |
 | `tb_LifNeuron_golden` | `spikenaut-core-sv/rtl/LifNeuron.sv` + `spikenaut-core-sv/tb/tb_LifNeuron_golden.sv` |
 | `tb_OutputLayer_golden` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer_golden.sv` |
@@ -107,7 +108,7 @@ expectations from `spikenaut-core-sv/mem/golden/` and must be run from the repo 
 `tb_spikenaut_soc_basys3_top` (`spikenaut-soc-sv/tb/tb_Basys3_Top.sv`) is the only simulation
 that covers the 1 ms `step_en` divider and the UART-event → tick-domain handoff — the core unit
 TBs drive `step_en` themselves, so they cannot reach either. It needs the full
-`lib_bridge` → `lib_core` → `lib_soc` source list and must run from the repo root
+`lib_bridge + lib_core + lib_synapse` → `lib_soc` source list and must run from the repo root
 (`$readmemh` `INIT_FILE` paths are repo-root relative):
 
 ```bash
@@ -119,9 +120,9 @@ verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD
   spikenaut-bridge-sv/rtl/SiliconBridge.sv \
   spikenaut-core-sv/rtl/LifNeuron.sv spikenaut-core-sv/rtl/LifNeuronArray.sv \
   spikenaut-core-sv/rtl/WeightRam.sv spikenaut-core-sv/rtl/NeuronParamRam.sv \
-  spikenaut-core-sv/rtl/StdpController.sv \
-  spikenaut-core-sv/rtl/StdpWriteback.sv \
+  spikenaut-core-sv/rtl/StdpController.sv spikenaut-core-sv/rtl/StdpWriteback.sv \
   spikenaut-core-sv/rtl/OutputLayer.sv \
+  synapse-link-hdl/src/AerRouteTable.sv \
   spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
   spikenaut-soc-sv/rtl/SocStatusLeds.sv \
   spikenaut-soc-sv/rtl/Basys3_Top.sv spikenaut-soc-sv/tb/tb_Basys3_Top.sv
@@ -206,8 +207,8 @@ case table, and the board-in-loop runbook: [`docs/host-soc-e2e.md`](docs/host-so
 
 ## Architecture notes
 
-- **Compile order matters** and is fixed by dependency direction: `lib_bridge` → `lib_core` →
-  `lib_soc` / `lib_synapse`.
+- **Compile order matters** and is fixed by dependency direction:
+  `lib_bridge + lib_core + lib_synapse` → `lib_soc`.
 - Logical SNN timestep vs fabric clock: [`docs/timestep-contract.md`](docs/timestep-contract.md)
   (1 ms `step_en` from the SoC; LIF/STDP do not update every 100 MHz edge).
 - LED / status map: [`docs/led-map.md`](docs/led-map.md) — SW15 selects the

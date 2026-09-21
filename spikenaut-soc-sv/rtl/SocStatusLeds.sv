@@ -22,6 +22,7 @@ module SocStatusLeds #(
     input  logic                    rx_busy,
     input  logic                    rx_commit,
     input  logic                    rx_abort,
+    input  logic                    route_fault,
     input  logic                    tx_frame_active,
     input  logic                    stimuli_pending,
     input  logic                    response_armed,
@@ -77,7 +78,7 @@ module SocStatusLeds #(
     logic                           response_armed_held;
     logic [NUM_NEURONS-1:0]         spike_hold;
     logic [2:0]                     output_class_hold;
-    logic                           abort_sticky;
+    logic                           ingress_fault_sticky;
     logic [8:0]                     tick_cnt;
     logic                           heartbeat;
     logic [LED_WIDTH-1:0]           status_word;
@@ -108,7 +109,7 @@ module SocStatusLeds #(
             response_armed_held  <= 1'b0;
             spike_hold           <= '0;
             output_class_hold    <= '0;
-            abort_sticky         <= 1'b0;
+            ingress_fault_sticky <= 1'b0;
             tick_cnt             <= '0;
         end else begin
             if (rx_busy)
@@ -148,10 +149,13 @@ module SocStatusLeds #(
             if (output_class_valid)
                 output_class_hold <= output_class;
 
-            if (rx_commit)
-                abort_sticky <= 1'b0;
-            else if (rx_abort)
-                abort_sticky <= 1'b1;
+            // Status bit 3 is the shared ingress diagnostic. Set wins over a
+            // simultaneous accepted-frame clear so a fresh routing failure
+            // cannot disappear before it is observable on the board.
+            if (rx_abort || route_fault)
+                ingress_fault_sticky <= 1'b1;
+            else if (rx_commit)
+                ingress_fault_sticky <= 1'b0;
 
             if (step_en)
                 tick_cnt <= tick_cnt + 1'b1;
@@ -163,7 +167,7 @@ module SocStatusLeds #(
         status_word[0]     = heartbeat;
         status_word[1]     = rx_busy_held;
         status_word[2]     = rx_commit_held;
-        status_word[3]     = abort_sticky;
+        status_word[3]     = ingress_fault_sticky;
         status_word[4]     = tx_frame_held;
         status_word[5]     = stimuli_pending_held;
         status_word[6]     = response_armed_held;

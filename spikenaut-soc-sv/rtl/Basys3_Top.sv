@@ -21,6 +21,7 @@
 //   spikenaut-bridge-sv/rtl/UartRx.sv
 //   spikenaut-bridge-sv/rtl/UartTx.sv
 //   spikenaut-bridge-sv/rtl/SiliconBridge.sv
+//   synapse-link-hdl/src/AerRouteTable.sv
 //   spikenaut-soc-sv/rtl/SocProtocolFsm.sv
 //   spikenaut-soc-sv/rtl/SocStatusLeds.sv
 
@@ -29,6 +30,7 @@ module spikenaut_soc_basys3_top #(
     parameter string WEIGHT_INIT_FILE = "spikenaut-core-sv/mem/merged_v2_weights.mem",
     parameter string THRESH_INIT_FILE = "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
     parameter string LEAK_INIT_FILE   = "spikenaut-core-sv/mem/merged_v2_decay.mem",
+    parameter string ROUTE_INIT_FILE  = "synapse-link-hdl/mem/aer_routes_identity_n16.mem",
     // GH#72: output-layer bank (16 neurons x 3 classes, 48 entries).
     parameter string OUTPUT_WEIGHT_INIT_FILE = "spikenaut-core-sv/mem/merged_v2_output_weights.mem",
     // 256-entry weight image => ADDR_WIDTH=8 (not core default 10).
@@ -134,23 +136,34 @@ module spikenaut_soc_basys3_top #(
     // Protocol stimulus -> logical tick domain (#62)
     // ----------------------------------------------------------------
     // The protocol FSM exposes a complete packed frame only after all 32
-    // payload bytes are present.  Hold its one-cycle valid strobe until the
-    // next logical tick, with set priority over clear for a frame that lands
-    // exactly on a tick edge.
+    // payload bytes are present. Decode its lowest active input lane, resolve
+    // that source through the bounded AER table, and retain the request until
+    // the next logical tick after resolution.
     logic [NUM_NEURONS*DATA_WIDTH-1:0] protocol_stimuli;
     logic                               protocol_stimuli_valid;
     logic                               stimuli_pending;
     logic                               stimulus_event;
     logic [$clog2(NUM_NEURONS)-1:0]     stimulus_input_index;
-
-    always_ff @(posedge clk) begin
-        if (!rst)
-            stimuli_pending <= 1'b0;
-        else if (protocol_stimuli_valid)
-            stimuli_pending <= 1'b1;
-        else if (step_en)
-            stimuli_pending <= 1'b0;
-    end
+    logic                               decoded_input_found;
+    logic [$clog2(NUM_NEURONS)-1:0]     decoded_input_index;
+    logic                               route_request_pending;
+    logic                               route_lookup_pending;
+    logic                               route_resolved;
+    logic                               route_drop_pending;
+    logic [$clog2(NUM_NEURONS)-1:0]     route_source_addr;
+    logic [$clog2(NUM_NEURONS)-1:0]     routed_input_index;
+    logic                               route_in_valid;
+    logic                               route_in_ready;
+    logic                               route_out_valid;
+    logic [$clog2(NUM_NEURONS)-1:0]     route_out_addr;
+    logic                               route_busy;
+    logic                               aer_route_fault;
+    logic                               route_cfg_fault;
+    logic                               route_fault;
+    logic                               aer_cfg_we;
+    logic                               consume_pending;
+    logic [7:0]                         wr_sel_addr;
+    logic [DATA_WIDTH-1:0]              wr_sel_data;
 
     // LifNeuronArray is currently a binary-event PE with one selected matrix
     // input column per logical tick.  Preserve that established core contract
@@ -159,19 +172,85 @@ module spikenaut_soc_basys3_top #(
     // available in protocol_stimuli for a future vector-accumulation PE; it is
     // not mistaken for a raw UART-byte event.
     always_comb begin
-        logic input_found;
-
-        input_found         = 1'b0;
-        stimulus_event      = 1'b0;
-        stimulus_input_index = '0;
+        decoded_input_found = 1'b0;
+        decoded_input_index = '0;
         for (int input_lane = 0; input_lane < NUM_NEURONS; input_lane++) begin
-            if (!input_found &&
+            if (!decoded_input_found &&
                 (protocol_stimuli[input_lane*DATA_WIDTH +: DATA_WIDTH] != '0)) begin
-                input_found          = 1'b1;
-                stimulus_input_index = input_lane[$clog2(NUM_NEURONS)-1:0];
+                decoded_input_found = 1'b1;
+                decoded_input_index = input_lane[$clog2(NUM_NEURONS)-1:0];
             end
         end
-        stimulus_event = stimuli_pending && input_found;
+    end
+
+    assign route_in_valid       = route_request_pending;
+    assign consume_pending      = step_en && stimuli_pending && route_resolved;
+    assign stimulus_event       = stimuli_pending && route_resolved && !route_drop_pending;
+    assign stimulus_input_index = routed_input_index;
+    assign route_fault          = aer_route_fault || route_cfg_fault;
+
+    AerRouteTable #(
+        .ADDR_WIDTH  ($clog2(NUM_NEURONS)),
+        .ENTRY_COUNT (NUM_NEURONS),
+        .MAX_HOPS    (4),
+        .INIT_FILE   (ROUTE_INIT_FILE)
+    ) u_aer_router (
+        .clk         (clk),
+        .rst_n       (rst),
+        .in_valid    (route_in_valid),
+        .in_ready    (route_in_ready),
+        .in_addr     (route_source_addr),
+        .out_valid   (route_out_valid),
+        .out_addr    (route_out_addr),
+        .busy        (route_busy),
+        .route_fault (aer_route_fault),
+        .cfg_we      (aer_cfg_we),
+        .cfg_addr    (wr_sel_addr[$clog2(NUM_NEURONS)-1:0]),
+        .cfg_data    (wr_sel_data)
+    );
+
+    always_ff @(posedge clk) begin
+        if (!rst) begin
+            stimuli_pending     <= 1'b0;
+            route_request_pending <= 1'b0;
+            route_lookup_pending  <= 1'b0;
+            route_resolved        <= 1'b0;
+            route_drop_pending    <= 1'b0;
+            route_source_addr     <= '0;
+            routed_input_index    <= '0;
+        end else if (protocol_stimuli_valid) begin
+            stimuli_pending       <= 1'b1;
+            route_request_pending <= decoded_input_found;
+            route_lookup_pending  <= 1'b0;
+            route_resolved        <= !decoded_input_found;
+            route_drop_pending    <= !decoded_input_found;
+            route_source_addr     <= decoded_input_index;
+            routed_input_index    <= '0;
+        end else begin
+            if (route_request_pending && route_in_ready) begin
+                route_request_pending <= 1'b0;
+                route_lookup_pending  <= 1'b1;
+            end
+
+            if (route_out_valid) begin
+                route_lookup_pending <= 1'b0;
+                route_resolved       <= 1'b1;
+                route_drop_pending   <= 1'b0;
+                routed_input_index   <= route_out_addr;
+            end else if (route_lookup_pending && aer_route_fault && !route_busy) begin
+                route_lookup_pending <= 1'b0;
+                route_resolved       <= 1'b1;
+                route_drop_pending   <= 1'b1;
+            end
+
+            if (consume_pending) begin
+                stimuli_pending       <= 1'b0;
+                route_request_pending <= 1'b0;
+                route_lookup_pending  <= 1'b0;
+                route_resolved        <= 1'b0;
+                route_drop_pending    <= 1'b0;
+            end
+        end
     end
 
     // ----------------------------------------------------------------
@@ -211,8 +290,6 @@ module spikenaut_soc_basys3_top #(
     logic [7:0]  wr_pending_addr;
     logic [DATA_WIDTH-1:0] wr_pending_data;
     logic [1:0]  wr_sel_target;
-    logic [7:0]  wr_sel_addr;
-    logic [DATA_WIDTH-1:0] wr_sel_data;
 
     // Busy from the tick that starts a sweep through the cycle that
     // completes it.  Include step_en itself so the first registered RAM
@@ -227,10 +304,7 @@ module spikenaut_soc_basys3_top #(
     end
 
     assign pe_busy  = pe_ram_busy || step_en;
-    // Host 0xA5 writes wait for both the LIF sweep and the STDP column
-    // walk.  pe_busy stays PE-only so existing SoC TB checks keep their
-    // meaning; wr_block is the combined RAM-hold.
-    assign wr_block = pe_busy || stdp_busy;
+    assign wr_block = pe_busy || stdp_busy || route_busy || route_request_pending;
 
     always_ff @(posedge clk) begin
         if (!rst) begin
@@ -265,7 +339,8 @@ module spikenaut_soc_basys3_top #(
         end
     end
 
-    // Target encoding matches SocProtocolFsm: 0=weight, 1=threshold, 2=leak.
+    // Target encoding matches SocProtocolFsm:
+    // 0=weight, 1=threshold, 2=leak, 3=AER route table.
     assign weight_we = wr_fire && (wr_sel_target == 2'd0);
     // #73 follow-up: LifNeuronArray's threshold compare is signed, so a
     // sign-bit-set threshold word -- whether from a host still using the
@@ -281,6 +356,9 @@ module spikenaut_soc_basys3_top #(
     // tick instead of draining it (0 - (-leak) = +leak), climbing to a
     // positive threshold with no input at all. Only weight may be negative.
     assign leak_we   = wr_fire && (wr_sel_target == 2'd2) && !wr_sel_data[DATA_WIDTH-1];
+    assign aer_cfg_we = wr_fire && (wr_sel_target == 2'd3) && !(|wr_sel_addr[7:4]);
+    assign route_cfg_fault =
+        wr_fire && (wr_sel_target == 2'd3) && (|wr_sel_addr[7:4]);
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),
@@ -321,13 +399,8 @@ module spikenaut_soc_basys3_top #(
     logic [DATA_WIDTH-1:0] wram_din;
     logic        learn_en;
 
-    // SW14 default 0 (reset/sync to 0): F1 demo weights stay at INIT_FILE /
-    // host 0xA5 until the operator opts into online learn.
     assign learn_en = sw_sync_1[14];
 
-    // PE owns the port during the LIF sweep; STDP owns it for the post-tick
-    // column walk; the host write wins only when both are idle.  weight_we
-    // stays the host-only strobe so tb_Basys3_Top's #63 checks keep working.
     always_comb begin
         wram_we   = 1'b0;
         wram_addr = weight_addr;
@@ -398,8 +471,8 @@ module spikenaut_soc_basys3_top #(
     // frame change (see docs/interface-alignment.md / #64). Triggered on
     // lif_tick_done, not step_en: spike_bitmap only updates on tick_done,
     // so triggering on step_en would score the *previous* tick's spikes.
-    // No runtime write path for this bank -- we/din tied off. The main
-    // WeightRam's write port is shared by host 0xA5 and STDP writeback.
+    // No runtime write path for this bank -- we/din tied off, matching the
+    // precedent of u_stdp's intentionally-dangling write ports below.
     // ----------------------------------------------------------------
     logic [DATA_WIDTH-1:0] output_weight_dout;
     logic [OUTPUT_WEIGHT_ADDR_W-1:0] output_weight_addr;
@@ -458,7 +531,7 @@ module spikenaut_soc_basys3_top #(
     always_ff @(posedge clk) begin
         if (!rst)
             response_armed <= 1'b0;
-        else if (step_en && stimuli_pending)
+        else if (consume_pending)
             response_armed <= 1'b1;
         else if (lif_tick_done)
             response_armed <= 1'b0;
@@ -495,12 +568,6 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     // STDP writeback (#70)
     // ----------------------------------------------------------------
-    // Optional closed-loop learn: SW14 (learn_en) must be high. The engine
-    // instantiates one StdpController per post neuron, snapshots the
-    // originating pre column after tick_done (when spike_bitmap is committed), then
-    // serializes any weight_we strobes into WeightRam while the PE is idle.
-    // Traces still count logical ticks — the local stdp_tick is one pulse
-    // per 1 ms SoC tick, not a fabric-clock update.
     StdpWriteback #(
         .DATA_WIDTH  (DATA_WIDTH),
         .NUM_NEURONS (NUM_NEURONS),
@@ -536,6 +603,7 @@ module spikenaut_soc_basys3_top #(
         .rx_busy         (rx_busy),
         .rx_commit       (protocol_stimuli_valid),
         .rx_abort        (rx_abort),
+        .route_fault     (route_fault),
         .tx_frame_active (tx_frame_active),
         .stimuli_pending (stimuli_pending),
         .response_armed  (response_armed),

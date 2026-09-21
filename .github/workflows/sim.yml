@@ -54,6 +54,10 @@ jobs:
           # the wire framing against a trace that no longer describes it.
           python3 scripts/gen_golden_frame_vectors.py --check
 
+      - name: Check AER route image is not stale
+        run: |
+          python3 scripts/gen_aer_route_vectors.py --check
+
       - name: Run tb_LifNeuron_golden
         run: |
           rm -rf obj_dir
@@ -166,6 +170,16 @@ jobs:
             spikenaut-core-sv/tb/tb_StdpWriteback.sv
           ./obj_dir/Vtb_StdpWriteback
 
+      - name: Run tb_AerRouteTable
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_AerRouteTable \
+            -Isynapse-link-hdl/src \
+            synapse-link-hdl/src/AerRouteTable.sv \
+            synapse-link-hdl/tb/tb_AerRouteTable.sv
+          ./obj_dir/Vtb_AerRouteTable
+
       - name: Run tb_UartRx
         run: |
           rm -rf obj_dir
@@ -253,6 +267,7 @@ jobs:
             spikenaut-core-sv/rtl/StdpController.sv \
             spikenaut-core-sv/rtl/StdpWriteback.sv \
             spikenaut-core-sv/rtl/OutputLayer.sv \
+            synapse-link-hdl/src/AerRouteTable.sv \
             spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
             spikenaut-soc-sv/rtl/SocStatusLeds.sv \
             spikenaut-soc-sv/rtl/Basys3_Top.sv \

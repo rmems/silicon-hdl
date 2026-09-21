@@ -80,14 +80,15 @@ def main() -> int:
         return 2
     path = Path(sys.argv[1])
     if not path.is_file():
-        print(f"check_wns: no report at {path}; skipping timing gate")
-        return 0
+        print(f"check_wns: FAIL no report at {path}")
+        return 1
 
     text = path.read_text(encoding="utf-8", errors="replace")
     wns, whs = _resolve_slacks(text)
-    if wns is None and whs is None:
-        print(f"check_wns: could not parse WNS/WHS from {path}; skipping gate")
-        return 0
+    missing = [name for name, value in (("WNS", wns), ("WHS", whs)) if value is None]
+    if missing:
+        print(f"check_wns: FAIL could not parse {', '.join(missing)} from {path}")
+        return 1
 
     # Always evaluate both so logs show WNS and WHS even when one fails.
     wns_failed = _check_slack("WNS", wns, path)

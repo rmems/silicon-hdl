@@ -11,18 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Closed-loop STDP writeback on the SoC demo path (addresses #70). New
-  `StdpWriteback` (`spikenaut-core-sv/rtl/StdpWriteback.sv`) snapshots the
-  originating pre column after `tick_done`, pulses one `StdpController` per
-  post neuron (Bi–Poo polarity, traces still in logical ticks), and serializes
-  changed weights into `WeightRam` while the LIF PE is idle. SW14 is the
-  optional-learn gate (default 0, so F1 demo weights stay at `INIT_FILE` /
-  host `0xA5` until opted in). `StdpController` saturates ±1 LSB at the signed
-  Q8.8 extremes (`16'h7FFF` / `16'h8000`) so an inhibitory weight can LTP back
-  toward zero instead of freezing at `16'hFFFF`. Host weight writes wait for
-  `stdp_busy`. `tb_StdpWriteback` and SoC TB test 14 lock the gate, LTP, the
-  originating-pre-column address after a channel switch, and the deferred
-  host write.
+- RM-259 / #71 bounded AER route-table consumer for the Basys 3 SoC.
+  - New canonical AerRouteTable in lib_synapse: 16 x 16-bit aer-route-v1
+    entries, four-bit ready/valid source and result, one event in flight,
+    MAX_HOPS=4, fail-closed invalid/reserved/hop-limit behavior, runtime
+    configuration, and optional INIT_FILE.
+  - Generated identity image and metadata under synapse-link-hdl/mem/,
+    reproduced by scripts/gen_aer_route_vectors.py --check and Python
+    contract tests.
+  - Unit coverage for all identity addresses, two/three/four-lookup routes,
+    invalid entries, self and multi-entry cycles, malformed writes, active
+    lookup collisions, immediate rewrites, and back-to-back ready/valid use.
+  - Main-SoC integration routes the lowest active frame lane before both
+    LifNeuronArray weight-column selection and StdpWriteback pre-column
+    capture. Failed routes are consumed as no-input ticks and still receive
+    the unchanged 36-byte response.
+
+### Changed
+
+- The existing five-byte 0xA5 command accepts target 3 for AER entries;
+  targets above 3 remain invalid. The 33-byte request, 36-byte response,
+  signed Q8.8 lane order, and output-class placement are unchanged.
+- Status bit 3 is now sticky ingress_fault (protocol idle-timeout abort OR
+  route/configuration fault). Reset or the next accepted 0xAA frame clears
+  it, with fault-set priority.
+- Build order is now lib_bridge + lib_core + lib_synapse -> lib_soc;
+  Verilator quality, free CI, Vivado XSim, and synthesis lists include AER.
+- Added docs/aer-routing-contract.md and updated protocol, LED, connectivity,
+  boundary, module-inventory, and interface documentation. These changes do
+  not claim RM-259 closure: NIR producer PRs, exact-candidate Vivado evidence,
+  and the live Basys 3 acceptance run remain required.
 
 ## [0.2.0] - 2026-09-14
 
