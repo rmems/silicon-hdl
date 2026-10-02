@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Amp orb setup for silicon-hdl.
+#
+# Amp runs this from the repository root when it builds a project orb snapshot
+# (Debian 12, CPU only: orbs have no GPU). It must finish within 20 minutes and
+# be safe to run more than once. See https://ampcode.com/docs/orbs/customizing
+#
+# Installs only what this repo's CI and manifests need:
+#   - apt: build-essential, verilator (Debian 12 ships 5.006)
+#   - uv + Python 3.12 venv with requirements-dev.txt
+#
+# It ends with a dependency fetch/prebuild, not a test run.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  SUDO="sudo"
+fi
+
+# Install Debian packages that are not already present.
+apt_install() {
+  local missing=() pkg
+  for pkg in "$@"; do
+    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+      missing+=("$pkg")
+    fi
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    $SUDO apt-get -o Acquire::Retries=5 update -qq
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 install -y --no-install-recommends "${missing[@]}"
+  fi
+}
+
+# --- System packages (Verilator 5 for the `--binary --timing` sims in sim.yml; g++/make to build them) ---
+apt_install build-essential verilator
+
+# sim.yml uses `verilator --binary --timing`, which needs Verilator 5.x.
+if ! verilator --version | grep -qE '^Verilator 5\.'; then
+  echo "error: Verilator 5.x required, got: $(verilator --version)" >&2
+  exit 1
+fi
+
+# --- Python (uv) ---
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+# coverage.yml uses Python 3.12.
+uv python install 3.12
+if [ ! -x .venv/bin/python ]; then
+  uv venv --python 3.12 .venv
+fi
+
+# --- Python test deps (coverage.yml: pip install -r requirements-dev.txt) ---
+uv pip install --python .venv/bin/python -r requirements-dev.txt
+
+echo "Amp orb setup for silicon-hdl finished."
