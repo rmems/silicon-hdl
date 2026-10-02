@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
 # Amp orb setup for silicon-hdl.
 #
 # Amp runs this from the repository root when it builds a project orb snapshot
