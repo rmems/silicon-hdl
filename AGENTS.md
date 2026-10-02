@@ -5,6 +5,8 @@
 Companion agent guidance for `silicon-hdl`. Claude Code loads this file via `@AGENTS.md` from
 `CLAUDE.md`. Entry identity and boundaries remain in `CLAUDE.md`.
 
+Amp does not read `CLAUDE.md` when this file exists, so load it here: @CLAUDE.md
+
 ## Build and test
 
 **Local free-stack quality** (guardian + every core/bridge/SoC Verilator TB):
