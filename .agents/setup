@@ -7,8 +7,9 @@
 # be safe to run more than once. See https://ampcode.com/docs/orbs/customizing
 #
 # Installs only what this repo's CI and manifests need:
-#   - apt: build-essential, verilator (Debian 12 ships 5.006), curl, ca-certificates
-#   - uv + Python 3.12 venv with requirements-dev.txt
+#   - apt: build and download dependencies
+#   - Verilator 5.020 (when the installed version is older)
+#   - uv 0.12.3 + Python 3.12 venv with requirements-dev.txt
 #   - tool directories exposed to later shells (/etc/profile.d + /usr/local/bin links)
 #
 # It ends with a dependency fetch/prebuild, not a test run.
@@ -35,23 +36,61 @@ apt_install() {
   fi
 }
 
-# --- System packages (Verilator 5 for the `--binary --timing` sims in sim.yml; g++/make to build them; curl for the installers) ---
-apt_install build-essential verilator curl ca-certificates
+# --- System packages ---
+apt_install build-essential autoconf flex libfl-dev bison help2man perl python3 curl ca-certificates
 
-# sim.yml uses `verilator --binary --timing`, which needs Verilator 5.x.
-if ! verilator --version | grep -qE '^Verilator 5\.'; then
-  echo "error: Verilator 5.x required, got: $(verilator --version)" >&2
-  exit 1
+# --- Verilator ---
+# WIDTHEXPAND was introduced in 5.008. Pin 5.020 so Debian 12's incompatible
+# 5.006 package cannot make setup succeed while every standard simulation fails.
+VERILATOR_MIN_VERSION="5.020"
+verilator_version=""
+if command -v verilator >/dev/null 2>&1; then
+  verilator_version="$(verilator --version | awk '{print $2}')"
+fi
+if [ -z "$verilator_version" ] ||
+  [ "$(printf '%s\n%s\n' "$VERILATOR_MIN_VERSION" "$verilator_version" | sort -V | head -n1)" != "$VERILATOR_MIN_VERSION" ]; then
+  VERILATOR_SHA256="41ca9abfadf8d2413efbff7f8277379733d0095957fe7769dc38f8fd1bc899a6"
+  verilator_tmp="$(mktemp -d)"
+  trap 'rm -rf "$verilator_tmp"' EXIT
+  curl --proto '=https' --tlsv1.2 --retry 5 --fail --location --silent --show-error \
+    "https://github.com/verilator/verilator/archive/refs/tags/v${VERILATOR_MIN_VERSION}.tar.gz" \
+    -o "$verilator_tmp/verilator.tar.gz"
+  printf '%s  %s\n' "$VERILATOR_SHA256" "$verilator_tmp/verilator.tar.gz" | sha256sum -c -
+  tar -xzf "$verilator_tmp/verilator.tar.gz" -C "$verilator_tmp"
+  (
+    cd "$verilator_tmp/verilator-$VERILATOR_MIN_VERSION"
+    autoconf
+    ./configure --prefix=/usr/local
+    make -j"$(nproc)"
+    $SUDO make install
+  )
+  rm -rf "$verilator_tmp"
+  trap - EXIT
+  hash -r
 fi
 
 # --- Python (uv) ---
 export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv >/dev/null 2>&1; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+  UV_VERSION="0.12.3"
+  UV_INSTALLER_SHA256="a7e3924ea1cd06bf1518c577d635c624ae2e2db030e0fc8ff8cf426224384e17"
+  uv_installer="$(mktemp)"
+  trap 'rm -f "$uv_installer"' EXIT
+  curl --proto '=https' --tlsv1.2 --retry 5 --fail --location --silent --show-error \
+    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-installer.sh" \
+    -o "$uv_installer"
+  printf '%s  %s\n' "$UV_INSTALLER_SHA256" "$uv_installer" | sha256sum -c -
+  UV_NO_MODIFY_PATH=1 sh "$uv_installer"
+  rm -f "$uv_installer"
+  trap - EXIT
 fi
 # coverage.yml uses Python 3.12.
-uv python install 3.12
-if [ ! -x .venv/bin/python ]; then
+if ! uv python find 3.12 >/dev/null 2>&1; then
+  uv python install 3.12
+fi
+if [ ! -x .venv/bin/python ] ||
+  ! .venv/bin/python -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'; then
+  rm -rf .venv
   uv venv --python 3.12 .venv
 fi
 
@@ -82,10 +121,5 @@ for dir in "${tool_dirs[@]}"; do
     fi
   done
 done
-
-# .venv/ is not in .gitignore here, so keep it out of `git status` in the orb.
-exclude_file="$(git rev-parse --git-path info/exclude)"
-mkdir -p "$(dirname "$exclude_file")"
-grep -qxF '/.venv/' "$exclude_file" 2>/dev/null || echo '/.venv/' >>"$exclude_file"
 
 echo "Amp orb setup for silicon-hdl finished."
