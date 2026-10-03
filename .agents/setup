@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Amp orb setup for silicon-hdl.
+#
+# Amp runs this from the repository root when it builds a project orb snapshot
+# (Debian 12, CPU only: orbs have no GPU). It must finish within 20 minutes and
+# be safe to run more than once. See https://ampcode.com/docs/orbs/customizing
+#
+# Installs only what this repo's CI and manifests need:
+#   - apt: build and download dependencies
+#   - Verilator 5.020 (when the installed version is older)
+#   - uv 0.12.3 + Python 3.12 venv with requirements-dev.txt
+#   - tool directories exposed to later shells (/etc/profile.d + /usr/local/bin links)
+#
+# It ends with a dependency fetch/prebuild, not a test run.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  SUDO="sudo"
+fi
+
+# Install Debian packages that are not already present.
+apt_install() {
+  local missing=() pkg
+  for pkg in "$@"; do
+    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+      missing+=("$pkg")
+    fi
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    $SUDO apt-get -o Acquire::Retries=5 update -qq
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 install -y --no-install-recommends "${missing[@]}"
+  fi
+}
+
+# --- System packages ---
+apt_install build-essential autoconf flex libfl-dev bison help2man perl python3 curl ca-certificates
+
+# --- Verilator ---
+# WIDTHEXPAND was introduced in 5.008. Pin 5.020 so Debian 12's incompatible
+# 5.006 package cannot make setup succeed while every standard simulation fails.
+VERILATOR_MIN_VERSION="5.020"
+verilator_version=""
+if command -v verilator >/dev/null 2>&1; then
+  verilator_version="$(verilator --version | awk '{print $2}')"
+fi
+if [ -z "$verilator_version" ] ||
+  [ "$(printf '%s\n%s\n' "$VERILATOR_MIN_VERSION" "$verilator_version" | sort -V | head -n1)" != "$VERILATOR_MIN_VERSION" ]; then
+  VERILATOR_SHA256="41ca9abfadf8d2413efbff7f8277379733d0095957fe7769dc38f8fd1bc899a6"
+  verilator_tmp="$(mktemp -d)"
+  trap 'rm -rf "$verilator_tmp"' EXIT
+  curl --proto '=https' --tlsv1.2 --retry 5 --fail --location --silent --show-error \
+    "https://github.com/verilator/verilator/archive/refs/tags/v${VERILATOR_MIN_VERSION}.tar.gz" \
+    -o "$verilator_tmp/verilator.tar.gz"
+  printf '%s  %s\n' "$VERILATOR_SHA256" "$verilator_tmp/verilator.tar.gz" | sha256sum -c -
+  tar -xzf "$verilator_tmp/verilator.tar.gz" -C "$verilator_tmp"
+  (
+    cd "$verilator_tmp/verilator-$VERILATOR_MIN_VERSION"
+    autoconf
+    ./configure --prefix=/usr/local
+    make -j"$(nproc)"
+    $SUDO make install
+  )
+  rm -rf "$verilator_tmp"
+  trap - EXIT
+  hash -r
+fi
+
+# --- Python (uv) ---
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v uv >/dev/null 2>&1; then
+  UV_VERSION="0.12.3"
+  UV_INSTALLER_SHA256="a7e3924ea1cd06bf1518c577d635c624ae2e2db030e0fc8ff8cf426224384e17"
+  uv_installer="$(mktemp)"
+  trap 'rm -f "$uv_installer"' EXIT
+  curl --proto '=https' --tlsv1.2 --retry 5 --fail --location --silent --show-error \
+    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-installer.sh" \
+    -o "$uv_installer"
+  printf '%s  %s\n' "$UV_INSTALLER_SHA256" "$uv_installer" | sha256sum -c -
+  UV_NO_MODIFY_PATH=1 sh "$uv_installer"
+  rm -f "$uv_installer"
+  trap - EXIT
+fi
+# coverage.yml uses Python 3.12.
+if ! uv python find 3.12 >/dev/null 2>&1; then
+  uv python install 3.12
+fi
+if [ ! -x .venv/bin/python ] ||
+  ! .venv/bin/python -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'; then
+  rm -rf .venv
+  uv venv --python 3.12 .venv
+fi
+
+# --- Python test deps (coverage.yml: pip install -r requirements-dev.txt) ---
+uv pip install --python .venv/bin/python -r requirements-dev.txt
+
+# --- Expose the tools to later shells ---
+# The PATH exports above last only for this script; Amp starts the agent's shell
+# separately. Login shells get these directories from /etc/profile.d, and every other
+# shell finds the entry points through symlinks in /usr/local/bin (on the default PATH).
+# In login shells the venv's bin comes first, so python3 is the venv's Python.
+# The links skip python and pip so the system python3 stays the default elsewhere.
+repo_root="$(pwd)"
+tool_dirs=("$repo_root/.venv/bin" "$HOME/.local/bin")
+# shellcheck disable=SC2016 # $PATH must expand when the profile is sourced, not now.
+printf 'export PATH=%q:$PATH\n' "$(IFS=:; echo "${tool_dirs[*]}")" |
+  $SUDO tee /etc/profile.d/amp-orb-silicon-hdl.sh >/dev/null
+for dir in "${tool_dirs[@]}"; do
+  [ -d "$dir" ] || continue
+  for tool in "$dir"/*; do
+    name="${tool##*/}"
+    case "$name" in
+      # uv's installer also drops env/env.fish (sourced, not run) in ~/.local/bin.
+      python* | pip* | activate* | deactivate | Activate.ps1 | env | env.fish) continue ;;
+    esac
+    if [ -f "$tool" ] && [ -x "$tool" ]; then
+      $SUDO ln -sfn "$tool" "/usr/local/bin/$name"
+    fi
+  done
+done
+
+echo "Amp orb setup for silicon-hdl finished."
