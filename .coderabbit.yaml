@@ -1,5 +1,6 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# Draft CodeRabbit config for rmems/silicon-hdl (generated locally, not pushed).
+# CodeRabbit configuration for rmems/silicon-hdl.
 language: en-US
 reviews:
   profile: chill
@@ -17,15 +18,15 @@ reviews:
   - path: '**/{rtl,src,ip}/**/*.sv'
     instructions: Synthesizable SystemVerilog. Every testbench must build with Verilator 5.x `--binary --timing` (CI builds each of ~20 TBs); flag latches, blocking assignments in `always_ff`, missing resets, width mismatches hidden by `-Wno-WIDTHEXPAND`, multi-driven nets and clock-domain crossings without synchronizers. Keep the single-source-of-truth library layout (`lib_bridge + lib_core + lib_synapse` -> `lib_soc`).
   - path: '**/tb/**/*.sv'
-    instructions: Verilator testbenches; must be run from the repo root (paths are root-relative) and end with a `$display` summary that CI checks. The golden TBs compare against `spikenaut-core-sv/mem/golden/`.
+    instructions: Verilator testbenches; must be run from the repo root (paths are root-relative), be self-checking, and call `$fatal` on failure because CI relies on the binary exit status rather than parsing `$display` output. The golden TBs compare against `spikenaut-core-sv/mem/golden/`.
   - path: spikenaut-core-sv/mem/golden/**
     instructions: Generated vectors (`scripts/gen_golden_lif_vectors.py`, `scripts/gen_golden_frame_vectors.py`). Never hand-edit; a change must come with the generator change and regenerated files.
   - path: constraints/*.xdc
-    instructions: Vivado constraints for the Basys3/SoC build; verified only by the self-hosted Vivado job, so check pin names and clock periods against the RTL port list.
+    instructions: Vivado constraints for the Basys3/SoC build; exercised locally with `scripts/quality.sh --vivado` when Vivado is available or by the self-hosted Vivado job, so check pin names and clock periods against the RTL port list.
   - path: scripts/**/*.py
     instructions: 'Python 3.12 (CI). CI gate: `pytest --cov=scripts` (coverage is load-bearing; do not weaken it). Keep code compatible with the declared Python floor.'
   - path: scripts/*.tcl
-    instructions: Vivado batch scripts (`sim_core.tcl`, `build_soc.tcl`) run only on the self-hosted `vivado` runner; keep source lists in sync with the Verilator lists.
+    instructions: Vivado batch scripts (`sim_core.tcl`, `build_soc.tcl`) run locally with `scripts/quality.sh --vivado` when Vivado is available or on the self-hosted `vivado` runner; keep source lists in sync with the Verilator lists.
   - path: .github/workflows/**
     instructions: GitHub Actions workflows. Keep `permissions:` least-privilege and job commands in sync with the local gates documented in the repo. Most `uses:` are pinned to full commit SHAs; prefer SHA pins for new or bumped actions. Vivado CI runs on `[self-hosted, vivado]` and must never become a required check on free runners or run for fork PRs.
   tools:
