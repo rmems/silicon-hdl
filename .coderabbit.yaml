@@ -15,12 +15,14 @@ reviews:
   - '!**/*.vcd'
   - '!**/*.fst'
   path_instructions:
-  - path: '**/{rtl,src,ip}/**/*.sv'
+  - path: '**/{rtl,src,ip,examples}/**/*.sv'
     instructions: Synthesizable SystemVerilog. Every testbench must build with Verilator 5.x `--binary --timing` (CI builds each of ~20 TBs); flag latches, blocking assignments in `always_ff`, missing resets, width mismatches hidden by `-Wno-WIDTHEXPAND`, multi-driven nets and clock-domain crossings without synchronizers. Keep the single-source-of-truth library layout (`lib_bridge + lib_core + lib_synapse` -> `lib_soc`).
   - path: '**/tb/**/*.sv'
-    instructions: Verilator testbenches; must be run from the repo root (paths are root-relative), be self-checking, and call `$fatal` on failure because CI relies on the binary exit status rather than parsing `$display` output. The golden TBs compare against `spikenaut-core-sv/mem/golden/`.
+    instructions: Verilator testbenches must be self-checking and call `$fatal` on failure because CI relies on the binary exit status rather than parsing `$display` output. Testbenches that read repository-relative vectors or initialization files must run from the repo root. The golden TBs compare against `spikenaut-core-sv/mem/golden/`.
   - path: spikenaut-core-sv/mem/golden/**
     instructions: Generated vectors (`scripts/gen_golden_lif_vectors.py`, `scripts/gen_golden_frame_vectors.py`). Never hand-edit; a change must come with the generator change and regenerated files.
+  - path: synapse-link-hdl/mem/aer_routes_*
+    instructions: Generated AER route artifacts (`scripts/gen_aer_route_vectors.py`). Never hand-edit; a change must come with the generator change and regenerated files.
   - path: constraints/*.xdc
     instructions: Vivado constraints for the Basys3/SoC build; exercised locally with `scripts/quality.sh --vivado` when Vivado is available or by the self-hosted Vivado job, so check pin names and clock periods against the RTL port list.
   - path: scripts/**/*.py
