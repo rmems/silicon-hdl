@@ -2,8 +2,10 @@
 <!-- Last updated: 2026-09-14 -->
 # AGENTS.md
 
-Companion agent guidance for `silicon-hdl`. Claude Code loads this file via `@AGENTS.md` from
-`CLAUDE.md`. Entry identity and boundaries remain in `CLAUDE.md`.
+Companion agent guidance for `silicon-hdl`. Entry identity and boundaries remain in
+`CLAUDE.md`.
+
+Amp does not read `CLAUDE.md` when this file exists, so load it here: @CLAUDE.md
 
 ## Build and test
 
