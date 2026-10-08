@@ -15,10 +15,19 @@ RUN apt-get update \
         verilator \
         build-essential \
         git \
+        curl \
         ca-certificates \
         python3 \
         python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# `pip install --user` puts entry points in ~/.local/bin. Ubuntu's ~/.profile only
+# adds it to login shells, so also expose it to processes that inherit the image
+# environment and to interactive non-login shells.
+ENV PATH=/home/ubuntu/.local/bin:$PATH
+# hadolint ignore=SC2016
+RUN printf '\ncase ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac\n' \
+        >> /etc/bash.bashrc
 
 # The ubuntu:24.04 base image already ships a non-root `ubuntu` user (UID 1000).
 USER ubuntu
