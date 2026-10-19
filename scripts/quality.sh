@@ -3,7 +3,8 @@
 # quality.sh — local free-stack quality entrypoint (epic #23 Phase A3)
 #
 # Usage:
-#   ./scripts/quality.sh              # guardian + core/bridge/SoC Verilator TBs
+#   ./scripts/quality.sh              # guardian + drift gates + every Verilator TB in
+#                                     # scripts/tb_manifest.json + pytest
 #   ./scripts/quality.sh --vivado     # also run sim_core.tcl + build_soc.tcl
 #
 # Vivado requires: source ~/Xilinx/env.sh  (or settings64.sh + license env)
@@ -19,7 +20,7 @@ for arg in "$@"; do
   case "$arg" in
     --vivado) RUN_VIVADO=1 ;;
     -h|--help)
-      sed -n '2,12p' "$SCRIPT_PATH"
+      sed -n '2,11p' "$SCRIPT_PATH"
       exit 0
       ;;
     *)
@@ -80,202 +81,47 @@ else
   record "aer_routes/drift" "FAIL"
 fi
 
-VERILATOR_FLAGS=(--binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD)
-TBS=(
-  "LifNeuron:LifNeuron"
-  "LifNeuron_golden:LifNeuron"
-  "LifNeuronArray:LifNeuronArray"
-  "WeightRam:WeightRam"
-  "NeuronParamRam:NeuronParamRam"
-  "StdpController:StdpController"
-)
+# Testbench manifest (single source of truth for quality.sh, sim.yml and
+# sim_core.tcl). Validate it and make sure the Vivado list generated from it
+# is not stale before running anything from it.
+echo ""
+echo "=== Testbench manifest ==="
+if python3 scripts/tb_manifest.py validate && python3 scripts/tb_manifest.py tcl --check; then
+  record "tb_manifest" "PASS"
+else
+  record "tb_manifest" "FAIL"
+fi
 
-for entry in "${TBS[@]}"; do
-  tb="${entry%%:*}"
-  dut="${entry##*:}"
+# Every testbench whose manifest "runners" include verilator: same flags,
+# sources and include dirs as .github/workflows/sim.yml, because both read
+# scripts/tb_manifest.json. Each TB cleans obj_dir and runs from the repo root
+# ($readmemh / INIT_FILE paths are repo-root relative).
+mapfile -t VERILATOR_TBS < <(python3 scripts/tb_manifest.py list --runner verilator)
+if [[ "${#VERILATOR_TBS[@]}" -eq 0 ]]; then
+  record "verilator/manifest_empty" "FAIL"
+fi
+for tb in "${VERILATOR_TBS[@]}"; do
   echo ""
-  echo "=== Verilator tb_${tb} ==="
-  rm -rf obj_dir
-  if verilator "${VERILATOR_FLAGS[@]}" \
-      --top-module "tb_${tb}" \
-      -Ispikenaut-core-sv/rtl \
-      "spikenaut-core-sv/rtl/${dut}.sv" \
-      "spikenaut-core-sv/tb/tb_${tb}.sv" \
-    && "./obj_dir/Vtb_${tb}"; then
-    record "verilator/tb_${tb}" "PASS"
+  if python3 scripts/tb_manifest.py run "$tb"; then
+    record "verilator/${tb}" "PASS"
   else
-    record "verilator/tb_${tb}" "FAIL"
+    record "verilator/${tb}" "FAIL"
   fi
 done
 
+# Python tests (drift gates, Q8.8 codec, manifest consistency) -- the same
+# suite coverage.yml runs in CI.
 echo ""
-echo "=== Verilator tb_StdpWriteback ==="
-rm -rf obj_dir
-if verilator "${VERILATOR_FLAGS[@]}" \
-    --top-module tb_StdpWriteback \
-    -Ispikenaut-core-sv/rtl \
-    spikenaut-core-sv/rtl/WeightRam.sv \
-    spikenaut-core-sv/rtl/StdpController.sv \
-    spikenaut-core-sv/rtl/StdpWriteback.sv \
-    spikenaut-core-sv/tb/tb_StdpWriteback.sv \
-  && ./obj_dir/Vtb_StdpWriteback; then
-  record "verilator/tb_StdpWriteback" "PASS"
+echo "=== pytest ==="
+if command -v pytest >/dev/null 2>&1; then
+  PYTEST=(pytest)
 else
-  record "verilator/tb_StdpWriteback" "FAIL"
+  PYTEST=(python3 -m pytest)
 fi
-
-echo ""
-echo "=== Verilator tb_AerRouteTable ==="
-rm -rf obj_dir
-if verilator "${VERILATOR_FLAGS[@]}" \
-    --top-module tb_AerRouteTable \
-    -Isynapse-link-hdl/src \
-    synapse-link-hdl/src/AerRouteTable.sv \
-    synapse-link-hdl/tb/tb_AerRouteTable.sv \
-  && ./obj_dir/Vtb_AerRouteTable; then
-  record "verilator/tb_AerRouteTable" "PASS"
+if "${PYTEST[@]}"; then
+  record "pytest" "PASS"
 else
-  record "verilator/tb_AerRouteTable" "FAIL"
-fi
-
-# tb_OutputLayer needs two DUT files (it drives a real WeightRam), so it does
-# not fit the single-DUT TBS loop above.
-echo ""
-echo "=== Verilator tb_OutputLayer ==="
-rm -rf obj_dir
-if verilator "${VERILATOR_FLAGS[@]}" \
-    --top-module tb_OutputLayer \
-    -Ispikenaut-core-sv/rtl \
-    spikenaut-core-sv/rtl/WeightRam.sv \
-    spikenaut-core-sv/rtl/OutputLayer.sv \
-    spikenaut-core-sv/tb/tb_OutputLayer.sv \
-  && ./obj_dir/Vtb_OutputLayer; then
-  record "verilator/tb_OutputLayer" "PASS"
-else
-  record "verilator/tb_OutputLayer" "FAIL"
-fi
-
-echo ""
-echo "=== Verilator tb_OutputLayer_golden ==="
-rm -rf obj_dir
-if verilator "${VERILATOR_FLAGS[@]}" \
-    --top-module tb_OutputLayer_golden \
-    -Ispikenaut-core-sv/rtl \
-    spikenaut-core-sv/rtl/WeightRam.sv \
-    spikenaut-core-sv/rtl/OutputLayer.sv \
-    spikenaut-core-sv/tb/tb_OutputLayer_golden.sv \
-  && ./obj_dir/Vtb_OutputLayer_golden; then
-  record "verilator/tb_OutputLayer_golden" "PASS"
-else
-  record "verilator/tb_OutputLayer_golden" "FAIL"
-fi
-
-BRIDGE_TBS=(UartRx UartTx SiliconBridge)
-for tb in "${BRIDGE_TBS[@]}"; do
-  echo ""
-  echo "=== Verilator tb_${tb} ==="
-  rm -rf obj_dir
-  sources=(
-    --top-module "tb_${tb}"
-    -Ispikenaut-bridge-sv/rtl
-  )
-  case "$tb" in
-    UartRx)
-      sources+=(spikenaut-bridge-sv/rtl/UartRx.sv)
-      ;;
-    UartTx)
-      sources+=(spikenaut-bridge-sv/rtl/UartTx.sv)
-      ;;
-    SiliconBridge)
-      sources+=(
-        spikenaut-bridge-sv/rtl/UartRx.sv
-        spikenaut-bridge-sv/rtl/UartTx.sv
-        spikenaut-bridge-sv/rtl/SiliconBridge.sv
-      )
-      ;;
-  esac
-  sources+=("spikenaut-bridge-sv/tb/tb_${tb}.sv")
-  if verilator "${VERILATOR_FLAGS[@]}" "${sources[@]}" \
-    && "./obj_dir/Vtb_${tb}"; then
-    record "verilator/tb_${tb}" "PASS"
-  else
-    record "verilator/tb_${tb}" "FAIL"
-  fi
-done
-
-echo ""
-echo "=== Verilator tb_SocProtocolFsm ==="
-rm -rf obj_dir
-if verilator "${VERILATOR_FLAGS[@]}" \
-    --top-module tb_SocProtocolFsm \
-    -Ispikenaut-soc-sv/rtl \
-    spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
-    spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv \
-  && ./obj_dir/Vtb_SocProtocolFsm; then
-  record "verilator/tb_SocProtocolFsm" "PASS"
-else
-  record "verilator/tb_SocProtocolFsm" "FAIL"
-fi
-
-echo ""
-echo "=== Verilator tb_SocStatusLeds ==="
-rm -rf obj_dir
-if verilator "${VERILATOR_FLAGS[@]}" \
-    --top-module tb_SocStatusLeds \
-    -Ispikenaut-soc-sv/rtl \
-    spikenaut-soc-sv/rtl/SocStatusLeds.sv \
-    spikenaut-soc-sv/tb/tb_SocStatusLeds.sv \
-  && ./obj_dir/Vtb_SocStatusLeds; then
-  record "verilator/tb_SocStatusLeds" "PASS"
-else
-  record "verilator/tb_SocStatusLeds" "FAIL"
-fi
-
-echo ""
-echo "=== Verilator tb_SocFrameGolden ==="
-# GH#64: replays the committed golden 33-byte request / 36-byte response frame
-# pairs through the real SocProtocolFsm. Golden .mem paths are repo-root
-# relative, and this script already cd'd to the repo root.
-rm -rf obj_dir
-if verilator "${VERILATOR_FLAGS[@]}" \
-    --top-module tb_SocFrameGolden \
-    -Ispikenaut-soc-sv/rtl \
-    spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
-    spikenaut-soc-sv/tb/tb_SocFrameGolden.sv \
-  && ./obj_dir/Vtb_SocFrameGolden; then
-  record "verilator/tb_SocFrameGolden" "PASS"
-else
-  record "verilator/tb_SocFrameGolden" "FAIL"
-fi
-
-echo ""
-echo "=== Verilator tb_spikenaut_soc_basys3_top ==="
-# SoC-level TB: the only sim that exercises the 1 ms step_en divider and the
-# UART-frame -> tick-domain handoff (#57 / #60 / #62). Needs lib_bridge + lib_core +
-# lib_soc in dependency order, and repo-root CWD for the $readmemh INIT paths.
-rm -rf obj_dir
-if verilator "${VERILATOR_FLAGS[@]}" \
-    --top-module tb_spikenaut_soc_basys3_top \
-    -Ispikenaut-core-sv/rtl -Ispikenaut-bridge-sv/rtl \
-    spikenaut-bridge-sv/rtl/UartRx.sv \
-    spikenaut-bridge-sv/rtl/UartTx.sv \
-    spikenaut-bridge-sv/rtl/SiliconBridge.sv \
-    spikenaut-core-sv/rtl/LifNeuron.sv \
-    spikenaut-core-sv/rtl/LifNeuronArray.sv \
-    spikenaut-core-sv/rtl/WeightRam.sv \
-    spikenaut-core-sv/rtl/NeuronParamRam.sv \
-    spikenaut-core-sv/rtl/StdpController.sv \
-    spikenaut-core-sv/rtl/StdpWriteback.sv \
-    spikenaut-core-sv/rtl/OutputLayer.sv \
-    synapse-link-hdl/src/AerRouteTable.sv \
-    spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
-    spikenaut-soc-sv/rtl/SocStatusLeds.sv \
-    spikenaut-soc-sv/rtl/Basys3_Top.sv \
-    spikenaut-soc-sv/tb/tb_Basys3_Top.sv \
-  && ./obj_dir/Vtb_spikenaut_soc_basys3_top; then
-  record "verilator/tb_spikenaut_soc_basys3_top" "PASS"
-else
-  record "verilator/tb_spikenaut_soc_basys3_top" "FAIL"
+  record "pytest" "FAIL"
 fi
 
 if [[ "$RUN_VIVADO" -eq 1 ]]; then

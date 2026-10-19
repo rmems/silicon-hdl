@@ -59,9 +59,27 @@ synthesis and bitstream generation.
     workflows
 
 
+### Testbench manifest (single source of truth)
+
+`scripts/tb_manifest.json` lists every testbench: `name`, `top`, `sources`, `include_dirs`,
+`extra_verilator_flags`, `runners` (`verilator` / `xsim`) and `xsim_pass_banner`. Nothing else
+hand-copies that list: `scripts/quality.sh` and `.github/workflows/sim.yml` run every
+`verilator` entry through `scripts/tb_manifest.py`, and `scripts/sim_core.tcl` sources the
+generated `scripts/tb_manifest.tcl`. To add a testbench, add one manifest entry, then:
+
+```bash
+python3 scripts/tb_manifest.py tcl --write      # regenerate the Vivado list
+python3 scripts/tb_manifest.py cmd tb_Foo       # print the verilator command line
+python3 scripts/tb_manifest.py run tb_Foo       # build + run it (from any CWD)
+pytest tests/test_tb_manifest.py                # drift check across all consumers
+```
+
+`tests/test_tb_manifest.py` fails if a consumer names a testbench that is not in the manifest,
+a `tb_*.sv` file on disk is missing from it, or `scripts/tb_manifest.tcl` is stale.
+
 ### Verilator (core unit testbenches)
 
-Pattern used by CI in `.github/workflows/sim.yml`:
+Equivalent manual pattern (what `scripts/tb_manifest.py run` executes):
 
 ```bash
 verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
@@ -152,9 +170,9 @@ vivado -mode batch -source scripts/sim_core.tcl     # all core unit testbenches
 add a new RTL module under `spikenaut-core-sv/rtl`, `spikenaut-bridge-sv/rtl`, or
 `spikenaut-soc-sv/rtl`, append that path to the matching `read_verilog -sv` block in
 `scripts/build_soc.tcl`. `scripts/sim_core.tcl` hardcodes the same RTL lists and discovers testbench files under
-`spikenaut-core-sv/tb`, `spikenaut-bridge-sv/tb`, and `spikenaut-soc-sv/tb` via glob; new
-testbenches are picked up automatically, but you must append the top module name to the
-`core_tb_tops` list before it will run.
+`spikenaut-core-sv/tb`, `spikenaut-bridge-sv/tb`, and `spikenaut-soc-sv/tb` via glob; its
+`core_tb_tops` / `pass_banner` come from the generated `scripts/tb_manifest.tcl` (see
+"Testbench manifest" above).
 
 ### Deduplication check
 

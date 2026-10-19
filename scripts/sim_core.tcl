@@ -92,9 +92,11 @@ foreach tb_dir [list $core_tb $bridge_tb $synapse_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # 4. Run each unit testbench in turn
 # ---------------------------------------------------------------------------
-# (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
-# from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_StdpWriteback tb_AerRouteTable tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+# The testbench list (core_tb_tops) comes from scripts/tb_manifest.json, the
+# single source of truth shared with quality.sh and sim.yml.  Vivado has no
+# dependable JSON reader, so scripts/tb_manifest.tcl is generated from it
+# (python3 scripts/tb_manifest.py tcl --write) and drift-checked in CI.
+source [file join $repo_root scripts tb_manifest.tcl]
 
 set mem_dir    [file join $repo_root spikenaut-core-sv mem]
 # GH#66 golden vectors (generated; see docs/golden-lif-vectors.md).
@@ -105,27 +107,8 @@ set route_mem_dir [file join $repo_root synapse-link-hdl mem]
 # launch_simulation/run -all throw a Tcl error.  Require the testbench's own
 # success banner as the authoritative completion token so a failed or
 # truncated test cannot be reported as a green batch run.
-array set pass_banner {
-    tb_LifNeuron                 {TB_LIFNEURON: ALL TESTS PASSED}
-    tb_LifNeuron_golden          {TB_LIFNEURON_GOLDEN: ALL}
-    tb_LifNeuronArray            {TB_LIFNEURONARRAY: ALL TESTS PASSED}
-    tb_WeightRam                 {TB_WEIGHTRAM: ALL TESTS PASSED}
-    tb_WeightRam_init            {tb_WeightRam_init: PASS}
-    tb_NeuronParamRam            {TB_NEURONPARAMRAM: ALL TESTS PASSED}
-    tb_NeuronParamRam_init       {tb_NeuronParamRam_init: PASS}
-    tb_StdpController            {TB_STDPCONTROLLER: ALL TESTS PASSED}
-    tb_StdpWriteback             {TB_STDPWRITEBACK: ALL TESTS PASSED}
-    tb_AerRouteTable             {TB_AER_ROUTE_TABLE: ALL TESTS PASSED}
-    tb_OutputLayer               {TB_OUTPUTLAYER: ALL TESTS PASSED}
-    tb_OutputLayer_golden        {TB_OUTPUTLAYER_GOLDEN: ALL}
-    tb_UartRx                    {TB_UARTRX: ALL TESTS PASSED}
-    tb_UartTx                    {TB_UARTTX: ALL TESTS PASSED}
-    tb_SiliconBridge             {TB_SILICONBRIDGE: ALL TESTS PASSED}
-    tb_SocProtocolFsm            {TB_SOCPROTOCOLFSM: ALL TESTS PASSED}
-    tb_SocFrameGolden            {TB_SOC_FRAME_GOLDEN: ALL}
-    tb_SocStatusLeds             {TB_SOCSTATUSLEDS: ALL TESTS PASSED}
-    tb_spikenaut_soc_basys3_top  {TB_BASYS3_TOP: ALL TESTS PASSED}
-}
+# pass_banner (one entry per core_tb_tops top) is set by tb_manifest.tcl above,
+# from each testbench's "xsim_pass_banner" in tb_manifest.json.
 
 foreach tb_top $core_tb_tops {
     set_property top $tb_top [get_filesets sim_1]

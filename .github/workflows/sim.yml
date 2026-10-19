@@ -2,6 +2,10 @@
 # .github/workflows/sim.yml
 # Verilator simulation for core, bridge, and SoC unit testbenches.
 # Addresses issue #9: runs on push/PR using free GitHub-hosted runners.
+# The testbench list (tops, sources, include dirs, flags) is NOT written here:
+# it comes from scripts/tb_manifest.json, the single source of truth shared
+# with scripts/quality.sh and scripts/sim_core.tcl (via the generated
+# scripts/tb_manifest.tcl). tests/test_tb_manifest.py fails on drift.
 # See also: scripts/sim_core.tcl (Vivado equivalent), PR #11 (testbench $fatal hardening).
 
 name: RTL Simulation
@@ -26,20 +30,11 @@ jobs:
       - name: Install Verilator
         run: sudo apt-get update && sudo apt-get install -y verilator
 
-      - name: Run tb_LifNeuron
+      - name: Validate testbench manifest
         run: |
-          rm -rf obj_dir
-          # Compile then execute as separate commands for clearer failure attribution
-          # (addresses review feedback on && chaining). GitHub Actions uses set -e.
-          # The -Wno-* flags match the original implementation notes in issue #9
-          # and are required for clean compilation of the existing testbenches
-          # (timescales, intentional width handling, module/filename conventions).
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_LifNeuron \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/LifNeuron.sv \
-            spikenaut-core-sv/tb/tb_LifNeuron.sv
-          ./obj_dir/Vtb_LifNeuron
+          python3 scripts/tb_manifest.py validate
+          # sim_core.tcl sources the generated Tcl list; fail if it is stale.
+          python3 scripts/tb_manifest.py tcl --check
 
       - name: Check golden vectors are not stale
         run: |
@@ -58,218 +53,14 @@ jobs:
         run: |
           python3 scripts/gen_aer_route_vectors.py --check
 
-      - name: Run tb_LifNeuron_golden
+      - name: Run Verilator testbenches from tb_manifest.json
         run: |
-          rm -rf obj_dir
-          # GH#66: replays the committed f32 -> Q8.8 -> .mem golden trace
-          # (pinned exp-025 bank) against the real signed LIF datapath.
-          # Golden .mem paths are repo-root relative.
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_LifNeuron_golden \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/LifNeuron.sv \
-            spikenaut-core-sv/tb/tb_LifNeuron_golden.sv
-          ./obj_dir/Vtb_LifNeuron_golden
-
-      - name: Run tb_OutputLayer_golden
-        run: |
-          rm -rf obj_dir
-          # GH#66 over the GH#72 output-layer path: golden argmax vectors
-          # against the real shipped output-weight bank.
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_OutputLayer_golden \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/WeightRam.sv \
-            spikenaut-core-sv/rtl/OutputLayer.sv \
-            spikenaut-core-sv/tb/tb_OutputLayer_golden.sv
-          ./obj_dir/Vtb_OutputLayer_golden
-
-      - name: Run tb_LifNeuronArray
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_LifNeuronArray \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/LifNeuronArray.sv \
-            spikenaut-core-sv/tb/tb_LifNeuronArray.sv
-          ./obj_dir/Vtb_LifNeuronArray
-
-      - name: Run tb_WeightRam
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_WeightRam \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/WeightRam.sv \
-            spikenaut-core-sv/tb/tb_WeightRam.sv
-          ./obj_dir/Vtb_WeightRam
-
-      - name: Run tb_WeightRam_init
-        run: |
-          rm -rf obj_dir
-          # INIT_FILE paths are repo-root relative (merged_v2 weights)
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_WeightRam_init \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/WeightRam.sv \
-            spikenaut-core-sv/tb/tb_WeightRam_init.sv
-          ./obj_dir/Vtb_WeightRam_init
-
-      - name: Run tb_NeuronParamRam
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_NeuronParamRam \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/NeuronParamRam.sv \
-            spikenaut-core-sv/tb/tb_NeuronParamRam.sv
-          ./obj_dir/Vtb_NeuronParamRam
-
-      - name: Run tb_NeuronParamRam_init
-        run: |
-          rm -rf obj_dir
-          # INIT_FILE paths are repo-root relative (merged_v2 thresholds)
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_NeuronParamRam_init \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/NeuronParamRam.sv \
-            spikenaut-core-sv/tb/tb_NeuronParamRam_init.sv
-          ./obj_dir/Vtb_NeuronParamRam_init
-
-      - name: Run tb_OutputLayer
-        run: |
-          rm -rf obj_dir
-          # INIT_FILE path is repo-root relative (merged_v2 output weights)
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_OutputLayer \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/WeightRam.sv \
-            spikenaut-core-sv/rtl/OutputLayer.sv \
-            spikenaut-core-sv/tb/tb_OutputLayer.sv
-          ./obj_dir/Vtb_OutputLayer
-
-      - name: Run tb_StdpController
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_StdpController \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/StdpController.sv \
-            spikenaut-core-sv/tb/tb_StdpController.sv
-          ./obj_dir/Vtb_StdpController
-
-      - name: Run tb_StdpWriteback
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_StdpWriteback \
-            -Ispikenaut-core-sv/rtl \
-            spikenaut-core-sv/rtl/WeightRam.sv \
-            spikenaut-core-sv/rtl/StdpController.sv \
-            spikenaut-core-sv/rtl/StdpWriteback.sv \
-            spikenaut-core-sv/tb/tb_StdpWriteback.sv
-          ./obj_dir/Vtb_StdpWriteback
-
-      - name: Run tb_AerRouteTable
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_AerRouteTable \
-            -Isynapse-link-hdl/src \
-            synapse-link-hdl/src/AerRouteTable.sv \
-            synapse-link-hdl/tb/tb_AerRouteTable.sv
-          ./obj_dir/Vtb_AerRouteTable
-
-      - name: Run tb_UartRx
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_UartRx \
-            -Ispikenaut-bridge-sv/rtl \
-            spikenaut-bridge-sv/rtl/UartRx.sv \
-            spikenaut-bridge-sv/tb/tb_UartRx.sv
-          ./obj_dir/Vtb_UartRx
-
-      - name: Run tb_UartTx
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_UartTx \
-            -Ispikenaut-bridge-sv/rtl \
-            spikenaut-bridge-sv/rtl/UartTx.sv \
-            spikenaut-bridge-sv/tb/tb_UartTx.sv
-          ./obj_dir/Vtb_UartTx
-
-      - name: Run tb_SiliconBridge
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_SiliconBridge \
-            -Ispikenaut-bridge-sv/rtl \
-            spikenaut-bridge-sv/rtl/UartRx.sv \
-            spikenaut-bridge-sv/rtl/UartTx.sv \
-            spikenaut-bridge-sv/rtl/SiliconBridge.sv \
-            spikenaut-bridge-sv/tb/tb_SiliconBridge.sv
-          ./obj_dir/Vtb_SiliconBridge
-
-      - name: Run tb_SocProtocolFsm
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_SocProtocolFsm \
-            -Ispikenaut-soc-sv/rtl \
-            spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
-            spikenaut-soc-sv/tb/tb_SocProtocolFsm.sv
-          ./obj_dir/Vtb_SocProtocolFsm
-
-      - name: Run tb_SocStatusLeds
-        run: |
-          rm -rf obj_dir
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_SocStatusLeds \
-            -Ispikenaut-soc-sv/rtl \
-            spikenaut-soc-sv/rtl/SocStatusLeds.sv \
-            spikenaut-soc-sv/tb/tb_SocStatusLeds.sv
-          ./obj_dir/Vtb_SocStatusLeds
-
-      - name: Run tb_SocFrameGolden
-        run: |
-          rm -rf obj_dir
-          # GH#64: replays the committed golden 33-byte request / 36-byte
-          # response frame pairs through the real SocProtocolFsm, pinning the
-          # byte layout rmems/silicon-bridge's host parses.
-          # Golden .mem paths are repo-root relative.
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_SocFrameGolden \
-            -Ispikenaut-soc-sv/rtl \
-            spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
-            spikenaut-soc-sv/tb/tb_SocFrameGolden.sv
-          ./obj_dir/Vtb_SocFrameGolden
-
-      - name: Run tb_spikenaut_soc_basys3_top
-        run: |
-          rm -rf obj_dir
-          # SoC-level TB (#57 / #60): the only sim covering the 1 ms step_en
-          # divider and the UART-event -> tick-domain handoff. The core TBs
-          # drive step_en themselves, so they cannot reach either.
-          # Needs lib_bridge + lib_core + lib_soc in dependency order;
-          # INIT_FILE paths are repo-root relative (merged_v2 images).
-          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
-            --top-module tb_spikenaut_soc_basys3_top \
-            -Ispikenaut-core-sv/rtl -Ispikenaut-bridge-sv/rtl \
-            spikenaut-bridge-sv/rtl/UartRx.sv \
-            spikenaut-bridge-sv/rtl/UartTx.sv \
-            spikenaut-bridge-sv/rtl/SiliconBridge.sv \
-            spikenaut-core-sv/rtl/LifNeuron.sv \
-            spikenaut-core-sv/rtl/LifNeuronArray.sv \
-            spikenaut-core-sv/rtl/WeightRam.sv \
-            spikenaut-core-sv/rtl/NeuronParamRam.sv \
-            spikenaut-core-sv/rtl/StdpController.sv \
-            spikenaut-core-sv/rtl/StdpWriteback.sv \
-            spikenaut-core-sv/rtl/OutputLayer.sv \
-            synapse-link-hdl/src/AerRouteTable.sv \
-            spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
-            spikenaut-soc-sv/rtl/SocStatusLeds.sv \
-            spikenaut-soc-sv/rtl/Basys3_Top.sv \
-            spikenaut-soc-sv/tb/tb_Basys3_Top.sv
-          ./obj_dir/Vtb_spikenaut_soc_basys3_top
+          # Every testbench whose manifest "runners" include verilator. Each one
+          # gets rm -rf obj_dir, then compile and execute as separate commands
+          # for clear failure attribution, in its own ::group:: with an
+          # ::error:: annotation naming the failing TB. All TBs run even if one
+          # fails; the step exits non-zero if any failed. CWD is the repo root
+          # ($readmemh / INIT_FILE / golden .mem paths are repo-root relative).
+          # The -Wno-* flags (manifest "verilator_flags") match issue #9 and are
+          # required for clean compilation of the existing testbenches.
+          python3 scripts/tb_manifest.py run --all --github
