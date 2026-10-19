@@ -72,6 +72,16 @@ else
   record "golden_frames/drift" "FAIL"
 fi
 
+# Q8.8 saturation-boundary vectors: STDP weight update + OutputLayer
+# accumulator at 0x7FFF / 0x8000 (tb_*_q88 below replay them).
+echo ""
+echo "=== Q8.8 boundary vector drift check ==="
+if python3 scripts/gen_golden_q88_boundary.py --check; then
+  record "q88_boundary/drift" "PASS"
+else
+  record "q88_boundary/drift" "FAIL"
+fi
+
 echo ""
 echo "=== AER route image drift check ==="
 if python3 scripts/gen_aer_route_vectors.py --check; then
@@ -88,6 +98,7 @@ TBS=(
   "WeightRam:WeightRam"
   "NeuronParamRam:NeuronParamRam"
   "StdpController:StdpController"
+  "StdpController_q88:StdpController"
 )
 
 for entry in "${TBS[@]}"; do
@@ -122,6 +133,22 @@ if verilator "${VERILATOR_FLAGS[@]}" \
   record "verilator/tb_StdpWriteback" "PASS"
 else
   record "verilator/tb_StdpWriteback" "FAIL"
+fi
+
+echo ""
+echo "=== Verilator tb_StdpWriteback_q88 ==="
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_StdpWriteback_q88 \
+    -Ispikenaut-core-sv/rtl \
+    spikenaut-core-sv/rtl/WeightRam.sv \
+    spikenaut-core-sv/rtl/StdpController.sv \
+    spikenaut-core-sv/rtl/StdpWriteback.sv \
+    spikenaut-core-sv/tb/tb_StdpWriteback_q88.sv \
+  && ./obj_dir/Vtb_StdpWriteback_q88; then
+  record "verilator/tb_StdpWriteback_q88" "PASS"
+else
+  record "verilator/tb_StdpWriteback_q88" "FAIL"
 fi
 
 echo ""
@@ -168,6 +195,21 @@ if verilator "${VERILATOR_FLAGS[@]}" \
   record "verilator/tb_OutputLayer_golden" "PASS"
 else
   record "verilator/tb_OutputLayer_golden" "FAIL"
+fi
+
+echo ""
+echo "=== Verilator tb_OutputLayer_q88 ==="
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_OutputLayer_q88 \
+    -Ispikenaut-core-sv/rtl \
+    spikenaut-core-sv/rtl/WeightRam.sv \
+    spikenaut-core-sv/rtl/OutputLayer.sv \
+    spikenaut-core-sv/tb/tb_OutputLayer_q88.sv \
+  && ./obj_dir/Vtb_OutputLayer_q88; then
+  record "verilator/tb_OutputLayer_q88" "PASS"
+else
+  record "verilator/tb_OutputLayer_q88" "FAIL"
 fi
 
 BRIDGE_TBS=(UartRx UartTx SiliconBridge)

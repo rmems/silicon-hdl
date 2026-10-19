@@ -89,6 +89,9 @@ symbols or tops conflict.
 | `tb_OutputLayer` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer.sv` |
 | `tb_LifNeuron_golden` | `spikenaut-core-sv/rtl/LifNeuron.sv` + `spikenaut-core-sv/tb/tb_LifNeuron_golden.sv` |
 | `tb_OutputLayer_golden` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer_golden.sv` |
+| `tb_StdpController_q88` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController_q88.sv` |
+| `tb_StdpWriteback_q88` | `WeightRam.sv` + `StdpController.sv` + `StdpWriteback.sv` + `tb_StdpWriteback_q88.sv` |
+| `tb_OutputLayer_q88` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer_q88.sv` |
 | `tb_UartRx` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/tb/tb_UartRx.sv` |
 | `tb_UartTx` | `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/tb/tb_UartTx.sv` |
 | `tb_SiliconBridge` | `spikenaut-bridge-sv/rtl/UartRx.sv` + `spikenaut-bridge-sv/rtl/UartTx.sv` + `spikenaut-bridge-sv/rtl/SiliconBridge.sv` + `spikenaut-bridge-sv/tb/tb_SiliconBridge.sv` |
@@ -182,6 +185,19 @@ means the **RTL** changed behaviour, not that the vectors are stale — regenera
 semantics change is intended, and in the same commit as the RTL change. `scripts/q88.py` is the
 single Q8.8 codec; do not add a second one. Full rationale, scenario table, and the Spikenaut bank
 pin: [`docs/golden-lif-vectors.md`](docs/golden-lif-vectors.md).
+
+### Q8.8 saturation-boundary vectors
+
+`spikenaut-core-sv/mem/golden/q88b_*.mem` (+ `q88_boundary_vectors.json`) are **generated** by
+`scripts/gen_golden_q88_boundary.py` from a bit-exact model built on `scripts/q88.py`. They pin
+the signed Q8.8 saturate-never-wrap edges (`0x7FFF`, `0x8000`, `0x0000`, `0x0001`, `0xFFFF`,
+±1 LSB around each edge, plus `q88.py`-encoded f32 boundary values) for the STDP weight update
+(`tb_StdpController_q88`, and closed-loop through WeightRam in `tb_StdpWriteback_q88`) and the
+exact `OutputLayer` `class_acc` words (`tb_OutputLayer_q88`). Do not hand-edit them.
+
+```bash
+python3 scripts/gen_golden_q88_boundary.py --check   # drift gate (quality.sh, sim.yml, pytest)
+```
 
 ### Golden UART frame vectors (GH#64)
 

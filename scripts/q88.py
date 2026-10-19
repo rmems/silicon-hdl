@@ -19,15 +19,22 @@ silicon-bridge item          Convention   Can express a Dale-I word?
 ``encode_q88_unsigned``      unsigned     No — negatives clamp to ``0``
 ===========================  ===========  ================================
 
-As of silicon-bridge #60 (``e201514``), ``FpgaParameterExporter``'s
+As of silicon-bridge ``1bbb460``, ``FpgaParameterExporter``'s
 ``FixedPointEncode::encode_q88`` — the one ``write_mem_files`` goes through —
-encodes with ``encode_q88_signed``, so that crate and this contract now agree.
-``encode_q88_unsigned`` is still public, but nothing in the crate builds
-hardware images with it.
+encodes with ``encode_q88_signed_full`` (full i16 range, ``-128.0`` ->
+``0x8000``), **not** ``encode_q88_signed``. The latter's ``+/-127.99`` clamp
+is the UART v3 stimulus helper only (silicon-bridge
+``docs/host-hdl-contract.md``: "boundary values such as ``-128.0`` have
+different UART and ``.mem`` encodings"). This module therefore exposes both:
+:func:`encode_q88_signed` (UART clamp) and :func:`encode_q88_signed_full`
+(parameter / ``.mem`` words).
 
-  *Correction:* an earlier revision of this docstring said the ``.mem`` writer
-  was still on the unsigned encoder and called that "the wrong side of the
-  contract". That was accurate when GH#66 landed and is no longer accurate.
+  *Correction:* earlier revisions of this docstring said the ``.mem`` writer
+  went through ``encode_q88_signed`` (and before that, the unsigned encoder).
+  Both were accurate at the time and are no longer. ``gen_golden_lif_vectors``
+  still encodes parameter words with the UART clamp; none of the pinned bank
+  words lies in the divergent range (``|v| > 127.99``), so its vectors are
+  unaffected, but see the Q8.8 boundary-vector PR for the open finding.
 
 This module exists because silicon-hdl's tooling is Python and cannot call into
 the crate: reaching for it would make every golden-vector regeneration depend on
@@ -98,6 +105,31 @@ def encode_q88_signed(value: float) -> int:
     # Multiplying an f32 by 256 is an exact binary exponent shift here, so
     # doing it in Python's f64 gives the same product Rust's f32 math does.
     return math.trunc(clamped * Q88_SCALE)
+
+
+def encode_q88_signed_full(value: float) -> int:
+    """Encode one ``f32`` as a **full-range signed parameter** Q8.8 raw word.
+
+    Mirrors silicon-bridge ``encode_q88_signed_full`` -- the encoder its
+    ``FixedPointEncode::encode_q88`` / ``.mem`` writer use: NaN encodes as
+    ``0``, the scaled value truncates toward zero, and the result saturates at
+    the i16 limits, so ``-128.0`` is ``0x8000`` and ``127.99609375`` is
+    ``0x7FFF``. Use this for weight / threshold / leak words. The ``+/-127.99``
+    clamp in :func:`encode_q88_signed` is a UART v3 wire artifact only.
+
+    >>> encode_q88_signed_full(-128.0)
+    -32768
+    >>> encode_q88_signed_full(127.99609375)
+    32767
+    >>> encode_q88_signed_full(-0.999)
+    -255
+    """
+    if math.isnan(value):
+        return 0
+    scaled = _as_f32(value) * Q88_SCALE
+    if math.isinf(scaled):
+        return Q88_RAW_MAX if scaled > 0 else Q88_RAW_MIN
+    return max(Q88_RAW_MIN, min(Q88_RAW_MAX, math.trunc(scaled)))
 
 
 def q88_signed_to_f32(raw: int) -> float:

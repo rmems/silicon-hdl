@@ -54,6 +54,12 @@ jobs:
           # the wire framing against a trace that no longer describes it.
           python3 scripts/gen_golden_frame_vectors.py --check
 
+      - name: Check Q8.8 boundary vectors are not stale
+        run: |
+          # Q8.8 saturation-boundary drift gate (STDP weight update +
+          # OutputLayer accumulator). Runs before tb_*_q88.
+          python3 scripts/gen_golden_q88_boundary.py --check
+
       - name: Check AER route image is not stale
         run: |
           python3 scripts/gen_aer_route_vectors.py --check
@@ -169,6 +175,42 @@ jobs:
             spikenaut-core-sv/rtl/StdpWriteback.sv \
             spikenaut-core-sv/tb/tb_StdpWriteback.sv
           ./obj_dir/Vtb_StdpWriteback
+
+      - name: Run tb_StdpController_q88
+        run: |
+          rm -rf obj_dir
+          # Q8.8 boundary golden vectors (0x7FFF / 0x8000 +/-1 LSB) for the
+          # STDP weight update. Golden .mem paths are repo-root relative.
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_StdpController_q88 \
+            -Ispikenaut-core-sv/rtl \
+            spikenaut-core-sv/rtl/StdpController.sv \
+            spikenaut-core-sv/tb/tb_StdpController_q88.sv
+          ./obj_dir/Vtb_StdpController_q88
+
+      - name: Run tb_StdpWriteback_q88
+        run: |
+          rm -rf obj_dir
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_StdpWriteback_q88 \
+            -Ispikenaut-core-sv/rtl \
+            spikenaut-core-sv/rtl/WeightRam.sv \
+            spikenaut-core-sv/rtl/StdpController.sv \
+            spikenaut-core-sv/rtl/StdpWriteback.sv \
+            spikenaut-core-sv/tb/tb_StdpWriteback_q88.sv
+          ./obj_dir/Vtb_StdpWriteback_q88
+
+      - name: Run tb_OutputLayer_q88
+        run: |
+          rm -rf obj_dir
+          # Exact class_acc words at the signed saturation edges.
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_OutputLayer_q88 \
+            -Ispikenaut-core-sv/rtl \
+            spikenaut-core-sv/rtl/WeightRam.sv \
+            spikenaut-core-sv/rtl/OutputLayer.sv \
+            spikenaut-core-sv/tb/tb_OutputLayer_q88.sv
+          ./obj_dir/Vtb_OutputLayer_q88
 
       - name: Run tb_AerRouteTable
         run: |

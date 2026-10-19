@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Q8.8 saturation-boundary golden vectors for the STDP weight path and the
+  OutputLayer accumulator. scripts/gen_golden_q88_boundary.py (bit-exact model
+  on scripts/q88.py) emits vectors at 0x7FFF / 0x8000 / 0x0000 / 0x0001 /
+  0xFFFF and ±1 LSB around each edge; tb_StdpController_q88,
+  tb_StdpWriteback_q88 and tb_OutputLayer_q88 replay them via $readmemh.
+  Hooked into the drift gate (quality.sh, sim.yml, pytest) and sim_core.tcl.
 - RM-259 / #71 bounded AER route-table consumer for the Basys 3 SoC.
   - New canonical AerRouteTable in lib_synapse: 16 x 16-bit aer-route-v1
     entries, four-bit ready/valid source and result, one event in flight,

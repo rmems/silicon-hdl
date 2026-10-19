@@ -179,6 +179,11 @@ over every word in all four bank images, exact `.mem` lengths, and that every
 `scripts/q88.py` is the only Q8.8 codec in this repository. It mirrors
 silicon-bridge's **signed** `encode_q88_signed` / `q88_signed_to_f32` bit for
 bit — same `±127.99` clamp, same truncate-toward-zero, same NaN handling — and
+also `encode_q88_signed_full`, the full-range parameter encoder that
+silicon-bridge's `.mem` writer actually uses (`-128.0` → `0x8000`, where the
+UART clamp gives `0x8003`). The LIF generator below still encodes parameter
+words with the UART clamp; that is harmless for the pinned bank (no word has
+`|v| > 127.99`) but is an open finding — see the Q8.8 boundary-vector PR. And
 `tests/test_golden_lif_vectors.py` re-asserts that crate's own unit-test
 vectors against it, so the two cannot drift apart silently.
 
@@ -189,10 +194,48 @@ every inhibitory weight in these vectors to zero — it is on the wrong side of
 this repo's signed `.mem` contract (see
 [`spikenaut-core-sv/mem/README.md`](../spikenaut-core-sv/mem/README.md)).
 
+> *Stale as of silicon-bridge `1bbb460`:* `FixedPointEncode::encode_q88` now
+> encodes with the signed, full-range `encode_q88_signed_full`, so the crate's
+> `.mem` writer is on the signed side of this contract. The reason for not
+> reusing it today is the cross-repo toolchain dependency, not signedness.
+
 Whether to align silicon-bridge's `.mem` export with the signed convention is a
 question for that repo and out of scope here. It is **not tracked there yet** —
 the closest existing work is silicon-bridge GH#22 / RM-300 (`MemFileWriter`
 `.mem` round-trip tests), which would surface the mismatch.
+
+## Q8.8 saturation boundaries
+
+The vectors above never take the STDP weight path, and the output-layer set
+only checks the one-hot argmax of a bank that stays far from ±128. A second
+generator, `scripts/gen_golden_q88_boundary.py`, pins the **saturate, never
+wrap** half of the Q8.8 contract at the signed edges directly:
+
+| Testbench | What it checks | Vectors |
+|---|---|---|
+| `tb_StdpController_q88` | `weight_out` / `weight_we` / `weight_addr_out` in the handoff cycle for hold, LTP, LTD and LTP-priority on every boundary weight | 88 |
+| `tb_StdpWriteback_q88` | The same updates closed-loop through a real `WeightRam` (RAM word after the sweep, write strobe iff the weight changed, no off-column writes) | 96 (24 groups of 4) |
+| `tb_OutputLayer_q88` | Exact `class_acc` words and argmax for cases that land on, step past and back off `0x7FFF` / `0x8000`, plus cases where per-step saturation and a final clamp differ | 13 |
+
+The boundary weights are `0x7FFD..0x7FFF`, `0x8000..0x8002`, `0x0000`,
+`0x0001`, `0xFFFF`, `0xFFFE`, plus f32 values run through the **parameter**
+encoder `q88.encode_q88_signed_full` (`-128.0` → `0x8000`, `127.99609375` →
+`0x7FFF`, `±1e6` saturating to `0x7FFF` / `0x8000`, `±127.99` → `±32765`,
+`±0.999` → `±255`, `±1/256`, NaN → `0`, `-1.0` → `0xFF00`), so the encoder's
+truncate-toward-zero and i16 saturation feed the same replay. Weights are
+parameter words, so they do not use the `±127.99` UART stimulus clamp of
+`q88.encode_q88_signed`; silicon-bridge's `.mem` writer
+(`encode_q88_signed_full`) and its `docs/host-hdl-contract.md` draw the same
+line. The model is plain integer arithmetic over `q88.Q88_RAW_MIN` /
+`q88.Q88_RAW_MAX`, written from the contract rather than from the RTL.
+`tests/test_golden_q88_boundary.py` checks the model, decodes the committed
+images back through it, and shows that wrapping, unsigned saturation, a
+final-only clamp and write-on-saturate would each produce different vectors.
+
+```bash
+python3 scripts/gen_golden_q88_boundary.py            # regenerate
+python3 scripts/gen_golden_q88_boundary.py --check    # drift gate
+```
 
 ## Files
 
@@ -206,6 +249,10 @@ the closest existing work is silicon-bridge GH#22 / RM-300 (`MemFileWriter`
 | `spikenaut-core-sv/tb/tb_LifNeuron_golden.sv` | Replays the LIF trace against the RTL |
 | `spikenaut-core-sv/tb/tb_OutputLayer_golden.sv` | Replays the argmax vectors against the RTL |
 | `tests/test_golden_lif_vectors.py` | Codec, reproducibility, provenance, and drift-discrimination checks |
+| `scripts/gen_golden_q88_boundary.py` | Q8.8 saturation-boundary model, generator and `--check` drift gate |
+| `spikenaut-core-sv/mem/golden/q88b_*.mem`, `q88_boundary_vectors.json` | Generated boundary vectors and manifest |
+| `spikenaut-core-sv/tb/tb_{StdpController,StdpWriteback,OutputLayer}_q88.sv` | Replay the boundary vectors against the RTL |
+| `tests/test_golden_q88_boundary.py` | Model, reproducibility and discrimination checks for the boundary vectors |
 
 ## Related
 
