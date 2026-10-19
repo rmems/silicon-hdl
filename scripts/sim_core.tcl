@@ -94,7 +94,7 @@ foreach tb_dir [list $core_tb $bridge_tb $synapse_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_StdpWriteback tb_AerRouteTable tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_StdpWriteback tb_AerRouteTable tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top tb_WeightRamArbStress}
 
 set mem_dir    [file join $repo_root spikenaut-core-sv mem]
 # GH#66 golden vectors (generated; see docs/golden-lif-vectors.md).
@@ -125,6 +125,7 @@ array set pass_banner {
     tb_SocFrameGolden            {TB_SOC_FRAME_GOLDEN: ALL}
     tb_SocStatusLeds             {TB_SOCSTATUSLEDS: ALL TESTS PASSED}
     tb_spikenaut_soc_basys3_top  {TB_BASYS3_TOP: ALL TESTS PASSED}
+    tb_WeightRamArbStress        {TB_WEIGHTRAM_ARB_STRESS: ALL TESTS PASSED}
 }
 
 foreach tb_top $core_tb_tops {
@@ -171,7 +172,7 @@ foreach tb_top $core_tb_tops {
             "SPIKES_FILE=[file normalize [file join $golden_dir frame_golden_spikes.mem]]" \
             "AUX_FILE=[file normalize [file join $golden_dir frame_golden_aux.mem]]" \
         ] [get_filesets sim_1]
-    } elseif {$tb_top eq "tb_spikenaut_soc_basys3_top"} {
+    } elseif {$tb_top eq "tb_spikenaut_soc_basys3_top" || $tb_top eq "tb_WeightRamArbStress"} {
         set_property generic [list \
             "WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_weights.mem]]" \
             "THRESH_INIT=[file normalize [file join $mem_dir merged_v2_thresholds.mem]]" \

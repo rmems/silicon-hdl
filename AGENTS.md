@@ -141,6 +141,19 @@ Notes for editing it:
 - Reset polarity is inverted at this level: the `rst_n` **port** is the active-high BTNC button,
   so the TB asserts reset with `btn_rst = 1`.
 
+### WeightRam arbitration stress testbench
+
+`tb_WeightRamArbStress` (`spikenaut-soc-sv/tb/tb_WeightRamArbStress.sv`) instantiates the same
+SoC top with the same source list as `tb_spikenaut_soc_basys3_top` and stress-tests the #103
+WeightRam arbitration order (PE sweep > STDP walk > host `0xA5` write). It places host writes
+at `$urandom` cycles in and around the sweep and STDP walk with SW14 off, on, and toggled, and
+checks every RAM read plus the full RAM image against an SV reference model. The seed comes
+from `+seed=N` (default 1) and `+ticks=N` sets ticks per learn mode (default 256). CI and
+`scripts/quality.sh` run seeds `1 2 3 42 1337` (override locally with
+`ARB_STRESS_SEEDS="..."`). Every `FAIL` line prints its seed; rerun with
+`./obj_dir/Vtb_WeightRamArbStress +seed=N +trace` to reproduce. It force-advances `step_cnt`
+to compress idle time, so it does not check the tick period (`tb_spikenaut_soc_basys3_top` does).
+
 ### Vivado (when available)
 
 ```bash

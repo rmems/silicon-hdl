@@ -81,6 +81,8 @@ else
 fi
 
 VERILATOR_FLAGS=(--binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD)
+# tb_WeightRamArbStress seeds; override with ARB_STRESS_SEEDS="7 8 9" ./scripts/quality.sh
+read -r -a ARB_STRESS_SEEDS <<< "${ARB_STRESS_SEEDS:-1 2 3 42 1337}"
 TBS=(
   "LifNeuron:LifNeuron"
   "LifNeuron_golden:LifNeuron"
@@ -276,6 +278,42 @@ if verilator "${VERILATOR_FLAGS[@]}" \
   record "verilator/tb_spikenaut_soc_basys3_top" "PASS"
 else
   record "verilator/tb_spikenaut_soc_basys3_top" "FAIL"
+fi
+
+echo ""
+echo "=== Verilator tb_WeightRamArbStress (seeds: ${ARB_STRESS_SEEDS[*]}) ==="
+# Randomized sweep-safe WeightRam arbitration stress (#103). Compiled once,
+# then run per seed; each seed is recorded separately so a FAIL names the
+# reproducing seed (rerun: ./obj_dir/Vtb_WeightRamArbStress +seed=N).
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_WeightRamArbStress \
+    -Ispikenaut-core-sv/rtl -Ispikenaut-bridge-sv/rtl \
+    spikenaut-bridge-sv/rtl/UartRx.sv \
+    spikenaut-bridge-sv/rtl/UartTx.sv \
+    spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+    spikenaut-core-sv/rtl/LifNeuron.sv \
+    spikenaut-core-sv/rtl/LifNeuronArray.sv \
+    spikenaut-core-sv/rtl/WeightRam.sv \
+    spikenaut-core-sv/rtl/NeuronParamRam.sv \
+    spikenaut-core-sv/rtl/StdpController.sv \
+    spikenaut-core-sv/rtl/StdpWriteback.sv \
+    spikenaut-core-sv/rtl/OutputLayer.sv \
+    synapse-link-hdl/src/AerRouteTable.sv \
+    spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+    spikenaut-soc-sv/rtl/SocStatusLeds.sv \
+    spikenaut-soc-sv/rtl/Basys3_Top.sv \
+    spikenaut-soc-sv/tb/tb_WeightRamArbStress.sv; then
+  for seed in "${ARB_STRESS_SEEDS[@]}"; do
+    echo "--- +seed=${seed}"
+    if ./obj_dir/Vtb_WeightRamArbStress "+seed=${seed}"; then
+      record "verilator/tb_WeightRamArbStress[seed=${seed}]" "PASS"
+    else
+      record "verilator/tb_WeightRamArbStress[seed=${seed}]" "FAIL"
+    fi
+  done
+else
+  record "verilator/tb_WeightRamArbStress[build]" "FAIL"
 fi
 
 if [[ "$RUN_VIVADO" -eq 1 ]]; then

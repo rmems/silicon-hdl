@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     capture. Failed routes are consumed as no-input ticks and still receive
     the unchanged 36-byte response.
 
+- Randomized, seeded Verilator stress testbench `tb_WeightRamArbStress` for
+  the sweep-safe WeightRam arbitration (#103: PE sweep > STDP walk > host
+  0xA5). An SV reference model checks every registered RAM read, STDP
+  read-modify-write atomicity, exactly-once host-write landing, and the full
+  RAM image. It runs seeds 1, 2, 3, 42 and 1337 in sim.yml and
+  scripts/quality.sh, and is listed in sim_core.tcl.
+
 ### Changed
 
 - The existing five-byte 0xA5 command accepts target 3 for AER entries;

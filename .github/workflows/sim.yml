@@ -273,3 +273,34 @@ jobs:
             spikenaut-soc-sv/rtl/Basys3_Top.sv \
             spikenaut-soc-sv/tb/tb_Basys3_Top.sv
           ./obj_dir/Vtb_spikenaut_soc_basys3_top
+
+      - name: Run tb_WeightRamArbStress (seeds 1 2 3 42 1337)
+        run: |
+          rm -rf obj_dir
+          # Randomized sweep-safe WeightRam arbitration stress (#103 order:
+          # PE sweep > STDP walk > host 0xA5). Host writes land at $urandom
+          # cycles inside the sweep / STDP walk with SW14 off, on, and toggled;
+          # an SV reference model checks every RAM read and the full RAM.
+          # Any FAIL line names its seed: rerun with +seed=N to reproduce.
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_WeightRamArbStress \
+            -Ispikenaut-core-sv/rtl -Ispikenaut-bridge-sv/rtl \
+            spikenaut-bridge-sv/rtl/UartRx.sv \
+            spikenaut-bridge-sv/rtl/UartTx.sv \
+            spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+            spikenaut-core-sv/rtl/LifNeuron.sv \
+            spikenaut-core-sv/rtl/LifNeuronArray.sv \
+            spikenaut-core-sv/rtl/WeightRam.sv \
+            spikenaut-core-sv/rtl/NeuronParamRam.sv \
+            spikenaut-core-sv/rtl/StdpController.sv \
+            spikenaut-core-sv/rtl/StdpWriteback.sv \
+            spikenaut-core-sv/rtl/OutputLayer.sv \
+            synapse-link-hdl/src/AerRouteTable.sv \
+            spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+            spikenaut-soc-sv/rtl/SocStatusLeds.sv \
+            spikenaut-soc-sv/rtl/Basys3_Top.sv \
+            spikenaut-soc-sv/tb/tb_WeightRamArbStress.sv
+          for seed in 1 2 3 42 1337; do
+            echo "--- tb_WeightRamArbStress +seed=${seed}"
+            ./obj_dir/Vtb_WeightRamArbStress +seed=${seed}
+          done
