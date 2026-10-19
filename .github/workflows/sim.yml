@@ -180,6 +180,21 @@ jobs:
             synapse-link-hdl/tb/tb_AerRouteTable.sv
           ./obj_dir/Vtb_AerRouteTable
 
+      - name: Run tb_SynapseRouter
+        run: |
+          rm -rf obj_dir
+          # SynapseRouter (identity-only demo router) standalone, plus a
+          # TB-only AerRouteTable -> SynapseRouter composition for single-hop,
+          # multi-hop, unrouted, and in_ready backpressure cases.
+          # INIT_FILE fixture path is repo-root relative.
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_SynapseRouter \
+            -Isynapse-link-hdl/src \
+            synapse-link-hdl/src/AerRouteTable.sv \
+            synapse-link-hdl/src/SynapseRouter.sv \
+            synapse-link-hdl/tb/tb_SynapseRouter.sv
+          ./obj_dir/Vtb_SynapseRouter
+
       - name: Run tb_UartRx
         run: |
           rm -rf obj_dir

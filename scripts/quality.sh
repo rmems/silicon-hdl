@@ -138,6 +138,23 @@ else
   record "verilator/tb_AerRouteTable" "FAIL"
 fi
 
+echo ""
+echo "=== Verilator tb_SynapseRouter ==="
+# Standalone identity router plus a TB-only AerRouteTable -> SynapseRouter
+# composition. INIT_FILE fixture path is repo-root relative.
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_SynapseRouter \
+    -Isynapse-link-hdl/src \
+    synapse-link-hdl/src/AerRouteTable.sv \
+    synapse-link-hdl/src/SynapseRouter.sv \
+    synapse-link-hdl/tb/tb_SynapseRouter.sv \
+  && ./obj_dir/Vtb_SynapseRouter; then
+  record "verilator/tb_SynapseRouter" "PASS"
+else
+  record "verilator/tb_SynapseRouter" "FAIL"
+fi
+
 # tb_OutputLayer needs two DUT files (it drives a real WeightRam), so it does
 # not fit the single-DUT TBS loop above.
 echo ""

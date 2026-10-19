@@ -86,6 +86,7 @@ symbols or tops conflict.
 | `tb_StdpController` | `spikenaut-core-sv/rtl/StdpController.sv` + `spikenaut-core-sv/tb/tb_StdpController.sv` |
 | `tb_StdpWriteback` | `WeightRam.sv` + `StdpController.sv` + `StdpWriteback.sv` + `tb_StdpWriteback.sv` |
 | `tb_AerRouteTable` | `synapse-link-hdl/src/AerRouteTable.sv` + `synapse-link-hdl/tb/tb_AerRouteTable.sv` |
+| `tb_SynapseRouter` | `synapse-link-hdl/src/AerRouteTable.sv` + `synapse-link-hdl/src/SynapseRouter.sv` + `synapse-link-hdl/tb/tb_SynapseRouter.sv` |
 | `tb_OutputLayer` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer.sv` |
 | `tb_LifNeuron_golden` | `spikenaut-core-sv/rtl/LifNeuron.sv` + `spikenaut-core-sv/tb/tb_LifNeuron_golden.sv` |
 | `tb_OutputLayer_golden` | `spikenaut-core-sv/rtl/WeightRam.sv` + `spikenaut-core-sv/rtl/OutputLayer.sv` + `spikenaut-core-sv/tb/tb_OutputLayer_golden.sv` |
