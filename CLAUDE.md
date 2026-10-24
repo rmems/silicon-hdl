@@ -2,11 +2,9 @@
 <!-- Last updated: 2026-07-21 -->
 # CLAUDE.md
 
-@AGENTS.md
-
 This file provides Claude Code-specific guidance for the `silicon-hdl` repository.
-Shared build, architecture, and issue-tracking rules are imported from `AGENTS.md` above
-(via the `@AGENTS.md` import, which Claude Code loads at session start).
+Shared build, architecture, and issue-tracking rules are maintained in
+[AGENTS.md](AGENTS.md).
 
 ## Identity
 
