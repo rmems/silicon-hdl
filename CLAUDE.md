@@ -34,6 +34,26 @@ and propose the smallest safe change rather than rewriting library ownership.
 | `bd` (beads) | Canonical issue tracking (`bd prime` for command reference) |
 | GitHub / Linear | Cross-team visibility (not a replacement for `bd`) |
 
+## Self-hosted Vivado runner (WSL2 / Fedora)
+
+The Vivado CI job (`.github/workflows/vivado-ci.yml`) is bash-only and targets
+`runs-on: [self-hosted, linux, vivado]` with `defaults.run.shell: bash`. Run the runner **inside
+Linux**, never as a native Windows service: that one defaults to PowerShell and breaks the bash
+steps (the 2026-10-26 `Missing '(' after 'if'` failure).
+
+- Same setup on both hosts: Windows 11 -> WSL2 distro, Fedora 44 -> native. Runner dir
+  `~/actions-runner/silicon-hdl-runner`, labels `self-hosted`,`linux`,`vivado`.
+- Vivado env is sourced from `~/Xilinx/env.sh`; license via `XILINXD_LICENSE_FILE` or
+  `~/.Xilinx/Xilinx.lic`. Keep both paths host-relative (`$HOME`), never absolute.
+- Run only one runner with the `vivado` label at a time (single license). When moving machines,
+  remove the old runner first (`./config.sh remove`), or stop and disable its service, then
+  register the new one.
+- WSL2: enable systemd (`/etc/wsl.conf` -> `[boot] systemd=true`), then
+  `sudo ./svc.sh install && sudo ./svc.sh start`. Otherwise start `./run.sh` manually.
+- Fedora: same `svc.sh`; if SELinux blocks it, run
+  `chcon -t bin_t ~/actions-runner/silicon-hdl-runner/runsvc.sh` (or use `./run.sh`).
+- Delete any leftover native-Windows runner registered under this repo.
+
 ## What this is
 
 `silicon-hdl` is a deduplicated, Vivado-ready SystemVerilog monorepo for neuromorphic / spiking
