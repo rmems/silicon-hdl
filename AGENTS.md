@@ -2,8 +2,10 @@
 <!-- Last updated: 2026-09-14 -->
 # AGENTS.md
 
-Companion agent guidance for `silicon-hdl`. Claude Code loads this file via `@AGENTS.md` from
-`CLAUDE.md`. Entry identity and boundaries remain in `CLAUDE.md`.
+Companion agent guidance for `silicon-hdl`. Entry identity and boundaries remain in
+`CLAUDE.md`.
+
+Amp does not read `CLAUDE.md` when this file exists, so load it here: @CLAUDE.md
 
 ## Build and test
 
@@ -44,7 +46,8 @@ synthesis and bitstream generation.
   restrict the `vivado` runner group) would isolate that path; this file does
   **not** assert either setting is on — confirm in the repo Actions settings.
 - After a run, open the PR **Checks** tab or **Actions → Vivado CI**
-- Runner: `silicon-hdl-vivado` labels `self-hosted`,`vivado` (`~/actions-runner/silicon-hdl-runner`)
+- Runner: `silicon-hdl-vivado` labels `self-hosted`,`linux`,`vivado` (`~/actions-runner/silicon-hdl-runner`);
+  Linux-only (WSL2 on Windows 11, or native Fedora) � see the runner section in `CLAUDE.md`
 - **Human follow-ups** (not enabled here; do not invent that they are):
   - Ruleset or classic branch protection on `main` requiring a pull request
     before merge

@@ -35,8 +35,13 @@ jobs:
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, vivado]
+    # `linux` keeps the job off a native-Windows runner (PowerShell default shell);
+    # the runner lives in WSL2 on Windows 11 or natively on Fedora. Same label set.
+    runs-on: [self-hosted, linux, vivado]
     timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
