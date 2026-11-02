@@ -474,8 +474,10 @@ module spikenaut_soc_basys3_top #(
     // frame change (see docs/interface-alignment.md / #64). Triggered on
     // lif_tick_done, not step_en: spike_bitmap only updates on tick_done,
     // so triggering on step_en would score the *previous* tick's spikes.
-    // No runtime write path for this bank -- we/din tied off, matching the
-    // precedent of u_stdp's intentionally-dangling write ports below.
+    // No runtime write path for this bank: we is tied to 1'b0 and din to
+    // '0, so it only ever holds its INIT_FILE image. Neither the host 0xA5
+    // command nor STDP can change it -- u_stdp (below) writes the hidden-
+    // layer u_wram only, through the arbitration mux above u_wram.
     // ----------------------------------------------------------------
     logic [DATA_WIDTH-1:0] output_weight_dout;
     logic [OUTPUT_WEIGHT_ADDR_W-1:0] output_weight_addr;
@@ -571,6 +573,12 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     // STDP writeback (#70)
     // ----------------------------------------------------------------
+    // Opt-in online learning, gated by learn_en (SW14). The write ports
+    // are connected: weight_we/weight_addr/weight_din drive stdp_we/
+    // stdp_addr/stdp_din, which the always_comb mux in the Weight RAM
+    // section passes to u_wram while stdp_busy is high and the LIF PE is
+    // idle. Priority there is PE sweep, then STDP, then host 0xA5 weight
+    // write; wr_block also holds host writes while stdp_busy is high.
     StdpWriteback #(
         .DATA_WIDTH  (DATA_WIDTH),
         .NUM_NEURONS (NUM_NEURONS),
