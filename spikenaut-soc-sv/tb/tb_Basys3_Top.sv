@@ -911,15 +911,28 @@ module tb_spikenaut_soc_basys3_top #(
         // a nonzero word registers one event, its magnitude is ignored.
         // The host exchange stays one-response-per-request: exactly one
         // frame_send fires, on the tick_done of the final lane.
+        //
+        // frame_send_count measures the ARMING contract only.  Test 13b is
+        // the wire-level half: it demodulates uart_tx and proves exactly 36
+        // bytes arrive and the line goes quiet.
         // ------------------------------------------------------------
         begin
             int unsigned responses_before;
             logic [NUM_NEURONS*16-1:0] multi_lane_words;
+            logic [15:0] col12_weight_before;
 
             multi_lane_words = '0;
             multi_lane_words[5*16  +: 16] = 16'h0001;
             multi_lane_words[9*16  +: 16] = 16'h0001;
             multi_lane_words[12*16 +: 16] = 16'h4000;
+
+            // Patch row 4's column-12 weight to 0x0010 so the lane-12 event
+            // is observable in neuron 4's membrane.  The check below asserts
+            // the membrane lands at exactly the weight value -- lane 12's
+            // 0x4000 amplitude cannot corrupt it (event-only semantics), and
+            // row 4's 0x0198 threshold is far above, so no spike follows.
+            col12_weight_before = dut.u_wram.mem[4 * NUM_NEURONS + 12];
+            dut.u_wram.mem[4 * NUM_NEURONS + 12] = 16'h0010;
 
             responses_before = frame_send_count;
             uart_send_stimulus_mask(multi_lane_words);
@@ -927,6 +940,8 @@ module tb_spikenaut_soc_basys3_top #(
             wait_for_route_resolution();
             check(dut.stimulus_input_index === 4'd5,
                   "test 7b: first event must come from the lowest nonzero lane");
+            check(dut.stimulus_event === 1'b1,
+                  "test 7b: lane 5's resolved route must assert a PE event");
 
             // Lane 5 consume: the frame stays pending with lanes {9,12} left,
             // and the controlled row commits a second real spike.
@@ -954,6 +969,8 @@ module tb_spikenaut_soc_basys3_top #(
             wait_for_route_resolution();
             check(dut.stimulus_input_index === 4'd9,
                   "test 7b: second event must come from lane 9");
+            check(dut.stimulus_event === 1'b1,
+                  "test 7b: lane 9's resolved route must assert a PE event");
             expected_input_index = 4'd9;
             seen_weight_row      = '0;
             wait_for_tick();
@@ -978,6 +995,8 @@ module tb_spikenaut_soc_basys3_top #(
             wait_for_route_resolution();
             check(dut.stimulus_input_index === 4'd12,
                   "test 7b: third event must come from lane 12");
+            check(dut.stimulus_event === 1'b1,
+                  "test 7b: lane 12's resolved route must assert a PE event");
             expected_input_index = 4'd12;
             seen_weight_row      = '0;
             wait_for_tick();
@@ -1000,6 +1019,9 @@ module tb_spikenaut_soc_basys3_top #(
                       "test 7b: a multi-lane frame must produce exactly one host response");
             check(dut.u_lif_array.membrane_potential[SPIKE_TEST_NEURON] === '0,
                   "test 7b: neuron 5 must be reset after the lane-12 tick");
+            check(dut.u_lif_array.membrane_potential[4] === 16'h0010,
+                  "test 7b: lane 12 must integrate exactly one weight word -- the 0x4000 amplitude is event-only");
+            dut.u_wram.mem[4 * NUM_NEURONS + 12] = col12_weight_before;
         end
 
         // ------------------------------------------------------------

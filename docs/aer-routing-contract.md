@@ -83,7 +83,10 @@ lanes still draining from an earlier frame, matching the request/response
 host exchange.
 
 Exactly one normal 36-byte response is armed per request — on the tick_done
-of the frame's final lane — whether the frame held one lane or sixteen.
+of the frame's final lane — whether the frame held one lane or sixteen. A
+frame superseded mid-drain by a newer accepted frame produces no response of
+its own; the host sees one reply for the newest request, matching the
+request/response exchange.
 
 An all-zero stimulus frame also resolves as a no-input tick without inventing a
 route lookup. Routing never adds a UART response field.
