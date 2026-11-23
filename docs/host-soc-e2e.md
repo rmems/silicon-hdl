@@ -65,10 +65,11 @@ one response per request, not one per tick.
 A request with several nonzero lanes is **not** collapsed: each nonzero lane
 is routed and consumed as its own binary event on successive 1 ms ticks,
 lowest lane first ([#112](https://github.com/rmems/silicon-hdl/issues/112)).
-Each consumed lane arms a response trigger, so a dense frame can produce
-several responses spread over its drain — still subject to the coalescing
-above. Lane amplitude stays event-only: a nonzero word registers the lane,
-its magnitude is not integrated.
+The exchange stays strictly one-response-per-request: the reply fires on the
+`tick_done` of the frame's **final** lane, so its snapshot is that last
+tick's membrane/spike result — earlier lanes' per-tick spike bitmaps are not
+individually reported. Lane amplitude stays event-only: a nonzero word
+registers the lane, its magnitude is not integrated.
 
 ### What is *not* in the frame
 

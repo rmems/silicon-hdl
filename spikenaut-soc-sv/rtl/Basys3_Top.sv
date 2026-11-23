@@ -594,13 +594,14 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     // SoC application protocol (0xAA frame codec + TX readback)
     // ----------------------------------------------------------------
-    // Host contract (#62 / GH#112): one 36-byte response per consumed
-    // stimulus *event* — a 0xAA frame with N nonzero lanes produces up to N
-    // responses, one per logical tick as the lane mask drains. Arm on the
-    // step_en that consumes a lane; fire on the subsequent lif_tick_done so
-    // the snapshot is that tick's post-sweep membrane/spike result. Idle
-    // 1 ms ticks must not stream UART responses before any host frame (or
-    // between host frames).
+    // Host contract (#62 / GH#112): one 36-byte response per consumed 0xAA
+    // stimulus frame — the host exchange is strictly request/response, so a
+    // multi-lane frame must not emit per-lane replies. Arm only when the
+    // frame's final lane is consumed; fire on the subsequent lif_tick_done
+    // so the snapshot is the last lane's post-sweep membrane/spike result.
+    // Earlier lanes' per-tick spike bitmaps are not individually reported.
+    // Idle 1 ms ticks must not stream UART responses before any host frame
+    // (or between host frames).
     // The FSM still coalesces a later armed trigger while UART is busy; a
     // 36-byte response cannot physically complete within the 1 ms tick at
     // 115200 baud.
@@ -613,7 +614,7 @@ module spikenaut_soc_basys3_top #(
     always_ff @(posedge clk) begin
         if (!rst)
             response_armed <= 1'b0;
-        else if (consume_pending)
+        else if (consume_pending && !(|remaining_lane_mask))
             response_armed <= 1'b1;
         else if (lif_tick_done)
             response_armed <= 1'b0;

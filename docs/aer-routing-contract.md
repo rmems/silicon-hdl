@@ -67,15 +67,23 @@ holds host writes until the route engine, LIF PE, and STDP writeback are idle.
 ## Main-SoC behavior
 
 The fixed 0xAA request remains 33 bytes. After SocProtocolFsm atomically commits
-the frame, the SoC chooses the lowest nonzero input lane and submits its 4-bit
-address to AerRouteTable. Multi-active-lane accumulation remains out of scope.
+the frame, the SoC decodes its nonzero lanes into a pending mask and submits
+them to AerRouteTable one lane per logical tick, lowest lane first (#112).
+Single-tick multi-lane accumulation remains out of scope.
 
 A successful result is held until a safe logical step_en. The routed address
 selects both LifNeuronArray's weight column and StdpWriteback's pre-event
 column. If a logical tick arrives before routing finishes, the request remains
-pending and is not partially consumed. A route failure resolves the request as
-a no-input tick: normal membrane leak/state progression continues and exactly
-one normal 36-byte response is armed after that tick.
+pending and is not partially consumed. Each consumed lane retires its mask
+bit and queues the next lowest lane's lookup immediately, so a lane that
+fails routing only drops its own tick — the remaining lanes still drain. A
+route failure resolves that lane's tick as a no-input tick: normal membrane
+leak/state progression continues. A newer accepted 0xAA frame supersedes
+lanes still draining from an earlier frame, matching the request/response
+host exchange.
+
+Exactly one normal 36-byte response is armed per request — on the tick_done
+of the frame's final lane — whether the frame held one lane or sixteen.
 
 An all-zero stimulus frame also resolves as a no-input tick without inventing a
 route lookup. Routing never adds a UART response field.
