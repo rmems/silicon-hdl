@@ -839,6 +839,30 @@ module tb_SocProtocolFsm;
                 expect_stream_byte(expected_response_byte(b),
                                    "pending snapshot must still stream once the dump drains");
 
+            // Yield-when-done the other direction: with a pending response
+            // and a queued read both behind an active dump, the snapshot
+            // wins the dump boundary and the read still streams after it.
+            drain_stream();
+            load_live_snapshot(16'h9900, 16'h3C3C, 16'hCAFE);
+            send_read_frame(8'h00, 8'hA0, 16'd2);
+            expect_stream_byte(READ_SYNC_BYTE, "yield: dump header sync");
+            trigger_response();
+            send_read_frame(8'h02, 8'hB0, 16'd1);
+            expect_stream_byte(8'h00, "yield: dump header target");
+            expect_stream_byte(8'hA0, "yield: dump header addr");
+            expect_stream_byte(8'h00, "yield: dump header len_hi");
+            expect_stream_byte(8'h02, "yield: dump header len_lo");
+            expect_stream_byte(rd_mem[8'hA0][15:8], "yield: dump word 0 hi");
+            expect_stream_byte(rd_mem[8'hA0][7:0], "yield: dump word 0 lo");
+            expect_stream_byte(rd_mem[8'hA1][15:8], "yield: dump word 1 hi");
+            expect_stream_byte(rd_mem[8'hA1][7:0], "yield: dump word 1 lo");
+            remember_expected();
+            for (int b = 0; b < FRAME_BYTES; b++)
+                expect_stream_byte(expected_response_byte(b),
+                                   "pending response must win the dump boundary");
+            expect_stream_dump(8'h02, 8'hB0, 1,
+                               "queued read must still stream after the yielded response");
+
             // Read commands arriving mid-dump share a one-entry queue that
             // is latest-wins: two queued requests collapse to the second,
             // so exactly two dumps stream — the active one, then the last.
