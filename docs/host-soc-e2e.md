@@ -71,6 +71,12 @@ tick's membrane/spike result — earlier lanes' per-tick spike bitmaps are not
 individually reported. Lane amplitude stays event-only: a nonzero word
 registers the lane, its magnitude is not integrated.
 
+The guarantee applies to requests that are allowed to drain: a newer frame
+accepted while lanes are still pending supersedes them, and the superseded
+frame produces no reply of its own (see
+[`aer-routing-contract.md`](aer-routing-contract.md)). Hosts should therefore
+read the complete 36-byte response before sending the next stimulus request.
+
 ### What is *not* in the frame
 
 [#72](https://github.com/rmems/silicon-hdl/issues/72)'s output-class flags are

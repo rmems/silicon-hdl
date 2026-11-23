@@ -205,9 +205,14 @@ module spikenaut_soc_basys3_top #(
     assign remaining_lane_mask =
         pending_lane_mask & ~(NUM_NEURONS'(1'b1) << route_source_addr);
 
+    // Gated on !protocol_stimuli_valid: a frame accepted on the same cycle a
+    // pending lane would consume supersedes it, and a superseded frame gets
+    // neither a lane event nor a response (docs/aer-routing-contract.md).
     assign route_in_valid       = route_request_pending;
-    assign consume_pending      = step_en && stimuli_pending && route_resolved;
-    assign stimulus_event       = stimuli_pending && route_resolved && !route_drop_pending;
+    assign consume_pending      = step_en && stimuli_pending && route_resolved
+                                  && !protocol_stimuli_valid;
+    assign stimulus_event       = stimuli_pending && route_resolved && !route_drop_pending
+                                  && !protocol_stimuli_valid;
     assign stimulus_input_index = routed_input_index;
     assign route_fault          = aer_route_fault || route_cfg_fault;
 

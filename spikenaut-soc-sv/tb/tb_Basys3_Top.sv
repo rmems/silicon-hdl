@@ -1634,6 +1634,68 @@ module tb_spikenaut_soc_basys3_top #(
         end
 
         // ------------------------------------------------------------
+        // Test 13c: the multi-lane wire contract (GH#112).  Test 7b counts
+        // frame_send arming; this demodulates uart_tx for a two-lane frame
+        // and proves exactly one 36-byte frame is serialized -- one reply
+        // per request on the wire, not per drained lane.  Byte contents are
+        // not re-checked (13b covers serialization fidelity); the reply is
+        // the final lane's post-tick snapshot.
+        // ------------------------------------------------------------
+        begin
+            logic [7:0] captured;
+            bit         byte_ok;
+            int         bytes_seen;
+            logic [NUM_NEURONS*16-1:0] wire_multi_words;
+
+            wait_uart_line_idle();
+
+            wire_multi_words = '0;
+            wire_multi_words[5*16 +: 16] = 16'h0001;
+            wire_multi_words[9*16 +: 16] = 16'h0001;
+            uart_send_stimulus_mask(wire_multi_words);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+
+            // One tick per active lane; the response arms on the last one.
+            repeat (2) begin
+                wait_tick_applied();
+                wait_lif_sweep_done();
+            end
+            check(dut.stimuli_pending === 1'b0,
+                  "test 13c: two-lane frame must fully drain before its response");
+            check(dut.frame_send === 1'b1,
+                  "test 13c: multi-lane frame must arm exactly one response");
+
+            bytes_seen = 0;
+            for (int b = 0; b < RESPONSE_BYTES; b++) begin
+                uart_capture_byte(captured, byte_ok);
+                if (!byte_ok) begin
+                    errors++;
+                    $display("FAIL: test 13c: no framed byte %0d of %0d on uart_tx",
+                             b, RESPONSE_BYTES);
+                    break;
+                end
+                bytes_seen++;
+            end
+            check_int(bytes_seen, RESPONSE_BYTES,
+                      "test 13c: multi-lane frame must serialize 36 response bytes");
+
+            begin : no_extra_byte_multi
+                automatic int unsigned quiet = 0;
+                while (quiet < UART_QUIET_CLKS) begin
+                    @(negedge clk);
+                    if (uart_tx_line === 1'b0) begin
+                        errors++;
+                        $display("FAIL: test 13c: a %0dth byte started %0d cycles after the frame ended -- a per-lane reply would sit here",
+                                 RESPONSE_BYTES + 1, quiet);
+                        break;
+                    end
+                    quiet++;
+                end
+            end
+        end
+
+        // ------------------------------------------------------------
         // Test 14: host RAM readback over the real UART (#113).
         //
         //   14a  Weight dump — echoed 5-byte header, then big-endian words
