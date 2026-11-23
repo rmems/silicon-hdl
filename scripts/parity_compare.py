@@ -39,7 +39,8 @@ from pathlib import Path
 
 def load_json(path: Path) -> dict:
     try:
-        return json.loads(path.read_text())
+        # NOSONAR: fixture paths are supplied by the operator/CI job
+        return json.loads(path.read_text())  # NOSONAR
     except (OSError, json.JSONDecodeError) as exc:
         raise SystemExit(f"cannot read {path}: {exc}")
 
@@ -52,6 +53,49 @@ def git_commit() -> str:
         return out.stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+
+
+def _cmp_scalar(checks: dict, key: str, exp: dict, obs: dict, i: int) -> str | None:
+    chk = checks[key]
+    chk["compared"] += 1
+    if obs.get(key) == exp.get(key):
+        chk["exact"] += 1
+        return None
+    chk["mismatches"].append(
+        {"step": i, "expected": exp.get(key), "observed": obs.get(key)}
+    )
+    return key
+
+
+def _cmp_step(checks: dict, exp: dict, obs: dict, i: int) -> list[str]:
+    diverged = []
+    for key in ("consumed_tick", "spike_word"):
+        if _cmp_scalar(checks, key, exp, obs, i):
+            diverged.append(key)
+
+    exp_pots = exp.get("potentials_raw", exp.get("potentials"))
+    obs_pots = obs.get("potentials")
+    chk = checks["potentials"]
+    chk["compared"] += 1
+    if obs_pots == exp_pots:
+        chk["exact"] += 1
+    else:
+        chk["mismatches"].append({
+            "step": i,
+            "lanes": [
+                {"lane": j, "expected": e, "observed": o}
+                for j, (e, o) in enumerate(zip(exp_pots or [], obs_pots or []))
+                if e != o
+            ],
+        })
+        diverged.append("potentials")
+
+    chk = checks["output_class"]
+    if obs.get("output_class") is None:
+        chk["not_observed"] += 1
+    elif _cmp_scalar(checks, "output_class", exp, obs, i):
+        diverged.append("output_class")
+    return diverged
 
 
 def compare(expected: dict, observed: dict, meta: dict) -> dict:
@@ -89,67 +133,11 @@ def compare(expected: dict, observed: dict, meta: dict) -> dict:
         })
 
     for i in range(n):
-        exp, obs = exp_steps[i], obs_steps[i]
-        diverged_fields = []
-
-        # --- alignment: the consumed tick is part of the contract ---
-        chk = report["checks"]["consumed_tick"]
-        chk["compared"] += 1
-        if obs.get("consumed_tick") == exp.get("consumed_tick"):
-            chk["exact"] += 1
-        else:
-            chk["mismatches"].append({
-                "step": i, "expected": exp.get("consumed_tick"),
-                "observed": obs.get("consumed_tick"),
-            })
-            diverged_fields.append("consumed_tick")
-
-        # --- spike word (discrete, exact) ---
-        chk = report["checks"]["spike_word"]
-        chk["compared"] += 1
-        if obs.get("spike_word") == exp.get("spike_word"):
-            chk["exact"] += 1
-        else:
-            chk["mismatches"].append({
-                "step": i, "expected": exp.get("spike_word"),
-                "observed": obs.get("spike_word"),
-            })
-            diverged_fields.append("spike_word")
-
-        # --- potentials (Q8.8 raw, exact per lane) ---
-        exp_pots = exp.get("potentials_raw", exp.get("potentials"))
-        obs_pots = obs.get("potentials")
-        chk = report["checks"]["potentials"]
-        chk["compared"] += 1
-        if obs_pots == exp_pots:
-            chk["exact"] += 1
-        else:
-            lanes = [
-                {"lane": j, "expected": e, "observed": o}
-                for j, (e, o) in enumerate(zip(exp_pots or [], obs_pots or []))
-                if e != o
-            ]
-            chk["mismatches"].append({"step": i, "lanes": lanes})
-            diverged_fields.append("potentials")
-
-        # --- output class (sim-only observable) ---
-        chk = report["checks"]["output_class"]
-        if obs.get("output_class") is None:
-            chk["not_observed"] += 1
-        else:
-            chk["compared"] += 1
-            if obs.get("output_class") == exp.get("output_class"):
-                chk["exact"] += 1
-            else:
-                chk["mismatches"].append({
-                    "step": i, "expected": exp.get("output_class"),
-                    "observed": obs.get("output_class"),
-                })
-                diverged_fields.append("output_class")
-
+        diverged_fields = _cmp_step(report["checks"], exp_steps[i], obs_steps[i], i)
         if diverged_fields:
             report["divergent_steps"].append(
-                {"step": i, "name": exp.get("name"), "fields": diverged_fields}
+                {"step": i, "name": exp_steps[i].get("name"),
+                 "fields": diverged_fields}
             )
             if report["first_divergence_step"] is None:
                 report["first_divergence_step"] = i
@@ -198,7 +186,8 @@ def main(argv: list[str] | None = None) -> int:
     text = json.dumps(report, indent=2) + "\n"
 
     if args.out:
-        args.out.write_text(text)
+        # NOSONAR: report destination is supplied by the operator/CI job
+        args.out.write_text(text)  # NOSONAR
         print(f"parity report written to {args.out}")
     else:
         sys.stdout.write(text)
