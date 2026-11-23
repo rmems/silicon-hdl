@@ -116,12 +116,29 @@ weights with SW14 high) can return a torn row across the tick. Dumping the
 learned bank for re-flash is safest with SW14 low or after the session ends.
 
 Dumps share the TX serializer with stimulus responses, so a dump may start
-later than the request: an in-flight 36-byte response drains first, a host
-frame consumed mid-dump still produces its response after the dump ends, and a
-second `0xA6` received mid-dump queues latest-wins behind the current dump.
-Hosts should therefore treat every stream beginning with `0xA6` as a dump and
-every other stream as a response — the two never interleave byte-wise, but a
-response can legitimately precede a requested dump.
+later than the request: an in-flight 36-byte response drains to its last
+byte, a queued dump then wins the frame boundary ahead of any pending
+response snapshot (which still streams once the dump ends — a bounded read
+can never starve), and a second `0xA6` received mid-dump queues latest-wins
+behind the current dump.
+
+**Identifying a dump requires tracking requests, not the first byte.** A
+response frame begins with a raw membrane potential, which can itself equal
+`0xA6` — a stream-agnostic parser cannot classify frames by their first
+byte. The host contract is instead: after sending a read request, read
+exactly `5 + 2·count` bytes and require the echoed 5-byte header to match;
+any other first five bytes mean the stream is desynchronized, not a partial
+dump (silicon-bridge `decode_ram_dump` implements exactly this). A pending
+stimulus response can still legitimately precede the requested dump, so a
+host that does not finish its in-flight exchange first must drain response
+frames until the echo arrives — the two frame kinds never interleave
+byte-wise.
+
+Two scope notes on the readback itself: the command carries no
+authentication — it is a development/parity interface, so deployments that
+expose the UART to untrusted parties should treat the learned bank as
+readable — and the dump returns the raw 8-bit bank contents including rows
+the init image or host writes never touched.
 
 ## Golden frame vectors
 

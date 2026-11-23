@@ -711,8 +711,12 @@ module tb_SocProtocolFsm;
                   "weight dump must hold rd_target = 0 through the request");
             check_int(rd_ack_pulses, baseline_reads + 4,
                       "a 4-word dump must fetch exactly four words");
-            check(tx_frame_active === 1'b0,
-                  "dump must release tx_frame_active after the last word");
+            // The monitor records the last byte on the negedge it is
+            // presented; the consume that clears dump_active lands on the
+            // following posedge, so settle one cycle before checking.
+            @(negedge clk);
+            check(dut.dump_active === 1'b0 && tx_frame_active === 1'b0,
+                  "dump must release dump_active/tx_frame_active after the last word");
             repeat (3) @(negedge clk);
             check_int(tx_stream_count, stream_rd,
                       "dump serializer must stop after the last payload byte");
@@ -808,18 +812,43 @@ module tb_SocProtocolFsm;
             for (int b = 0; b < FRAME_BYTES; b++)
                 expect_stream_byte(expected_response_byte(b),
                                    "mid-dump trigger must stream as a response after the dump");
-            check(tx_frame_active === 1'b0,
+            @(negedge clk);   // last-byte consume clears tx_active
+            check(tx_frame_active === 1'b0 && dut.dump_active === 1'b0,
                   "pipe must be idle after dump-then-response");
 
-            // A second read command arriving mid-dump queues latest-wins and
-            // streams its own frame after the first dump.  The first dump is
-            // long enough that the second command lands while it streams.
+            // Starvation guard: a queued dump wins the frame boundary ahead
+            // of a pending response snapshot — the bounded host read can
+            // never wait forever behind stimulus traffic.  The held
+            // snapshot still streams once the dump completes.
             drain_stream();
-            send_read_frame(8'h00, 8'h60, 16'd4);
+            load_live_snapshot(16'h7700, 16'h0FF0, 16'h5EED);
+            remember_expected();
+            trigger_response();
+            send_read_frame(8'h00, 8'h80, 16'd2);
+            trigger_response();
+            for (int b = 0; b < FRAME_BYTES; b++)
+                expect_stream_byte(expected_response_byte(b),
+                                   "in-flight response drains before dump and pending response");
+            expect_stream_dump(8'h00, 8'h80, 2,
+                               "queued dump must win the boundary over a pending response");
+            for (int b = 0; b < FRAME_BYTES; b++)
+                expect_stream_byte(expected_response_byte(b),
+                                   "pending snapshot must still stream once the dump drains");
+
+            // Read commands arriving mid-dump share a one-entry queue that
+            // is latest-wins: two queued requests collapse to the second,
+            // so exactly two dumps stream — the active one, then the last.
+            drain_stream();
+            send_read_frame(8'h00, 8'h60, 16'd6);
+            send_read_frame(8'h01, 8'h71, 16'd1);
             send_read_frame(8'h02, 8'h70, 16'd1);
-            expect_stream_dump(8'h00, 8'h60, 4,
+            expect_stream_dump(8'h00, 8'h60, 6,
                                "first dump must complete before the queued second");
-            expect_stream_dump(8'h02, 8'h70, 1, "second dump queued mid-first");
+            expect_stream_dump(8'h02, 8'h70, 1,
+                               "latest-wins queue must keep the last read, not the first");
+            repeat (8) @(negedge clk);
+            check_int(tx_stream_count, stream_rd,
+                      "superseded queued read must never emit a third dump");
 
             // An abandoned read frame trips the same idle timeout as writes:
             // rx_abort, no dump, and a fresh frame still parses afterwards.

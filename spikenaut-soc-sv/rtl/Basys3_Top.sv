@@ -376,16 +376,10 @@ module spikenaut_soc_basys3_top #(
     // write on the same cycle (the write is a state change; the read simply
     // retries next cycle).  Target 3 is unreadable (the AER table has no
     // config read port), so it is never acknowledged.  The RAM output on the
-    // cycle after rd_ack is what the FSM captures.
+    // cycle after rd_ack is what the FSM captures; the dout mux itself sits
+    // below the three bank instantiations that feed it.
     assign fsm_rd_ack = fsm_rd_req && !wr_block && !wr_fire &&
                         (fsm_rd_target != 2'd3);
-    always_comb begin
-        case (fsm_rd_target)
-            2'd1:    fsm_rd_dout = threshold_param;
-            2'd2:    fsm_rd_dout = leak_param;
-            default: fsm_rd_dout = weight_dout;
-        endcase
-    end
 
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),
@@ -467,6 +461,17 @@ module spikenaut_soc_basys3_top #(
         .din  (wram_din),
         .dout (weight_dout)
     );
+
+    // Host-read data return, kept after all three bank instantiations so the
+    // dout nets it selects are declared before use.  The registered RAM
+    // output on the cycle after fsm_rd_ack is what the FSM captures.
+    always_comb begin
+        case (fsm_rd_target)
+            2'd1:    fsm_rd_dout = threshold_param;
+            2'd2:    fsm_rd_dout = leak_param;
+            default: fsm_rd_dout = weight_dout;
+        endcase
+    end
 
     // ----------------------------------------------------------------
     // Time-multiplexed N=16 LIF processing element
