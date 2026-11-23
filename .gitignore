@@ -85,3 +85,7 @@ __pycache__/
 
 # Systemverilog AI generated lessons
 lessons/
+
+# GH#76 parity run artifacts (sim replay + board captures; fixture is committed)
+testdata/supervisor_parity/observed*.json
+testdata/supervisor_parity/parity_report*.json

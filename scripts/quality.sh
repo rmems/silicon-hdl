@@ -80,6 +80,16 @@ else
   record "aer_routes/drift" "FAIL"
 fi
 
+# Supervisor-parity fixture drift gate (GH#76). Runs before the parity TB so a
+# stale fixture is reported as such, not as an RTL/reference divergence.
+echo ""
+echo "=== Supervisor parity fixture drift check ==="
+if python3 scripts/gen_parity_fixture.py --check; then
+  record "parity_fixture/drift" "PASS"
+else
+  record "parity_fixture/drift" "FAIL"
+fi
+
 VERILATOR_FLAGS=(--binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD)
 TBS=(
   "LifNeuron:LifNeuron"
@@ -276,6 +286,39 @@ if verilator "${VERILATOR_FLAGS[@]}" \
   record "verilator/tb_spikenaut_soc_basys3_top" "PASS"
 else
   record "verilator/tb_spikenaut_soc_basys3_top" "FAIL"
+fi
+
+echo ""
+echo "=== Verilator tb_SocParity + parity_compare ==="
+# GH#76: replays the supervisor_parity fixture over the real UART wire and
+# diffs the observed trace against the bit-exact reference (parity_compare).
+rm -rf obj_dir
+if verilator "${VERILATOR_FLAGS[@]}" \
+    --top-module tb_SocParity \
+    -Ispikenaut-core-sv/rtl -Ispikenaut-bridge-sv/rtl \
+    spikenaut-bridge-sv/rtl/UartRx.sv \
+    spikenaut-bridge-sv/rtl/UartTx.sv \
+    spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+    spikenaut-core-sv/rtl/LifNeuron.sv \
+    spikenaut-core-sv/rtl/LifNeuronArray.sv \
+    spikenaut-core-sv/rtl/WeightRam.sv \
+    spikenaut-core-sv/rtl/NeuronParamRam.sv \
+    spikenaut-core-sv/rtl/StdpController.sv \
+    spikenaut-core-sv/rtl/StdpWriteback.sv \
+    spikenaut-core-sv/rtl/OutputLayer.sv \
+    synapse-link-hdl/src/AerRouteTable.sv \
+    spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+    spikenaut-soc-sv/rtl/SocStatusLeds.sv \
+    spikenaut-soc-sv/rtl/Basys3_Top.sv \
+    spikenaut-soc-sv/tb/tb_SocParity.sv \
+  && ./obj_dir/Vtb_SocParity \
+  && python3 scripts/parity_compare.py \
+       testdata/supervisor_parity/expected_trace.json \
+       testdata/supervisor_parity/observed.json \
+       -o testdata/supervisor_parity/parity_report.json; then
+  record "verilator/tb_SocParity+compare" "PASS"
+else
+  record "verilator/tb_SocParity+compare" "FAIL"
 fi
 
 if [[ "$RUN_VIVADO" -eq 1 ]]; then

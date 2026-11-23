@@ -1,0 +1,458 @@
+{
+  "generated_by": "scripts/gen_parity_fixture.py",
+  "issue": "GH#76 / RM-616",
+  "do_not_edit": "Regenerate with: python3 scripts/gen_parity_fixture.py",
+  "fixture": "supervisor_parity_v1",
+  "host_hdl_contract": {
+    "profile_id": "silicon-hdl-v3-compatible",
+    "contract_id": "silicon-bridge-silicon-hdl-v3-contract-v2",
+    "crate": "silicon-bridge 0.4.0",
+    "hdl_revision_pinned_by_profile": "d45163f38ac1cd88f8a3918e3793a08ace85e132",
+    "export_api": "FpgaParameterExporter::from_params + set_output_weights(KxN) + write_with_config(dir, ExportConfig::silicon_hdl_v3())",
+    "readout_note": "parameters_output_weights.mem is the HDL-native N x K readout; silicon-bridge writes it as hdl_readout_neuron_major.mem. The K x N parameters_output_weights.mem the crate also emits is NOT the file OutputLayer consumes."
+  },
+  "bank": {
+    "source": "rmems/Spikenaut-SNN dataset/merged_v2 (exp-025 Dale health-PASS bank, PR #47)",
+    "commit": "6965e12a",
+    "images": [
+      "spikenaut-core-sv/mem/merged_v2_weights.mem",
+      "spikenaut-core-sv/mem/merged_v2_thresholds.mem",
+      "spikenaut-core-sv/mem/merged_v2_decay.mem",
+      "spikenaut-core-sv/mem/merged_v2_output_weights.mem"
+    ],
+    "content_digests_sha256": {
+      "merged_v2_weights.mem": "825969873444d215d09920e69592700a2cc8594d92e7b14c4059eef8919fe4f3",
+      "merged_v2_thresholds.mem": "2aff910820757f7015f7097dae0aa00f631fc49d2a5df912b35ba92e309f7a70",
+      "merged_v2_decay.mem": "bbb575d31ebd5e0386037c3421d17212b3645522f4e64d02272bb5d6abc0610d",
+      "merged_v2_output_weights.mem": "6577e1c5958cb04d0e064a23a8356f54d73739378ed7fdd925a367627014cf72"
+    }
+  },
+  "q88": {
+    "convention": "signed two's-complement Q8.8 (GH#73)",
+    "codec": "scripts/q88.py, mirroring silicon-bridge encode_q88_signed",
+    "clamp_f32": [
+      -127.99,
+      127.99
+    ],
+    "rounding": "truncate toward zero"
+  },
+  "schedule": {
+    "ticks_per_frame": 7,
+    "consumed_ticks": [
+      4,
+      11,
+      18,
+      25,
+      32,
+      39,
+      46,
+      53,
+      60,
+      67,
+      74,
+      81,
+      88,
+      95,
+      102,
+      109
+    ],
+    "base_tick": 4,
+    "rule": "frame i is consumed at tick 4 + i*7; ticks between consumed ticks are leak-only",
+    "pacing": "wait for the full 36-byte response, delay ~0.5 ms, then send the next frame; RX_COMMIT lands ~6.5 ms after the previous consumed tick -> consumed 7 ticks later (+/-500 us margin)"
+  },
+  "reset": {
+    "state": "all membranes 0, spike flags 0, output_class 0",
+    "switches": "sw=0x0000: STDP off (SW14=0), spike-LED view (SW15=0)"
+  },
+  "semantics": {
+    "stimulus_decode": "lowest non-zero lane wins; magnitudes discarded (binary-event PE)",
+    "routing": "identity AER table (aer_routes.mem)",
+    "leak": "signed, symmetric toward 0, every tick",
+    "refractory": "spike registered on crossing tick, membrane cleared next tick",
+    "response": "36 bytes = 16 potentials + spike word + aux(switch) word, big-endian",
+    "unobservable": [
+      "output_class is LED-only (not in the frame): sim-only observable, recorded as sim_only on board runs"
+    ]
+  },
+  "dimensions": {
+    "num_neurons": 16,
+    "num_channels": 16,
+    "num_classes": 3
+  },
+  "step_count": 16,
+  "steps": [
+    {
+      "step": 0,
+      "name": "lane0_baseline",
+      "why": "every legal channel gets touched; single event, sub-threshold",
+      "lanes_q88": [
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 1,
+      "name": "lane2_spikes",
+      "why": "lane 2 fires n1/n3 (w=410>=t=409/409): non-empty spike word",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 2,
+      "name": "lane2_refire",
+      "why": "n1/n3 spike again: refractory clears one tick after the spike, leak drains the membrane back before the next stimulus",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 3,
+      "name": "lane1_spikes",
+      "why": "lane 1 fires inhibitory-bank n8 (w=171>=t=115)",
+      "lanes_q88": [
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 4,
+      "name": "lane4_spikes",
+      "why": "lane 4 fires n9 (w=158>=t=115)",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 5,
+      "name": "all_zero_drop",
+      "why": "all-zero frame: consumed + answered, leak-only (route_drop)",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 6,
+      "name": "multi_lowest_wins",
+      "why": "lanes 0/2/4 active: lowest lane (0) wins, others discarded",
+      "lanes_q88": [
+        "0100",
+        "0000",
+        "0100",
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 7,
+      "name": "magnitude_irrelevant_max",
+      "why": "binary-event PE: 0x7FFF integrates exactly the same weight as 0x0001",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "7FFF",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 8,
+      "name": "magnitude_irrelevant_neg",
+      "why": "a negative stimulus word is still a non-zero (active) lane",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "FF00",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 9,
+      "name": "lane3_subthresh",
+      "why": "small weights (~1-79): no row reaches threshold",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 10,
+      "name": "lane5_zero_weight",
+      "why": "active lane on a structurally zero column: consume + response, integrate adds weight 0",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 11,
+      "name": "lane0_after_traffic",
+      "why": "post-traffic baseline: membranes must have fully leaked back",
+      "lanes_q88": [
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 12,
+      "name": "lane2_multi_with_high",
+      "why": "lanes 2/5: lowest wins (2) -> n1/n3 fire again",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 13,
+      "name": "all_zero_second",
+      "why": "second drop: response still arrives (pending != silent)",
+      "lanes_q88": [
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 14,
+      "name": "lane1_second",
+      "why": "repeat coverage; determinism across the run",
+      "lanes_q88": [
+        "0000",
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    },
+    {
+      "step": 15,
+      "name": "lane0_close",
+      "why": "final state: known quiescent trace end",
+      "lanes_q88": [
+        "0100",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
+      ]
+    }
+  ],
+  "tools": {
+    "testbench": "spikenaut-soc-sv/tb/tb_SocParity.sv",
+    "comparator": "scripts/parity_compare.py",
+    "reference_model": "scripts/soc_reference.py"
+  }
+}
