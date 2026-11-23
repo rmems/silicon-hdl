@@ -383,3 +383,17 @@ def test_sim_replay_if_present(observed_sim, expected_trace):
         {},
     )
     assert report["pass"], report["divergent_steps"][:3]
+
+
+def test_reference_models_validate_lengths():
+    """Malformed Bank/Stimulus arguments must raise, not silently truncate."""
+    bank = gen.load_bank()
+    with pytest.raises(ValueError, match="Stimulus.lanes"):
+        ref.Stimulus(lanes=(0,) * (ref.NUM_CHANNELS - 1))
+    with pytest.raises(ValueError, match="Bank.thresholds"):
+        ref.Bank(
+            weights=bank.weights,
+            thresholds=bank.thresholds[:-1],
+            decay=bank.decay,
+            output_weights=bank.output_weights,
+        )

@@ -115,11 +115,6 @@ class Stimulus:
         """Every non-zero lane, lowest first (Basys3_Top.sv ``decoded_lane_mask``)."""
         return tuple(lane for lane, word in enumerate(self.lanes) if word != 0)
 
-    def decoded_lane(self) -> int | None:
-        """Lowest non-zero lane, or None. Kept for single-lane consumers."""
-        lanes = self.active_lanes()
-        return lanes[0] if lanes else None
-
 
 def output_class_onehot(spike_bitmap: int, output_weights: tuple[int, ...]) -> int:
     """OutputLayer mirror: per-tick saturating scores + lowest-class argmax."""
