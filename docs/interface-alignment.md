@@ -21,7 +21,7 @@ either side of the contract changes.
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Four Q8.8 banks remain unchanged. Runtime `0xA5` targets 0/1/2 update weight/threshold/leak; target 3 is a non-Q8.8 `aer-route-v1` entry. The output-weight bank remains INIT-only. |
+| Q8.8 / 16-bit memory layout vs `FixedPointEncode` / `MemFileWriter` | **Documented + SoC init wired** | Four Q8.8 banks remain unchanged. Runtime `0xA5` targets 0/1/2 update weight/threshold/leak and `0xA6` reads them back; target 3 is a non-Q8.8 `aer-route-v1` entry (write-only). The output-weight bank remains INIT-only. |
 | SiliconBridge UART framing vs `FpgaBridge` | **Implemented at SoC layer** | `SiliconBridge` remains transport-only (8-bit bytes); canonical `SocProtocolFsm` owns the host multi-byte frames ([#62](https://github.com/rmems/silicon-hdl/issues/62)) |
 | Compatibility table (Rust ↔ SV) | **Documented** | See below |
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
@@ -292,6 +292,16 @@ Host → FPGA write (5 bytes, #63 / #71):
   [3..4]   = data                    // Q8.8 for targets 0..2; aer-route-v1 entry for target 3.
                                       // The host-side encoder (FixedPointEncode) emits signed
                                       // words too, as of silicon-bridge #60; see §1.3.1.
+
+Host → FPGA read request (5 bytes, #113):
+  [0]      = 0xA6                    // read sync (not 0xAA / 0xA5)
+  [1]      = target                  // 0=weight, 1=threshold, 2=leak
+  [2]      = addr                    // first 8-bit RAM address
+  [3..4]   = length                  // big-endian u16 word count, >= 1
+
+FPGA → Host dump (5 + 2*length bytes):
+  [0..4]   = the request's 5 bytes   // echoed header: 0xA6, target, addr, len_hi, len_lo
+  [5..]    = length × Q8.8           // big-endian i16, addr ascending, 8-bit wrap at 256
 ```
 
 | Layer | Owner | Status in this monorepo |
@@ -299,6 +309,7 @@ Host → FPGA write (5 bytes, #63 / #71):
 | 8-bit UART transport | `UartRx` / `UartTx` / `SiliconBridge` | Implemented |
 | 0xAA + multi-word frame codec | `SocProtocolFsm` in `lib_soc` (not in bridge lib) | **Implemented** in `spikenaut_soc_basys3_top`: atomic 32-byte receive decode plus held 36-byte response serialization |
 | 0xA5 runtime-write frame | `SocProtocolFsm` write extension | **Implemented**: targets 0/1/2 update weight/threshold/leak; target 3 updates AER when all consumers are safe |
+| 0xA6 runtime-read frame | `SocProtocolFsm` read extension | **Implemented**: targets 0/1/2 dump weight/threshold/leak words back over the same UART; gated like the write path |
 | Host client | silicon-bridge `FpgaBridge` (`uart` feature) | Implemented in Rust |
 
 Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
@@ -315,7 +326,26 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   that long before the next sync byte. A distinct `0xA5` write frame
   (target, address, big-endian Q8.8) pulses `wr_en` for one cycle and does
   not publish `stimuli_valid`. Mid-payload `0xA5` inside a stimulus frame is
-  legal Q8.8 data. Writes use the same inter-byte idle timeout.
+  legal Q8.8 data. Writes use the same inter-byte idle timeout. A distinct
+  `0xA6` read frame (target, start address, big-endian word count) streams a
+  dump frame back over `tx_data`: the five request bytes echoed as a header,
+  then `length` big-endian Q8.8 words from `addr` upward (the 8-bit address
+  wraps at 256, matching the RAM depth). Readable targets are 0/1/2 — the
+  same numbering as writes; the AER route table has no config read port, so
+  target 3 (and `length` 0) is silently consumed with no reply, matching the
+  write path's invalid-target rule. Each word is fetched through a
+  `rd_req` → `rd_ack` → `rd_dout` handshake that borrows the RAM port for one
+  fabric cycle under the same gating as a host write (LIF sweep, STDP
+  writeback, and routing must all be idle, and a firing write wins a
+  coincident cycle), so a dump can stall inside a 1 ms tick without losing
+  or reordering a word. Dumps share the TX serializer with stimulus
+  responses under yield-when-done arbitration: an in-flight 36-byte
+  response drains to its last byte, then the other stream type wins the
+  frame boundary — a queued dump ahead of a pending response snapshot
+  after a response, and the pending snapshot ahead of a queued dump after
+  a dump — so neither stream can starve; a consumed-frame trigger mid-dump
+  still coalesces into the pending response snapshot, and a second read
+  mid-dump queues latest-wins.
 - One `LifNeuronArray` time-multiplexes 16 neuron slots. It sweeps threshold
   and leak entries `0..15` and maps `WeightRam` as
   `neuron_row * 16 + input_index`. The current shared-event PE maps the
@@ -354,7 +384,12 @@ extension while preserving the bridge as the canonical byte transport:
    Targets `0`, `1`, and `2` are weight, threshold, and leak; target `3` is
    `aer-route-v1`. Writes are held until LIF, STDP, and routing are safe.
    `INIT_FILE` remains the cold start.
-3. Keeps the 8-bit transport module unchanged (single source of truth).
+3. Streams RAM contents back from a 5-byte `0xA6` read frame (#113).
+   Targets `0`, `1`, and `2` dump weight, threshold, and leak words; each
+   word borrows its RAM port under the same all-idle gating as a write, and
+   the dump shares the response serializer. The learned bank can therefore
+   leave the FPGA for host-side parity checks and `.mem` re-flash.
+4. Keeps the 8-bit transport module unchanged (single source of truth).
 
 The write sync is **not** `0xAA`. Reusing the stimulus sync would make a
 5-byte write look like a truncated 33-byte stimulus (idle-timeout abort) or
@@ -379,7 +414,9 @@ steal the first payload bytes of a real host frame. A parallel
 | UART 8 data bits | `DATA_WIDTH=8` on bridge/UART | Match |
 | Host TX frame `0xAA` + 32 B | `SocProtocolFsm` application layer above bridge | Implemented in SoC; words decode big-endian and commit atomically |
 | Host TX write `0xA5` + 4 B | `SocProtocolFsm` `wr_en` / `wr_target` / `wr_addr` / `wr_data` | Targets 0/1/2 select weight/threshold/leak; target 3 selects a 16-bit `aer-route-v1` entry |
+| Host TX read `0xA6` + 4 B | `SocProtocolFsm` `rd_req` / `rd_target` / `rd_addr` / `rd_ack` / `rd_dout` | Targets 0/1/2 read weight/threshold/leak; SoC grants one port cycle per word under write-path gating; target 3 and length 0 emit nothing |
 | Host RX 36 B response | `SocProtocolFsm` application layer above bridge | Implemented in SoC; 16 potentials, spike word, then aux word; `tx_busy` respected |
+| Host RX `5 + 2·len` B dump | `SocProtocolFsm` dump serializer sharing the TX pipe | Implemented in SoC (#113); echoed `0xA6` header then big-endian Q8.8 words; `.mem` re-emission is host-side |
 | Spike flag word (16 bits) | `LifNeuronArray.spike_bitmap` / LED bus | `led[i] = neuron i` in spike mode (SW15=0). SW15=1 shows the stretched status word. Bytes 34–35 carry synchronized `sw` sampled at `frame_send`. See [`docs/led-map.md`](led-map.md) |
 | `FpgaMetrics::parse_from_report` (WNS) | Vivado timing summary from SoC build | CI: see §4 |
 | `serialport` USB path | Board USB-UART (`uart_rx`/`uart_tx` on Basys 3) | Physical |
