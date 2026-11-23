@@ -842,11 +842,15 @@ module tb_SocProtocolFsm;
             // Yield-when-done the other direction: with a pending response
             // and a queued read both behind an active dump, the snapshot
             // wins the dump boundary and the read still streams after it.
+            // Live inputs change after the trigger so the response must
+            // prove it replayed the captured snapshot, not the boundary's.
             drain_stream();
             load_live_snapshot(16'h9900, 16'h3C3C, 16'hCAFE);
+            remember_expected();
             send_read_frame(8'h00, 8'hA0, 16'd2);
             expect_stream_byte(READ_SYNC_BYTE, "yield: dump header sync");
             trigger_response();
+            load_live_snapshot(16'hAB00, 16'hAAAA, 16'hFACE);
             send_read_frame(8'h02, 8'hB0, 16'd1);
             expect_stream_byte(8'h00, "yield: dump header target");
             expect_stream_byte(8'hA0, "yield: dump header addr");
@@ -856,7 +860,6 @@ module tb_SocProtocolFsm;
             expect_stream_byte(rd_mem[8'hA0][7:0], "yield: dump word 0 lo");
             expect_stream_byte(rd_mem[8'hA1][15:8], "yield: dump word 1 hi");
             expect_stream_byte(rd_mem[8'hA1][7:0], "yield: dump word 1 lo");
-            remember_expected();
             for (int b = 0; b < FRAME_BYTES; b++)
                 expect_stream_byte(expected_response_byte(b),
                                    "pending response must win the dump boundary");
