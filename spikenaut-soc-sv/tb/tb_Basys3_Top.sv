@@ -1581,7 +1581,18 @@ module tb_spikenaut_soc_basys3_top #(
             release dut.fsm_rd_req;
             release dut.fsm_rd_target;
             release dut.fsm_rd_addr;
-            @(negedge clk);
+            // XSim keeps a released force on a collapsed port net until the
+            // driver produces an event (Verilator re-evaluates on release),
+            // and fsm_rd_req's driver only toggles when a dump arms — no
+            // real read frame means the net could read stale here.  A real
+            // request toggles every driver in the path under both sims and
+            // doubles as an end-to-end "still healthy after force/release"
+            // check.  Addr 8'h05 equals the forced value, so the dump is
+            // correct even if a stale addr lingers into the REQ cycle.
+            uart_send_read_frame(8'h00, 8'h05, 16'd1);
+            check_dump_frame(8'h00, 8'h05, 1, "test 14c post-release weight dump");
+            check(dut.fsm_rd_req === 1'b0,
+                  "test 14c: read request line must drop once the dump completes");
             check(dut.fsm_rd_ack === 1'b0,
                   "test 14c: read grant must drop once the request releases");
             check(dut.u_wram.addr === dut.weight_addr,
