@@ -17,12 +17,13 @@ the neuron model is the SoC's own semantics, mirrored from
   consumed at the next tick and still produces a response, but
   ``stimulus_event`` stays low: an observable leak-only tick.
 - **Free-running ticks** — ticks do not wait for the host. The parity
-  contract therefore schedules one stimulus frame per
-  ``TICKS_PER_FRAME`` ticks: the stimulated tick followed by leak-only
-  ticks while the 36-byte response (~3.1 ticks at 115200 baud) is still
-  on the wire. See ``docs/supervisor-parity.md``.
+  contract therefore schedules frames lane-aware: a K-lane frame occupies
+  K consecutive stimulated ticks, then ``TICKS_PER_FRAME - 1`` leak-only
+  ticks while its 36-byte response (~3.1 ticks at 115200 baud) is still
+  on the wire, so the next frame's first lane lands ``TICKS_PER_FRAME``
+  ticks after the *final* lane's tick. See ``docs/supervisor-parity.md``.
 - **Response snapshot** — the 36-byte response carries the post-tick state
-  of the tick that consumed the frame
+  of the tick that consumed the frame's *final* lane
   (``frame_send = lif_tick_done && response_armed``).
 - **OutputLayer readout** — per-tick saturating accumulate of the output
   bank over the tick's ``spike_bitmap``, argmax with lowest-class
@@ -46,12 +47,13 @@ NUM_NEURONS = 16
 NUM_CHANNELS = 16
 NUM_CLASSES = 3
 
-#: Ticks between two consumed stimulus frames in the parity contract. The
-#: host waits for the full 36-byte response (~3.1 ticks), delays ~0.5 ms,
-#: then sends the next request (~2.9 ticks): RX_COMMIT lands mid-window at
-#: ~6.5 ticks after the previous consumed tick, so the next consumed tick is
-#: +7 with ~+/-500 us of margin in both directions. The 6 ticks in between
-#: are leak-only ticks the reference must model.
+#: Ticks between a frame's final consumed tick and the next frame's first
+#: consumed tick in the parity contract. The host waits for the full 36-byte
+#: response (~3.1 ticks), delays ~0.5 ms, then sends the next request
+#: (~2.9 ticks): RX_COMMIT lands mid-window at ~6.5 ticks after the previous
+#: frame's final lane tick, so the next first lane is +7 with ~+/-500 us of
+#: margin in both directions. The ticks in between are leak-only ticks the
+#: reference must model.
 TICKS_PER_FRAME = 7
 
 #: Tick at which the first frame is consumed: the host waits ~0.5 ms after
