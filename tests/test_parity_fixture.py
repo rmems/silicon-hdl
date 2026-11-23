@@ -244,10 +244,12 @@ def _mini_expected() -> dict:
         "steps": [
             {"step": 0, "name": "a", "consumed_tick": ref.BASE_TICK,
              "input_lane": 2, "input_index": 2, "dropped": False,
-             "potentials_raw": [1] * 16, "spike_word": 0x000A, "output_class": 1},
+             "potentials_raw": [1] * 16, "spike_word": 0x000A, "output_class": 1,
+             "aux_word": 0},
             {"step": 1, "name": "b", "consumed_tick": ref.BASE_TICK + ref.TICKS_PER_FRAME,
              "input_lane": 0, "input_index": 0, "dropped": False,
-             "potentials_raw": [2] * 16, "spike_word": 0x0000, "output_class": 1},
+             "potentials_raw": [2] * 16, "spike_word": 0x0000, "output_class": 1,
+             "aux_word": 0},
         ],
     }
 

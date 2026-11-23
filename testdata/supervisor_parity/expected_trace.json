@@ -65,7 +65,8 @@
         313
       ],
       "spike_word": 0,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 1,
@@ -130,7 +131,8 @@
         405
       ],
       "spike_word": 10,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 2,
@@ -195,7 +197,8 @@
         405
       ],
       "spike_word": 10,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 3,
@@ -260,7 +263,8 @@
         21
       ],
       "spike_word": 256,
-      "output_class": 4
+      "output_class": 4,
+      "aux_word": 0
     },
     {
       "step": 4,
@@ -325,7 +329,8 @@
         0
       ],
       "spike_word": 512,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 5,
@@ -390,7 +395,8 @@
         0
       ],
       "spike_word": 0,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 6,
@@ -455,7 +461,8 @@
         313
       ],
       "spike_word": 0,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 7,
@@ -520,7 +527,8 @@
         405
       ],
       "spike_word": 10,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 8,
@@ -585,7 +593,8 @@
         405
       ],
       "spike_word": 10,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 9,
@@ -650,7 +659,8 @@
         -1
       ],
       "spike_word": 0,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 10,
@@ -715,7 +725,8 @@
         0
       ],
       "spike_word": 0,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 11,
@@ -780,7 +791,8 @@
         313
       ],
       "spike_word": 0,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 12,
@@ -845,7 +857,8 @@
         405
       ],
       "spike_word": 10,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 13,
@@ -910,7 +923,8 @@
         0
       ],
       "spike_word": 0,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     },
     {
       "step": 14,
@@ -975,7 +989,8 @@
         21
       ],
       "spike_word": 256,
-      "output_class": 4
+      "output_class": 4,
+      "aux_word": 0
     },
     {
       "step": 15,
@@ -1040,7 +1055,8 @@
         313
       ],
       "spike_word": 0,
-      "output_class": 1
+      "output_class": 1,
+      "aux_word": 0
     }
   ]
 }

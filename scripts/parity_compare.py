@@ -79,7 +79,7 @@ def _cmp_step(
     checks: dict, exp: dict, obs: dict, i: int, source: str
 ) -> list[str]:
     diverged = []
-    for key in ("consumed_tick", "spike_word"):
+    for key in ("consumed_tick", "spike_word", "aux_word"):
         if _cmp_scalar(checks, key, exp, obs, i):
             diverged.append(key)
 
@@ -101,6 +101,11 @@ def _cmp_step(
         if exp_pots is None or obs_pots is None:
             side = "expected" if exp_pots is None else "observed"
             entry["note"] = f"potentials missing on {side} side"
+        elif len(exp_pots) != len(obs_pots):
+            entry["note"] = (
+                f"lane count differs: expected {len(exp_pots)}, "
+                f"observed {len(obs_pots)}"
+            )
         chk["mismatches"].append(entry)
         diverged.append("potentials")
 
@@ -142,6 +147,7 @@ def compare(expected: dict, observed: dict, meta: dict) -> dict:
             "potentials": {"compared": 0, "exact": 0, "mismatches": []},
             "output_class": {"compared": 0, "exact": 0, "mismatches": [],
                              "not_observed": 0},
+            "aux_word": {"compared": 0, "exact": 0, "mismatches": []},
             "consumed_tick": {"compared": 0, "exact": 0, "mismatches": []},
         },
         "first_divergence_step": None,

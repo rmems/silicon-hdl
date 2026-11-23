@@ -214,6 +214,9 @@ def encode(steps: list[Step], bank: ref.Bank) -> dict:
             "potentials_raw": result.potentials,
             "spike_word": result.spike_bitmap,
             "output_class": result.output_class,
+            # The harness holds sw=0, so the echoed switch word in each
+            # 36-byte response is pinned to 0 — an observable, compared field.
+            "aux_word": 0,
         })
 
     return {
