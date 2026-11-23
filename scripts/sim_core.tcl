@@ -94,7 +94,7 @@ foreach tb_dir [list $core_tb $bridge_tb $synapse_tb $soc_tb] {
 # ---------------------------------------------------------------------------
 # (gh-14 5u3.8 addressed by making it run multiple; origin/main has the list
 # from #11 + testbenches added.)
-set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_StdpWriteback tb_AerRouteTable tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top}
+set core_tb_tops {tb_LifNeuron tb_LifNeuron_golden tb_LifNeuronArray tb_WeightRam tb_WeightRam_init tb_NeuronParamRam tb_NeuronParamRam_init tb_StdpController tb_StdpWriteback tb_AerRouteTable tb_OutputLayer tb_OutputLayer_golden tb_UartRx tb_UartTx tb_SiliconBridge tb_SocProtocolFsm tb_SocFrameGolden tb_SocStatusLeds tb_spikenaut_soc_basys3_top tb_SocParity}
 
 set mem_dir    [file join $repo_root spikenaut-core-sv mem]
 # GH#66 golden vectors (generated; see docs/golden-lif-vectors.md).
@@ -125,6 +125,7 @@ array set pass_banner {
     tb_SocFrameGolden            {TB_SOC_FRAME_GOLDEN: ALL}
     tb_SocStatusLeds             {TB_SOCSTATUSLEDS: ALL TESTS PASSED}
     tb_spikenaut_soc_basys3_top  {TB_BASYS3_TOP: ALL TESTS PASSED}
+    tb_SocParity                 {TB_SOC_PARITY: ALL TESTS PASSED}
 }
 
 foreach tb_top $core_tb_tops {
@@ -178,6 +179,20 @@ foreach tb_top $core_tb_tops {
             "LEAK_INIT=[file normalize [file join $mem_dir merged_v2_decay.mem]]" \
             "OUTPUT_WEIGHT_INIT=[file normalize [file join $mem_dir merged_v2_output_weights.mem]]" \
             "ROUTE_INIT=[file normalize [file join $route_mem_dir aer_routes_identity_n16.mem]]" \
+        ] [get_filesets sim_1]
+    } elseif {$tb_top eq "tb_SocParity"} {
+        # GH#76 parity fixture under testdata/; absolute paths because XSim's
+        # CWD is the sim run dir. OBSERVED_FILE writes the sim's trace JSON.
+        set parity_dir [file normalize [file join $repo_root testdata supervisor_parity]]
+        set_property generic [list \
+            "STIMULI_FILE=[file join $parity_dir inputs.mem]" \
+            "COUNT_FILE=[file join $parity_dir inputs_count.mem]" \
+            "OBSERVED_FILE=[file join $parity_dir observed_xsim.json]" \
+            "WEIGHT_INIT=[file join $parity_dir parameters_weights.mem]" \
+            "THRESH_INIT=[file join $parity_dir parameters.mem]" \
+            "LEAK_INIT=[file join $parity_dir parameters_decay.mem]" \
+            "OUTPUT_WEIGHT_INIT=[file join $parity_dir parameters_output_weights.mem]" \
+            "ROUTE_INIT=[file join $parity_dir aer_routes.mem]" \
         ] [get_filesets sim_1]
     } elseif {$tb_top eq "tb_AerRouteTable"} {
         set_property generic \

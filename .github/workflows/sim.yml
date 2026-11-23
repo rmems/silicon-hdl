@@ -58,6 +58,13 @@ jobs:
         run: |
           python3 scripts/gen_aer_route_vectors.py --check
 
+      - name: Check supervisor parity fixture is not stale
+        run: |
+          # GH#76 drift gate: a stale fixture would make tb_SocParity replay
+          # and parity_compare judge a trace that no longer describes the
+          # contract.
+          python3 scripts/gen_parity_fixture.py --check
+
       - name: Run tb_LifNeuron_golden
         run: |
           rm -rf obj_dir
@@ -273,3 +280,33 @@ jobs:
             spikenaut-soc-sv/rtl/Basys3_Top.sv \
             spikenaut-soc-sv/tb/tb_Basys3_Top.sv
           ./obj_dir/Vtb_spikenaut_soc_basys3_top
+
+      - name: Run tb_SocParity + parity_compare
+        run: |
+          rm -rf obj_dir
+          # GH#76: replays the committed supervisor_parity fixture over the
+          # real UART wire; parity_compare then diffs observed.json against
+          # the bit-exact reference trace (exact discrete agreement).
+          verilator --binary --timing -Wno-WIDTHEXPAND -Wno-DECLFILENAME -Wno-TIMESCALEMOD \
+            --top-module tb_SocParity \
+            -Ispikenaut-core-sv/rtl -Ispikenaut-bridge-sv/rtl \
+            spikenaut-bridge-sv/rtl/UartRx.sv \
+            spikenaut-bridge-sv/rtl/UartTx.sv \
+            spikenaut-bridge-sv/rtl/SiliconBridge.sv \
+            spikenaut-core-sv/rtl/LifNeuron.sv \
+            spikenaut-core-sv/rtl/LifNeuronArray.sv \
+            spikenaut-core-sv/rtl/WeightRam.sv \
+            spikenaut-core-sv/rtl/NeuronParamRam.sv \
+            spikenaut-core-sv/rtl/StdpController.sv \
+            spikenaut-core-sv/rtl/StdpWriteback.sv \
+            spikenaut-core-sv/rtl/OutputLayer.sv \
+            synapse-link-hdl/src/AerRouteTable.sv \
+            spikenaut-soc-sv/rtl/SocProtocolFsm.sv \
+            spikenaut-soc-sv/rtl/SocStatusLeds.sv \
+            spikenaut-soc-sv/rtl/Basys3_Top.sv \
+            spikenaut-soc-sv/tb/tb_SocParity.sv
+          ./obj_dir/Vtb_SocParity
+          python3 scripts/parity_compare.py \
+            testdata/supervisor_parity/expected_trace.json \
+            testdata/supervisor_parity/observed.json \
+            -o testdata/supervisor_parity/parity_report.json

@@ -62,6 +62,13 @@ not network behaviour. Regenerate with `python3 scripts/gen_golden_frame_vectors
 same bank commit with the same digests, so a retrain means updating `BANK_DIGESTS` in **both**
 generators. See [`docs/host-soc-e2e.md`](../../docs/host-soc-e2e.md).
 
+**Supervisor parity fixture (GH#76):** `testdata/supervisor_parity/` holds copies of
+these images under the silicon-bridge `silicon-hdl-v3-compatible` export filenames plus
+the deterministic stimulus schedule and the bit-exact expected trace replayed by
+`tb_SocParity`. Regenerate with `python3 scripts/gen_parity_fixture.py`; it shares
+`BANK_DIGESTS` with the golden generators, so one retrain re-pin covers all three.
+See [`docs/supervisor-parity.md`](../../docs/supervisor-parity.md).
+
 **Canonical vault path:** `~/Spikenaut-Vault/Spikenaut-SNN/dataset/merged_v2/`  
 (also HF `rmems/Spikenaut-SNN`). Re-copy from vault after retrain; do not invent hex by hand.
 

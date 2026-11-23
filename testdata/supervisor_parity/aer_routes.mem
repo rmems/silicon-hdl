@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// GENERATED FILE -- do not edit by hand.
+// Regenerate: python3 scripts/gen_parity_fixture.py
+// Source bank: rmems/Spikenaut-SNN dataset/merged_v2 (exp-025 Dale health-PASS bank, PR #47)
+// Pinned at Spikenaut-SNN commit 6965e12a
+// See docs/supervisor-parity.md (GH#76).
+C000
+C001
+C002
+C003
+C004
+C005
+C006
+C007
+C008
+C009
+C00A
+C00B
+C00C
+C00D
+C00E
+C00F
