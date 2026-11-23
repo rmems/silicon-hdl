@@ -134,10 +134,15 @@ def test_manifest_records_contract_and_schedule(manifest):
     assert manifest["host_hdl_contract"]["profile_id"] == gen.PROFILE_ID
     assert manifest["schedule"]["ticks_per_frame"] == ref.TICKS_PER_FRAME
     assert manifest["schedule"]["base_tick"] == ref.BASE_TICK
-    assert manifest["schedule"]["consumed_ticks"] == [
-        ref.BASE_TICK + i * ref.TICKS_PER_FRAME
-        for i in range(manifest["step_count"])
-    ]
+    # GH#112 lane-aware schedule: a frame's response ticks on its final
+    # lane; the next frame's first lane lands TICKS_PER_FRAME later.
+    expected = []
+    next_first = ref.BASE_TICK
+    for step in manifest["steps"]:
+        lane_count = sum(1 for w in step["lanes_q88"] if int(w, 16) != 0) or 1
+        expected.append(next_first + lane_count - 1)
+        next_first += lane_count + ref.TICKS_PER_FRAME - 1
+    assert manifest["schedule"]["consumed_ticks"] == expected
 
 
 def test_fixture_is_public():
@@ -165,11 +170,17 @@ def test_reference_spike_outcomes(expected_trace):
     assert by_name["lane0_baseline"]["spike_word"] == 0
 
 
-def test_lowest_lane_wins(expected_trace):
-    """multi_lowest_wins has lanes 0/2/4 active: only lane 0 may integrate."""
-    step = next(s for s in expected_trace["steps"] if s["name"] == "multi_lowest_wins")
-    assert step["input_index"] == 0
-    # lane 0's weights are sub-threshold everywhere: no spikes
+def test_multi_lanes_drain_in_order(expected_trace):
+    """multi_lanes_0_2_4 has lanes 0/2/4 active: three consecutive event
+    ticks in lane order (GH#112); the response snapshots the lane-4 tick."""
+    step = next(s for s in expected_trace["steps"] if s["name"] == "multi_lanes_0_2_4")
+    assert step["active_lanes"] == [0, 2, 4]
+    # last lane consumed is 4: the response's input_index is its routed column
+    assert step["input_lane"] == 4
+    assert step["input_index"] == 4
+    # lane 0 primes membranes, lane 2's tick produces a broad spike bitmap,
+    # lane 4's tick is refractory-clear for those rows — the snapshot is the
+    # final tick's state (spike_word 0), not the earlier lanes' bitmaps
     assert step["spike_word"] == 0
 
 
@@ -202,12 +213,15 @@ def test_membrane_values_match_single_step_arithmetic(expected_trace):
 
 
 def test_leak_drains_before_next_stimulus(expected_trace):
-    """With 6 leak ticks between stimuli no weight bump survives; each
-    stimulated tick starts from membrane 0, so its potentials equal the
-    selected column's raw weights."""
+    """With 6 leak ticks between frames no weight bump survives; a
+    single-lane step's stimulated tick starts from membrane 0, so its
+    potentials equal the selected column's raw weights. Multi-lane steps
+    (GH#112) legitimately accumulate across their lane ticks and are
+    excluded here — their per-lane order is covered by
+    test_multi_lanes_drain_in_order."""
     bank = gen.load_bank()
     for step in expected_trace["steps"]:
-        if step["input_index"] is None:
+        if step["input_index"] is None or len(step["active_lanes"]) > 1:
             continue
         col = step["input_index"]
         for n in range(gen.NUM_NEURONS):

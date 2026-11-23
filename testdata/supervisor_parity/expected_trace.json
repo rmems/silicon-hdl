@@ -25,6 +25,9 @@
         "0000"
       ],
       "consumed_tick": 4,
+      "active_lanes": [
+        0
+      ],
       "input_lane": 0,
       "input_index": 0,
       "dropped": false,
@@ -91,6 +94,9 @@
         "0000"
       ],
       "consumed_tick": 11,
+      "active_lanes": [
+        2
+      ],
       "input_lane": 2,
       "input_index": 2,
       "dropped": false,
@@ -157,6 +163,9 @@
         "0000"
       ],
       "consumed_tick": 18,
+      "active_lanes": [
+        2
+      ],
       "input_lane": 2,
       "input_index": 2,
       "dropped": false,
@@ -223,6 +232,9 @@
         "0000"
       ],
       "consumed_tick": 25,
+      "active_lanes": [
+        1
+      ],
       "input_lane": 1,
       "input_index": 1,
       "dropped": false,
@@ -289,6 +301,9 @@
         "0000"
       ],
       "consumed_tick": 32,
+      "active_lanes": [
+        4
+      ],
       "input_lane": 4,
       "input_index": 4,
       "dropped": false,
@@ -355,6 +370,7 @@
         "0000"
       ],
       "consumed_tick": 39,
+      "active_lanes": [],
       "input_lane": null,
       "input_index": null,
       "dropped": true,
@@ -400,8 +416,8 @@
     },
     {
       "step": 6,
-      "name": "multi_lowest_wins",
-      "why": "lanes 0/2/4 active: lowest lane (0) wins, others discarded",
+      "name": "multi_lanes_0_2_4",
+      "why": "lanes 0/2/4 active: three consecutive event ticks, lane order 0->2->4; response snapshots the lane-4 tick",
       "lanes_q88": [
         "0100",
         "0000",
@@ -420,45 +436,50 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 46,
-      "input_lane": 0,
-      "input_index": 0,
+      "consumed_tick": 48,
+      "active_lanes": [
+        0,
+        2,
+        4
+      ],
+      "input_lane": 4,
+      "input_index": 4,
       "dropped": false,
       "potentials_q88": [
-        "0134",
-        "0133",
-        "0134",
-        "0133",
-        "0135",
-        "0135",
-        "FF00",
-        "FF00",
-        "FF00",
-        "FF00",
-        "0134",
-        "0134",
-        "0139",
-        "013C",
-        "013C",
-        "0139"
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "FF3E",
+        "FF45",
+        "FED2",
+        "0052",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000",
+        "0000"
       ],
       "potentials_raw": [
-        308,
-        307,
-        308,
-        307,
-        309,
-        309,
-        -256,
-        -256,
-        -256,
-        -256,
-        308,
-        308,
-        313,
-        316,
-        316,
-        313
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        -194,
+        -187,
+        -302,
+        82,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
       ],
       "spike_word": 0,
       "output_class": 1,
@@ -486,7 +507,10 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 53,
+      "consumed_tick": 55,
+      "active_lanes": [
+        2
+      ],
       "input_lane": 2,
       "input_index": 2,
       "dropped": false,
@@ -552,7 +576,10 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 60,
+      "consumed_tick": 62,
+      "active_lanes": [
+        2
+      ],
       "input_lane": 2,
       "input_index": 2,
       "dropped": false,
@@ -618,7 +645,10 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 67,
+      "consumed_tick": 69,
+      "active_lanes": [
+        3
+      ],
       "input_lane": 3,
       "input_index": 3,
       "dropped": false,
@@ -684,7 +714,10 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 74,
+      "consumed_tick": 76,
+      "active_lanes": [
+        5
+      ],
       "input_lane": 5,
       "input_index": 5,
       "dropped": false,
@@ -750,7 +783,10 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 81,
+      "consumed_tick": 83,
+      "active_lanes": [
+        0
+      ],
       "input_lane": 0,
       "input_index": 0,
       "dropped": false,
@@ -796,8 +832,8 @@
     },
     {
       "step": 12,
-      "name": "lane2_multi_with_high",
-      "why": "lanes 2/5: lowest wins (2) -> n1/n3 fire again",
+      "name": "multi_lanes_2_5",
+      "why": "lanes 2/5: lane 2's tick refires n1/n3; lane 5 (zero column) consumes a tick and closes the frame",
       "lanes_q88": [
         "0000",
         "0000",
@@ -816,47 +852,51 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 88,
-      "input_lane": 2,
-      "input_index": 2,
+      "consumed_tick": 91,
+      "active_lanes": [
+        2,
+        5
+      ],
+      "input_lane": 5,
+      "input_index": 5,
       "dropped": false,
       "potentials_q88": [
-        "0199",
-        "019A",
-        "0199",
-        "019A",
-        "0198",
-        "0198",
-        "FF00",
-        "FF00",
-        "FF00",
-        "FF00",
-        "0198",
-        "0198",
-        "0195",
-        "0193",
-        "0193",
-        "0195"
+        "00BF",
+        "0000",
+        "00BF",
+        "0000",
+        "00BE",
+        "00BE",
+        "FFDA",
+        "FFDA",
+        "FFDA",
+        "FFDA",
+        "00BE",
+        "00BE",
+        "00BB",
+        "00B9",
+        "00B9",
+        "00BB"
       ],
       "potentials_raw": [
-        409,
-        410,
-        409,
-        410,
-        408,
-        408,
-        -256,
-        -256,
-        -256,
-        -256,
-        408,
-        408,
-        405,
-        403,
-        403,
-        405
+        191,
+        0,
+        191,
+        0,
+        190,
+        190,
+        -38,
+        -38,
+        -38,
+        -38,
+        190,
+        190,
+        187,
+        185,
+        185,
+        187
       ],
-      "spike_word": 10,
+      "spike_word": 0,
       "output_class": 1,
       "aux_word": 0
     },
@@ -882,7 +922,8 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 95,
+      "consumed_tick": 98,
+      "active_lanes": [],
       "input_lane": null,
       "input_index": null,
       "dropped": true,
@@ -948,7 +989,10 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 102,
+      "consumed_tick": 105,
+      "active_lanes": [
+        1
+      ],
       "input_lane": 1,
       "input_index": 1,
       "dropped": false,
@@ -1014,7 +1058,10 @@
         "0000",
         "0000"
       ],
-      "consumed_tick": 109,
+      "consumed_tick": 112,
+      "active_lanes": [
+        0
+      ],
       "input_lane": 0,
       "input_index": 0,
       "dropped": false,

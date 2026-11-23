@@ -33,13 +33,15 @@ What the scenarios deliberately cover
 - every legal input lane 0-4 (bank columns 5-15 are structurally zero)
 - lanes that fire spikes (n1/n3 on lane 2, n8 on lane 1, n9 on lane 4)
 - Dale-I rows (negative weights never spike below a positive threshold)
-- multi-lane frames: the lowest non-zero lane wins, others are dropped
+- multi-lane frames: every non-zero lane emits its own event, one per tick,
+  lowest first (GH#112); the response snapshots the final lane's tick
 - all-zero frames: consumed + answered, but leak-only (route_drop)
 - non-unit magnitudes: 0x7FFF and negative 0xFF00 still count as "active"
 - a zero-weight active lane (lane 5): consume + response, no integrate
 
-``TICKS_PER_FRAME`` in ``soc_reference.py`` is the contract's pacing: one
-consumed frame per 7 ticks, 6 leak-only ticks between consumed ticks.
+``TICKS_PER_FRAME`` in ``soc_reference.py`` is the contract's pacing: the
+next frame's first lane consumes 7 ticks after the previous frame's final
+lane, so 6 leak-only ticks separate each frame's drain from the next.
 """
 
 from __future__ import annotations
@@ -141,8 +143,9 @@ def build_steps() -> list[Step]:
              "lane 4 fires n9 (w=158>=t=115)"),
         Step("all_zero_drop", (0,) * NUM_CHANNELS,
              "all-zero frame: consumed + answered, leak-only (route_drop)"),
-        Step("multi_lowest_wins", multi((2, 0x0100), (0, 0x0100), (4, 0x0100)),
-             "lanes 0/2/4 active: lowest lane (0) wins, others discarded"),
+        Step("multi_lanes_0_2_4", multi((2, 0x0100), (0, 0x0100), (4, 0x0100)),
+             "lanes 0/2/4 active: three consecutive event ticks, lane order "
+             "0->2->4; response snapshots the lane-4 tick"),
         Step("magnitude_irrelevant_max", one_hot(2, 0x7FFF),
              "binary-event PE: 0x7FFF integrates exactly the same weight as 0x0001"),
         Step("magnitude_irrelevant_neg", one_hot(2, -256),
@@ -154,8 +157,9 @@ def build_steps() -> list[Step]:
              "integrate adds weight 0"),
         Step("lane0_after_traffic", one_hot(0),
              "post-traffic baseline: membranes must have fully leaked back"),
-        Step("lane2_multi_with_high", multi((5, 0x0100), (2, 0x0100)),
-             "lanes 2/5: lowest wins (2) -> n1/n3 fire again"),
+        Step("multi_lanes_2_5", multi((5, 0x0100), (2, 0x0100)),
+             "lanes 2/5: lane 2's tick refires n1/n3; lane 5 (zero column) "
+             "consumes a tick and closes the frame"),
         Step("all_zero_second", (0,) * NUM_CHANNELS,
              "second drop: response still arrives (pending != silent)"),
         Step("lane1_second", one_hot(1),
@@ -200,16 +204,19 @@ def encode(steps: list[Step], bank: ref.Bank) -> dict:
     expected_steps = []
     for i, (step, result) in enumerate(zip(steps, consumed)):
         input_words.extend(word & 0xFFFF for word in step.lanes)
-        lane = ref.Stimulus(lanes=step.lanes).decoded_lane()
+        active = ref.Stimulus(lanes=step.lanes).active_lanes()
         expected_steps.append({
             "step": i,
             "name": step.name,
             "why": step.why,
             "lanes_q88": [q88.raw_to_hex(w) for w in step.lanes],
             "consumed_tick": result.tick,
-            "input_lane": lane,
+            "active_lanes": list(active),
+            # Last consumed lane: the lane whose tick the response snapshots
+            # (GH#112), or None for an all-zero frame.
+            "input_lane": active[-1] if active else None,
             "input_index": result.input_index,
-            "dropped": lane is None,
+            "dropped": not active,
             "potentials_q88": [q88.raw_to_hex(p) for p in result.potentials],
             "potentials_raw": result.potentials,
             "spike_word": result.spike_bitmap,
@@ -300,13 +307,17 @@ def emit(target: Path, encoded: dict, bank: ref.Bank) -> None:
             "consumed_ticks": [s["consumed_tick"] for s in encoded["expected_steps"]],
             "base_tick": ref.BASE_TICK,
             "rule": (
-                f"frame i is consumed at tick {ref.BASE_TICK} + i*{ref.TICKS_PER_FRAME}; "
-                "ticks between consumed ticks are leak-only"
+                "a frame with K non-zero lanes is consumed on K consecutive "
+                "ticks, lowest lane first (GH#112); its response arms on the "
+                "last lane's tick_done, and the next frame's first lane is "
+                f"consumed {ref.TICKS_PER_FRAME} ticks after that; the "
+                "ticks between frames are leak-only"
             ),
             "pacing": (
                 "wait for the full 36-byte response, delay ~0.5 ms, then send "
                 "the next frame; RX_COMMIT lands ~6.5 ms after the previous "
-                "consumed tick -> consumed 7 ticks later (+/-500 us margin)"
+                "frame's final consumed tick -> next first lane 7 ticks later "
+                "(+/-500 us margin)"
             ),
         },
         "reset": {
@@ -314,7 +325,7 @@ def emit(target: Path, encoded: dict, bank: ref.Bank) -> None:
             "switches": "sw=0x0000: STDP off (SW14=0), spike-LED view (SW15=0)",
         },
         "semantics": {
-            "stimulus_decode": "lowest non-zero lane wins; magnitudes discarded (binary-event PE)",
+            "stimulus_decode": "every non-zero lane emits one event per tick, lowest first (GH#112); magnitudes discarded (binary-event PE)",
             "routing": "identity AER table (aer_routes.mem)",
             "leak": "signed, symmetric toward 0, every tick",
             "refractory": "spike registered on crossing tick, membrane cleared next tick",
