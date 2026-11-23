@@ -62,6 +62,14 @@ arrive while a frame is serializing are **coalesced into a single latest-wins
 pending snapshot** — the host sees the most recent state, not a backlog. Plan for
 one response per request, not one per tick.
 
+A request with several nonzero lanes is **not** collapsed: each nonzero lane
+is routed and consumed as its own binary event on successive 1 ms ticks,
+lowest lane first ([#112](https://github.com/rmems/silicon-hdl/issues/112)).
+Each consumed lane arms a response trigger, so a dense frame can produce
+several responses spread over its drain — still subject to the coalescing
+above. Lane amplitude stays event-only: a nonzero word registers the lane,
+its magnitude is not integrated.
+
 ### What is *not* in the frame
 
 [#72](https://github.com/rmems/silicon-hdl/issues/72)'s output-class flags are

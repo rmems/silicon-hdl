@@ -136,16 +136,18 @@ module spikenaut_soc_basys3_top #(
     // Protocol stimulus -> logical tick domain (#62)
     // ----------------------------------------------------------------
     // The protocol FSM exposes a complete packed frame only after all 32
-    // payload bytes are present. Decode its lowest active input lane, resolve
-    // that source through the bounded AER table, and retain the request until
-    // the next logical tick after resolution.
+    // payload bytes are present. GH#112: the frame decodes to a 16-bit mask
+    // of nonzero lanes; each pending lane is resolved through the bounded
+    // AER table and emitted as one event per logical tick, lowest lane
+    // first, until the mask drains.
     logic [NUM_NEURONS*DATA_WIDTH-1:0] protocol_stimuli;
     logic                               protocol_stimuli_valid;
     logic                               stimuli_pending;
     logic                               stimulus_event;
     logic [$clog2(NUM_NEURONS)-1:0]     stimulus_input_index;
-    logic                               decoded_input_found;
-    logic [$clog2(NUM_NEURONS)-1:0]     decoded_input_index;
+    logic [NUM_NEURONS-1:0]             decoded_lane_mask;
+    logic [NUM_NEURONS-1:0]             pending_lane_mask;
+    logic [NUM_NEURONS-1:0]             remaining_lane_mask;
     logic                               route_request_pending;
     logic                               route_lookup_pending;
     logic                               route_resolved;
@@ -167,21 +169,41 @@ module spikenaut_soc_basys3_top #(
 
     // LifNeuronArray is currently a binary-event PE with one selected matrix
     // input column per logical tick.  Preserve that established core contract
-    // by decoding a non-zero Q8.8 lane as an event and choosing the lowest
-    // active input lane deterministically.  The complete 16-word frame stays
-    // available in protocol_stimuli for a future vector-accumulation PE; it is
-    // not mistaken for a raw UART-byte event.
+    // by decoding each nonzero Q8.8 lane as an event: pending_lane_mask holds
+    // the lanes not yet emitted, and every consumed tick clears one bit and
+    // queues the next lowest lane for routing (GH#112). Lane amplitude stays
+    // event-only — nonzero registers, the magnitude is not integrated. A
+    // dense frame therefore occupies one tick per nonzero lane rather than
+    // collapsing onto the lowest lane.
     always_comb begin
-        decoded_input_found = 1'b0;
-        decoded_input_index = '0;
         for (int input_lane = 0; input_lane < NUM_NEURONS; input_lane++) begin
-            if (!decoded_input_found &&
-                (protocol_stimuli[input_lane*DATA_WIDTH +: DATA_WIDTH] != '0)) begin
-                decoded_input_found = 1'b1;
-                decoded_input_index = input_lane[$clog2(NUM_NEURONS)-1:0];
-            end
+            decoded_lane_mask[input_lane] =
+                (protocol_stimuli[input_lane*DATA_WIDTH +: DATA_WIDTH] != '0);
         end
     end
+
+    // Lowest set bit, used both for the first lane of an accepted frame and
+    // for each subsequent lane as the pending mask drains.
+    function automatic logic [$clog2(NUM_NEURONS)-1:0] lowest_lane(
+        input logic [NUM_NEURONS-1:0] mask
+    );
+        logic found;
+        begin
+            found       = 1'b0;
+            lowest_lane = '0;
+            for (int lane = 0; lane < NUM_NEURONS; lane++) begin
+                if (!found && mask[lane]) begin
+                    found       = 1'b1;
+                    lowest_lane = lane[$clog2(NUM_NEURONS)-1:0];
+                end
+            end
+        end
+    endfunction
+
+    // Lanes left after the one currently resolved (route_source_addr) is
+    // consumed at the next logical tick.
+    assign remaining_lane_mask =
+        pending_lane_mask & ~(NUM_NEURONS'(1'b1) << route_source_addr);
 
     assign route_in_valid       = route_request_pending;
     assign consume_pending      = step_en && stimuli_pending && route_resolved;
@@ -212,6 +234,7 @@ module spikenaut_soc_basys3_top #(
     always_ff @(posedge clk) begin
         if (!rst) begin
             stimuli_pending     <= 1'b0;
+            pending_lane_mask     <= '0;
             route_request_pending <= 1'b0;
             route_lookup_pending  <= 1'b0;
             route_resolved        <= 1'b0;
@@ -219,12 +242,16 @@ module spikenaut_soc_basys3_top #(
             route_source_addr     <= '0;
             routed_input_index    <= '0;
         end else if (protocol_stimuli_valid) begin
+            // A newer accepted frame supersedes lanes still draining from an
+            // earlier one; the stale-lookup guard below discards whatever
+            // completion the router may still produce for the old lane.
             stimuli_pending       <= 1'b1;
-            route_request_pending <= decoded_input_found;
+            pending_lane_mask     <= decoded_lane_mask;
+            route_request_pending <= |decoded_lane_mask;
             route_lookup_pending  <= 1'b0;
-            route_resolved        <= !decoded_input_found;
-            route_drop_pending    <= !decoded_input_found;
-            route_source_addr     <= decoded_input_index;
+            route_resolved        <= ~|decoded_lane_mask;
+            route_drop_pending    <= ~|decoded_lane_mask;
+            route_source_addr     <= lowest_lane(decoded_lane_mask);
             routed_input_index    <= '0;
         end else begin
             if (route_request_pending && route_in_ready) begin
@@ -247,11 +274,20 @@ module spikenaut_soc_basys3_top #(
             end
 
             if (consume_pending) begin
-                stimuli_pending       <= 1'b0;
-                route_request_pending <= 1'b0;
+                // GH#112: retire the lane just emitted and immediately queue
+                // the lowest remaining lane for its own route lookup.  The
+                // frame's pending state survives until the mask drains.
+                pending_lane_mask     <= remaining_lane_mask;
                 route_lookup_pending  <= 1'b0;
                 route_resolved        <= 1'b0;
                 route_drop_pending    <= 1'b0;
+                if (|remaining_lane_mask) begin
+                    route_source_addr     <= lowest_lane(remaining_lane_mask);
+                    route_request_pending <= 1'b1;
+                end else begin
+                    stimuli_pending       <= 1'b0;
+                    route_request_pending <= 1'b0;
+                end
             end
         end
     end
@@ -558,11 +594,13 @@ module spikenaut_soc_basys3_top #(
     // ----------------------------------------------------------------
     // SoC application protocol (0xAA frame codec + TX readback)
     // ----------------------------------------------------------------
-    // Host contract (#62): one 36-byte response per consumed 0xAA stimulus
-    // frame. Arm on the step_en that consumes stimuli_pending; fire on the
-    // subsequent lif_tick_done so the snapshot is that tick's post-sweep
-    // membrane/spike result. Idle 1 ms ticks must not stream UART responses
-    // before any host frame (or between host frames).
+    // Host contract (#62 / GH#112): one 36-byte response per consumed
+    // stimulus *event* — a 0xAA frame with N nonzero lanes produces up to N
+    // responses, one per logical tick as the lane mask drains. Arm on the
+    // step_en that consumes a lane; fire on the subsequent lif_tick_done so
+    // the snapshot is that tick's post-sweep membrane/spike result. Idle
+    // 1 ms ticks must not stream UART responses before any host frame (or
+    // between host frames).
     // The FSM still coalesces a later armed trigger while UART is busy; a
     // 36-byte response cannot physically complete within the 1 ms tick at
     // 115200 baud.

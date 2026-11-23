@@ -27,7 +27,7 @@ either side of the contract changes.
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
 | Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
 | Logical timestep / `step_en` | **Documented** | [`docs/timestep-contract.md`](timestep-contract.md); SoC 1 ms divider (#57 / #60) |
-| SoC demo maturity | **Partial** | INIT banks, N=16 LIF, UART readback/writes, optional STDP writeback, and bounded AER consumption are wired. NIR bundle production, multi-active-lane accumulation, and RM-259 physical-board proof remain sequenced work. |
+| SoC demo maturity | **Partial** | INIT banks, N=16 LIF, UART readback/writes, optional STDP writeback, bounded AER consumption, and multi-lane stimulus sweeping (#112) are wired. NIR bundle production, single-tick vector accumulation, and RM-259 physical-board proof remain sequenced work. |
 
 Foundational RTL correctness that supports this alignment landed earlier via
 PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
@@ -221,11 +221,13 @@ the PE's own
 `unused_axons` in its `snn_model.json`), only 5 of the 16 channels carry
 telemetry today; the remaining 11 are structurally zero for every neuron.
 See [`docs/lif-array-connectivity-model.md`](lif-array-connectivity-model.md)
-(#92) for the full rationale. The SoC protocol mapping selects the
-lowest-index non-zero decoded stimulus lane as an AER source and uses the
-resolved address as the binary-event `input_index`, so each frame can address
-any channel `0..15`; a frame with more than one
-active lane is not vector-accumulated by the current shared-event PE. Host
+(#92) for the full rationale. The SoC protocol mapping decodes the frame's
+nonzero lanes into a pending mask and sweeps them lowest-lane-first — one
+routed `input_index` per logical tick — so a multi-lane frame emits N
+binary events across N ticks rather than collapsing onto its lowest lane
+(#112). Lane amplitude remains event-only (nonzero registers; magnitude is
+not integrated), and lanes are not vector-accumulated within a single tick
+by the current shared-event PE. Host
 `0xA5` write frames from `SocProtocolFsm` (#63) pulse `we` for one cycle and
 steal `addr` only while `wr_en` is high; the PE read path is restored when
 idle. `INIT_FILE` remains the cold start. This closes the
@@ -348,9 +350,10 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   mid-dump queues latest-wins.
 - One `LifNeuronArray` time-multiplexes 16 neuron slots. It sweeps threshold
   and leak entries `0..15` and maps `WeightRam` as
-  `neuron_row * 16 + input_index`. The current shared-event PE maps the
-  lowest-index non-zero frame lane through `AerRouteTable` to one selected
-  input column for that tick;
+  `neuron_row * 16 + input_index`. The current shared-event PE maps each
+  non-zero frame lane through `AerRouteTable` to one selected input column
+  per tick, draining the frame's pending-lane mask lowest lane first across
+  successive `step_en` ticks (#112);
   it does not yet sum multiple simultaneously active lanes.
 - The PE exports all 16 committed membrane words and the 16-bit spike bitmap to
   the FSM. The SoC arms `frame_send` only after a host `0xAA` frame is consumed

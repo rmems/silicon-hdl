@@ -26,6 +26,8 @@
 //                          and one leak param; RAM we is not hard-tied 0.
 //  12. Deferred writes   — a write landing mid-sweep is held until the PE is
 //                          idle and does not steal the RAM port.
+//  12a. Multi-lane frame — a frame with several nonzero lanes drains one
+//                          routed event per tick, lowest lane first (GH#112).
 //  13. Wire-level frame  — (a) status_word[15:13] carries the OutputLayer's
 //                          live one-hot result, by value, not by mirroring the
 //                          hold register that drives it; (b) the real uart_tx
@@ -319,6 +321,21 @@ module tb_spikenaut_soc_basys3_top #(
                     uart_send_byte(8'h00);
                     uart_send_byte(8'h00);
                 end
+            end
+        end
+    endtask
+
+    // Multi-lane variant (GH#112): lane_words supplies the Q8.8 word for
+    // every lane, so several lanes can be nonzero with distinct amplitudes
+    // in one frame.
+    task automatic uart_send_stimulus_mask(
+        input logic [NUM_NEURONS*16-1:0] lane_words
+    );
+        begin
+            uart_send_byte(8'hAA);
+            for (int lane = 0; lane < NUM_NEURONS; lane++) begin
+                uart_send_byte(lane_words[lane*16 + 8 +: 8]);
+                uart_send_byte(lane_words[lane*16 +: 8]);
             end
         end
     endtask
@@ -880,6 +897,81 @@ module tb_spikenaut_soc_basys3_top #(
                   "refractory follow-up tick must not increment the gated response count");
         check(dut.u_lif_array.membrane_potential[SPIKE_TEST_NEURON] === '0,
               "spiking row must reset to zero on the following refractory tick");
+
+        // ------------------------------------------------------------
+        // Test 7b (GH#112): a multi-lane frame drains one routed event per
+        // logical tick, lowest lane first, instead of collapsing every
+        // nonzero lane onto the lowest one.  Lanes {5, 9, 12}: neuron 5's
+        // controlled row (weight 0x0001 / threshold 0x0001 / leak 0, set in
+        // test 7) spikes on the lane-5 event; columns 9 and 12 are all-zero
+        // in merged_v2, so those events integrate nothing new.  Lane 12
+        // carries amplitude 0x4000 to prove amplitude stays event-only --
+        // a nonzero word registers one event, its magnitude is ignored.
+        // ------------------------------------------------------------
+        begin
+            int unsigned responses_before;
+            logic [NUM_NEURONS*16-1:0] multi_lane_words;
+
+            multi_lane_words = '0;
+            multi_lane_words[5*16  +: 16] = 16'h0001;
+            multi_lane_words[9*16  +: 16] = 16'h0001;
+            multi_lane_words[12*16 +: 16] = 16'h4000;
+
+            responses_before = frame_send_count;
+            uart_send_stimulus_mask(multi_lane_words);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+            check(dut.stimulus_input_index === 4'd5,
+                  "test 7b: first event must come from the lowest nonzero lane");
+
+            // Lane 5 consume: the frame stays pending with lanes {9,12} left,
+            // and the controlled row commits a second real spike.
+            wait_tick_applied();
+            check(dut.stimuli_pending === 1'b1,
+                  "test 7b: a multi-lane frame must stay pending after its first consume");
+            check(dut.pending_lane_mask === 16'h1200,
+                  "test 7b: consumed lane 5 must clear its mask bit, leaving lanes 9 and 12");
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check_int(frame_send_count, responses_before + 1,
+                      "test 7b: each consumed lane must arm its own response (lane 5)");
+            check(dut.u_lif_array.spike_bitmap[SPIKE_TEST_NEURON] === 1'b1,
+                  "test 7b: the lane-5 event must reach the controlled row and spike it");
+
+            // Lane 9 consume: refractory tick for neuron 5; mask drains to
+            // lane 12 only.
+            wait_for_route_resolution();
+            check(dut.stimulus_input_index === 4'd9,
+                  "test 7b: second event must come from lane 9");
+            wait_tick_applied();
+            check(dut.stimuli_pending === 1'b1,
+                  "test 7b: the frame must still be pending with lane 12 unconsumed");
+            check(dut.pending_lane_mask === 16'h1000,
+                  "test 7b: consumed lane 9 must leave only lane 12");
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check_int(frame_send_count, responses_before + 2,
+                      "test 7b: each consumed lane must arm its own response (lane 9)");
+            check(dut.u_lif_array.spike_bitmap[SPIKE_TEST_NEURON] === 1'b0,
+                  "test 7b: the lane-9 tick must be neuron 5's refractory reset");
+
+            // Lane 12 consume: mask drains, pending clears, and the 0x4000
+            // amplitude still produced exactly one event.
+            wait_for_route_resolution();
+            check(dut.stimulus_input_index === 4'd12,
+                  "test 7b: third event must come from lane 12");
+            wait_tick_applied();
+            check(dut.stimuli_pending === 1'b0,
+                  "test 7b: pending must clear when the last lane is consumed");
+            check(dut.pending_lane_mask === '0,
+                  "test 7b: lane mask must be empty after the final consume");
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check_int(frame_send_count, responses_before + 3,
+                      "test 7b: three nonzero lanes must arm three responses total");
+            check(dut.u_lif_array.membrane_potential[SPIKE_TEST_NEURON] === '0,
+                  "test 7b: neuron 5 must be reset on the lane-12 refractory tick");
+        end
 
         // ------------------------------------------------------------
         // Test 8: LED bus preserves every committed N=16 bitmap bit.
