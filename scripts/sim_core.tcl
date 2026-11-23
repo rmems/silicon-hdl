@@ -240,6 +240,21 @@ foreach tb_top $core_tb_tops {
         error "$tb_top: required success banner '$pass_banner($tb_top)' was not present in simulate.log"
     }
     puts "=== $tb_top: verified success banner ==="
+
+    if {$tb_top eq "tb_SocParity"} {
+        # The banner only proves replay mechanics; the authoritative verdict
+        # is parity_compare diffing observed_xsim.json against the bit-exact
+        # reference (same comparator the Verilator gate and board recipe use).
+        set parity_dir [file normalize [file join $repo_root testdata supervisor_parity]]
+        set report_json [file join $parity_dir parity_report_xsim.json]
+        if {[catch {exec python3 [file join $repo_root scripts parity_compare.py] \
+                [file join $parity_dir expected_trace.json] \
+                [file join $parity_dir observed_xsim.json] \
+                -o $report_json} cmp_out]} {
+            error "$tb_top: parity_compare divergence: $cmp_out"
+        }
+        puts "=== $tb_top: parity_compare PASS -> $report_json ==="
+    }
 }
 
 puts "=== sim_core.tcl complete ==="

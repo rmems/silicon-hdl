@@ -18,7 +18,7 @@
 // idles POST_RESPONSE_WAIT cycles, then sends the next 33-byte frame.
 // Response (~3.12 ms) + wait (~0.5 ms) + request (~2.86 ms) puts RX_COMMIT
 // mid-window at ~6.5 ms after the previous consumed tick, so consumed
-// ticks are expected_consumed = 1 + step*TICKS_PER_FRAME (7) with a
+// ticks are expected_consumed = BASE_TICK (4) + step*TICKS_PER_FRAME (7) —
 // +/-half-tick margin. A drift in that alignment is reported, not hidden:
 // the observed consumed_tick is written per step and the TB fails if it
 // ever differs from the schedule the reference model assumed.

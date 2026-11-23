@@ -112,9 +112,11 @@ Shadow/replay only — the board never sends process-control commands.
 2. Program: `vivado -mode batch -source scripts/program_basys3.tcl` (or the
    batch JTAG script).
 3. Explicitly select the serial device (e.g. `COM3` / `/dev/ttyUSB*`), 115200 8N1.
-4. Replay `inputs.mem`: per step send the 33-byte `0xAA` frame **only after**
-   the previous 36-byte response fully arrived plus ~0.5 ms — that lands
-   each frame on consumed tick `4 + i*7` (±0.5 ms margin).
+4. Replay `inputs.mem`: anchor the first frame to reset release — wait
+   ~0.5 ms after the board comes out of reset, then send (RX_COMMIT ~3.4 ms
+   → consumed at tick 4). For every later step send the 33-byte `0xAA` frame
+   **only after** the previous 36-byte response fully arrived plus ~0.5 ms —
+   that lands each frame on consumed tick `4 + i*7` (±0.5 ms margin).
 5. Capture each response into the observed.json shape
    (`{step, consumed_tick?, potentials[16], spike_word, aux_word}`; tick index
    is host-inferred from response cadence — record gaps if uncertain).

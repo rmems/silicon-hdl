@@ -39,7 +39,7 @@ What the scenarios deliberately cover
 - a zero-weight active lane (lane 5): consume + response, no integrate
 
 ``TICKS_PER_FRAME`` in ``soc_reference.py`` is the contract's pacing: one
-consumed frame per 4 ticks, 3 leak-only ticks between consumed ticks.
+consumed frame per 7 ticks, 6 leak-only ticks between consumed ticks.
 """
 
 from __future__ import annotations

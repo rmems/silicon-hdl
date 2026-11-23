@@ -355,10 +355,12 @@ def test_comparator_cli(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_sim_replay_if_present(observed_sim):
+def test_sim_replay_if_present(observed_sim, expected_trace):
     """If a local Verilator replay wrote observed.json, it must compare clean."""
     if observed_sim is None:
         pytest.skip("no local observed.json (run tb_SocParity first)")
+    # A stale observed.json from an older fixture must not be compared.
+    assert observed_sim.get("fixture") == expected_trace.get("fixture")
     report = parity_compare.compare(
         json.loads((FIXTURE_DIR / "expected_trace.json").read_text()),
         observed_sim,
