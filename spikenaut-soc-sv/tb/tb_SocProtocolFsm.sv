@@ -850,7 +850,7 @@ module tb_SocProtocolFsm;
             send_read_frame(8'h00, 8'hA0, 16'd2);
             expect_stream_byte(READ_SYNC_BYTE, "yield: dump header sync");
             trigger_response();
-            load_live_snapshot(16'hAB00, 16'hAAAA, 16'hFACE);
+            load_live_snapshot(16'hAB37, 16'hAAAA, 16'hFACE);
             send_read_frame(8'h02, 8'hB0, 16'd1);
             expect_stream_byte(8'h00, "yield: dump header target");
             expect_stream_byte(8'hA0, "yield: dump header addr");
