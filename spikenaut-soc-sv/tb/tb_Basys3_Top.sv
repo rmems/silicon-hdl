@@ -1025,6 +1025,84 @@ module tb_spikenaut_soc_basys3_top #(
         end
 
         // ------------------------------------------------------------
+        // Test 7c (GH#112): same-cycle supersede — a frame accepted on the
+        // very edge that would consume the previous frame's final lane.
+        // consume_pending/stimulus_event are gated on !protocol_stimuli_valid
+        // so the superseded frame emits no lane event and arms no response;
+        // only the replacement frame replies.  The UART transaction is
+        // bypassed for the same reason as test 12b: aligning a real
+        // RX_COMMIT with a consume edge is a fabric-cycle boundary the UART
+        // cannot hit deterministically, so the decoded-frame wires are
+        // forced in the same style.
+        // ------------------------------------------------------------
+        begin
+            int unsigned responses_before;
+            logic [NUM_NEURONS*16-1:0] supersede_words;
+
+            supersede_words = '0;
+            supersede_words[9*16  +: 16] = 16'h0001;
+            supersede_words[12*16 +: 16] = 16'h0001;
+
+            responses_before = frame_send_count;
+            uart_send_stimulus_mask(supersede_words);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+
+            // Drain lane 9 on a real tick; lane 12 remains as the final lane.
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check(dut.pending_lane_mask === 16'h1000,
+                  "test 7c: lane 9 consumed; lane 12 must still be pending");
+
+            // Lane 12 resolved: force the consume tick and a replacement
+            // frame (lane 2) onto the same fabric edge.
+            wait_for_route_resolution();
+            check(dut.stimulus_input_index === 4'd12,
+                  "test 7c: lane 12 must be resolved before the supersede edge");
+            suppress_tick_monitor = 1'b1;
+            force dut.step_en = 1'b1;
+            force_protocol_stimuli = '0;
+            force_protocol_stimuli[2*16 +: 16] = 16'h0001;
+            force dut.protocol_stimuli = force_protocol_stimuli;
+            force dut.protocol_stimuli_valid = 1'b1;
+            @(negedge clk);
+            check(dut.consume_pending === 1'b0,
+                  "test 7c: supersede edge must not consume the old final lane");
+            check(dut.stimulus_event === 1'b0,
+                  "test 7c: supersede edge must not emit the old lane's event");
+            release dut.step_en;
+            release dut.protocol_stimuli_valid;
+            release dut.protocol_stimuli;
+            @(negedge clk);
+            check(dut.pending_lane_mask === 16'h0004,
+                  "test 7c: replacement frame must load its own lane mask");
+            check(dut.response_armed === 1'b0,
+                  "test 7c: superseded frame must not arm a response");
+            check_int(frame_send_count, responses_before,
+                      "test 7c: superseded frame must produce no host response");
+            tick_count = 0;
+            width_run = 0;
+            last_tick_cyc = cyc;
+            suppress_tick_monitor = 1'b0;
+
+            // The replacement frame drains on real ticks and answers once.
+            wait_for_route_resolution();
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            check(dut.frame_send === 1'b1,
+                  "test 7c: the replacement frame must arm its own response");
+            @(negedge clk);
+            check_int(frame_send_count, responses_before + 1,
+                      "test 7c: only the replacement frame may answer the host");
+
+            // Leak tick: clears the replacement lane's spike bits so the
+            // no-input LED precondition test 8 relies on still holds.
+            wait_tick_applied();
+            wait_lif_sweep_done();
+        end
+
+        // ------------------------------------------------------------
         // Test 8: LED bus preserves every committed N=16 bitmap bit.
         // ------------------------------------------------------------
         check(led === 16'h0000,

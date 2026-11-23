@@ -397,3 +397,21 @@ def test_reference_models_validate_lengths():
             decay=bank.decay,
             output_weights=bank.output_weights,
         )
+
+
+def test_reference_emits_lane_events_in_order(expected_trace):
+    """run_fixture must emit one stimulated tick per active lane, lowest
+    first, on consecutive ticks ending at the step's consumed_tick."""
+    bank = gen.load_bank()
+    stims = [ref.Stimulus(lanes=s.lanes) for s in gen.build_steps()]
+    trace = {r.tick: r for r in ref.run_fixture(stims, bank)}
+    for step in expected_trace["steps"]:
+        active = step["active_lanes"]
+        if len(active) < 2:
+            continue
+        first = step["consumed_tick"] - len(active) + 1
+        for i, lane in enumerate(active):
+            rec = trace[first + i]
+            assert rec.stimulated
+            assert rec.input_index == lane  # identity route
+        assert not trace[step["consumed_tick"] + 1].stimulated
