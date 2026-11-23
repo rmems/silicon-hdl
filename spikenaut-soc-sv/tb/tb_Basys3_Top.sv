@@ -31,6 +31,12 @@
 //                          hold register that drives it; (b) the real uart_tx
 //                          line delivers exactly 36 bytes and then stops
 //                          (GH#64, docs/host-soc-e2e.md).
+//  14. Host RAM read    — a 0xA6 frame over the real UART echoes its request
+//                          then streams big-endian RAM words off uart_tx
+//                          (GH#113): the runtime 0xA5 writes read back, at
+//                          least one 1 ms tick interrupts a long dump without
+//                          corrupting it, the port grant is gated like the
+//                          write grant mid-sweep, and target 3 stays silent.
 //
 // (2)-(4) are checked by a free-running monitor on EVERY tick of the run, not
 // just at sampled points, so an intermittent divider glitch cannot slip past.
@@ -85,9 +91,11 @@ module tb_spikenaut_soc_basys3_top #(
     // the mid-window sample outside the idle window and quietly stop
     // discriminating rx_abort from rx_busy.
     localparam int IDLE_TIMEOUT_CYCLES = 4 * 10 * CLKS_PER_BIT;
-    // Mirror SocProtocolFsm's default write sync.  Bound to the DUT at the
-    // top of the run so a parameter change cannot silently desync this TB.
+    // Mirror SocProtocolFsm's default write and read syncs.  Bound to the
+    // DUT at the top of the run so a parameter change cannot silently
+    // desync this TB.
     localparam logic [7:0] WRITE_SYNC_BYTE = 8'hA5;
+    localparam logic [7:0] READ_SYNC_BYTE  = 8'hA6;
 
     // Ticks are at most STEP_DIV cycles apart, so any wait that exceeds this
     // bound means the divider is broken. Fail loudly with a cycle count
@@ -397,6 +405,75 @@ module tb_spikenaut_soc_basys3_top #(
         end
     endtask
 
+    // Host read contract (#113): 0xA6 + target + start addr + big-endian
+    // 16-bit word count.  A valid request streams back the same five bytes
+    // as an echoed header, then len big-endian words, address ascending.
+    task automatic uart_send_read_frame(
+        input logic [7:0] target,
+        input logic [7:0] addr,
+        input logic [15:0] len
+    );
+        begin
+            uart_send_byte(READ_SYNC_BYTE);
+            uart_send_byte(target);
+            uart_send_byte(addr);
+            uart_send_byte(len[15:8]);
+            uart_send_byte(len[7:0]);
+        end
+    endtask
+
+    // Demodulate one dump byte off the real serial line and compare it,
+    // test-13 style: the FSM -> SiliconBridge -> UartTx chain and its 8N1
+    // framing are in the loop, not just the FSM's tx_data port.
+    task automatic expect_dump_byte(input logic [7:0] expected, input string msg);
+        logic [7:0] captured;
+        bit         byte_ok;
+        begin
+            uart_capture_byte(captured, byte_ok);
+            if (!byte_ok) begin
+                errors++;
+                $display("FAIL: %s (no framed byte on uart_tx)", msg);
+            end else if (captured !== expected) begin
+                errors++;
+                $display("FAIL: %s (got 0x%02h, expected 0x%02h)",
+                         msg, captured, expected);
+            end
+        end
+    endtask
+
+    // Check one complete dump frame off the wire: echoed 5-byte header,
+    // then len big-endian payload words.  Expectations come from the DUT's
+    // own RAM arrays, mirroring the RTL's address progression — the 8-bit
+    // start address increments and wraps inside the same 256-entry space
+    // for all three readable banks (NEURON_ADDR_W == WEIGHT_ADDR_W == 8).
+    task automatic check_dump_frame(
+        input logic [7:0] target,
+        input logic [7:0] addr,
+        input int unsigned len,
+        input string msg
+    );
+        begin
+            expect_dump_byte(READ_SYNC_BYTE, {msg, ": header sync"});
+            expect_dump_byte(target,         {msg, ": header target"});
+            expect_dump_byte(addr,           {msg, ": header addr"});
+            expect_dump_byte(8'(len[15:8]),  {msg, ": header len_hi"});
+            expect_dump_byte(8'(len[7:0]),   {msg, ": header len_lo"});
+            for (int w = 0; w < len; w++) begin
+                automatic logic [7:0]  word_addr = 8'(addr + w);
+                automatic logic [15:0] exp_word;
+                case (target)
+                    8'h01:   exp_word = dut.u_npram_threshold.mem[word_addr];
+                    8'h02:   exp_word = dut.u_npram_leak.mem[word_addr];
+                    default: exp_word = dut.u_wram.mem[word_addr];
+                endcase
+                expect_dump_byte(exp_word[15:8],
+                                 {msg, $sformatf(": word %0d hi", w)});
+                expect_dump_byte(exp_word[7:0],
+                                 {msg, $sformatf(": word %0d lo", w)});
+            end
+        end
+    endtask
+
     task automatic wait_for_route_resolution();
         int unsigned waited;
         begin
@@ -446,7 +523,8 @@ module tb_spikenaut_soc_basys3_top #(
             while (quiet < UART_QUIET_CLKS) begin
                 @(negedge clk);
                 waited++;
-                if (uart_tx_line === 1'b1 && dut.u_protocol_fsm.tx_active === 1'b0)
+                if (uart_tx_line === 1'b1 &&
+                    dut.u_protocol_fsm.tx_frame_active === 1'b0)
                     quiet++;
                 else
                     quiet = 0;
@@ -563,6 +641,8 @@ module tb_spikenaut_soc_basys3_top #(
                   "TB idle-timeout mirror must match the DUT parameter");
         check(dut.u_protocol_fsm.WRITE_SYNC_BYTE === WRITE_SYNC_BYTE,
               "TB write-sync mirror must match the DUT parameter");
+        check(dut.u_protocol_fsm.READ_SYNC_BYTE === READ_SYNC_BYTE,
+              "TB read-sync mirror must match the DUT parameter");
         check(dut.step_en === 1'b0,       "reset: step_en must be low");
         check(dut.step_cnt === '0,        "reset: step_cnt must be cleared");
         check(dut.stimuli_pending === 1'b0,
@@ -1402,6 +1482,131 @@ module tb_spikenaut_soc_basys3_top #(
                     quiet++;
                 end
             end
+        end
+
+        // ------------------------------------------------------------
+        // Test 14: host RAM readback over the real UART (#113).
+        //
+        //   14a  Weight dump — echoed 5-byte header, then big-endian words
+        //        that must equal u_wram.mem, including the runtime 0xA5
+        //        writes from tests 11/12 (0xBEEF @ 0x01, 0xCAFE @ 0x02).
+        //        The 13-byte dump outlives one 100k-cycle tick, so a real
+        //        LIF sweep overlaps it and the deferred port grant is
+        //        exercised end-to-end without corrupting the stream.
+        //   14b  Threshold and leak dumps — target echo and payload values,
+        //        including 0x0200 @ threshold[3] and 0x0080 @ leak[4] from
+        //        the accepted writes in tests 11b/11c.
+        //   14c  Port grant gating — a forced rd_req mid-sweep must not be
+        //        acknowledged and must not steal the weight port; once the
+        //        PE is idle the same request is granted and rd_dout carries
+        //        the registered word one cycle later.
+        //   14d  Target 3 (AER route table) is silently consumed: no dump
+        //        frame, matching the write path's invalid-target rule and
+        //        the FSM's no-read-port reality for the table.
+        // ------------------------------------------------------------
+        begin
+            int unsigned ticks_before_dump;
+            int unsigned grant_waited;
+            bit          ack_during_sweep;
+
+            wait_uart_line_idle();
+
+            // 14a: weight bank, four words starting at 0 — covers the two
+            // runtime-written entries plus two untouched INIT_FILE words.
+            // The 5-byte request plus 13-byte dump (~156k cycles) overlaps
+            // at least one 100k-cycle tick whichever phase it starts in.
+            ticks_before_dump = tick_count;
+            uart_send_read_frame(8'h00, 8'h00, 16'd4);
+            check_dump_frame(8'h00, 8'h00, 4, "test 14a weight dump");
+            check(dut.u_wram.mem[8'h01] === 16'hBEEF &&
+                  dut.u_wram.mem[8'h02] === 16'hCAFE,
+                  "test 14a: dump must carry the runtime-written weights, not just INIT");
+            check(tick_count > ticks_before_dump,
+                  "test 14a: at least one 1 ms tick must overlap the request+dump window");
+
+            // 14b: param banks — two threshold words across the accepted
+            // write at 0x03, then one leak word at the accepted write 0x04.
+            uart_send_read_frame(8'h01, 8'h03, 16'd2);
+            check_dump_frame(8'h01, 8'h03, 2, "test 14b threshold dump");
+            uart_send_read_frame(8'h02, 8'h04, 16'd1);
+            check_dump_frame(8'h02, 8'h04, 1, "test 14b leak dump");
+
+            wait_uart_line_idle();
+
+            // 14c: grant gating.  Force fsm_rd_req through a whole PE sweep
+            // (same style as the test-12 host-write strobe force): the grant
+            // must stay low for every busy cycle, then fire once the PE
+            // drains.  fsm_rd_dout must carry the registered word on the
+            // cycle after the granted cycle.
+            wait_for_tick();
+            @(negedge clk);
+            check(dut.pe_busy === 1'b1,
+                  "test 14c: PE must be busy after the tick starts");
+            force dut.fsm_rd_req    = 1'b1;
+            force dut.fsm_rd_target = 2'd0;
+            force dut.fsm_rd_addr   = 8'h05;
+            @(negedge clk);
+            check(dut.fsm_rd_ack === 1'b0,
+                  "test 14c: a host read must not be granted mid-sweep");
+            check(dut.u_wram.addr === dut.weight_addr,
+                  "test 14c: weight port must stay on the PE path mid-sweep");
+            ack_during_sweep = 1'b0;
+            fork
+                wait_lif_sweep_done();
+                begin
+                    while (dut.u_lif_array.tick_done !== 1'b1) begin
+                        @(negedge clk);
+                        if (dut.fsm_rd_ack === 1'b1)
+                            ack_during_sweep = 1'b1;
+                    end
+                end
+            join
+            check(!ack_during_sweep,
+                  "test 14c: the read grant must wait out the whole sweep, not just its first cycle");
+
+            // pe_ram_busy clears the cycle after tick_done; the stalled
+            // request is granted on the first idle cycle it observes.
+            grant_waited = 0;
+            while (dut.fsm_rd_ack !== 1'b1 && grant_waited < SEQ_SLACK) begin
+                @(negedge clk);
+                grant_waited++;
+            end
+            check(dut.fsm_rd_ack === 1'b1,
+                  "test 14c: a held read must be granted once the sweep drains");
+            check(dut.u_wram.addr === 8'h05,
+                  "test 14c: granted read must drive its address onto the weight port");
+            @(negedge clk);   // registered RAM read latency
+            check(dut.fsm_rd_dout === dut.u_wram.mem[8'h05],
+                  "test 14c: rd_dout must carry the registered weight word after the grant");
+            release dut.fsm_rd_req;
+            release dut.fsm_rd_target;
+            release dut.fsm_rd_addr;
+            @(negedge clk);
+            check(dut.fsm_rd_ack === 1'b0,
+                  "test 14c: read grant must drop once the request releases");
+            check(dut.u_wram.addr === dut.weight_addr,
+                  "test 14c: weight port must return to the PE path after the read");
+
+            // 14d: target 3 is consumed without a dump — the route table has
+            // no config read port, so nothing may touch uart_tx.
+            uart_send_read_frame(8'h03, 8'h00, 16'd4);
+            begin : target3_quiet
+                automatic int unsigned quiet = 0;
+                while (quiet < UART_QUIET_CLKS) begin
+                    @(negedge clk);
+                    if (uart_tx_line !== 1'b1) begin
+                        errors++;
+                        $display("FAIL: test 14d: target-3 read emitted a byte %0d cycles after the request",
+                                 quiet);
+                        break;
+                    end
+                    quiet++;
+                end
+            end
+            check(dut.fsm_rd_req === 1'b0,
+                  "test 14d: rejected read must leave the read-request line low");
+            check(dut.u_protocol_fsm.dump_active === 1'b0,
+                  "test 14d: rejected read must not arm the dump serializer");
         end
 
         $display("TB_BASYS3_TOP: merged_v2 swept all 16 parameter entries and weight rows");

@@ -61,10 +61,10 @@ whole vector on each `OutputLayer.done` — see the note under the table.
 | Bit | Name | Source |
 | --- | --- | --- |
 | `[0]` | heartbeat | `tick_cnt[8]` after `step_en` increments (~1.95 Hz) |
-| `[1]` | rx_busy | stretched `SocProtocolFsm.rx_busy` (`rx_state != RX_WAIT_SYNC`; includes `0xA5` write frames) |
+| `[1]` | rx_busy | stretched `SocProtocolFsm.rx_busy` (`rx_state != RX_WAIT_SYNC`; includes `0xA5` write and `0xA6` read frames) |
 | `[2]` | rx_commit | stretched `stimuli_valid` |
 | `[3]` | ingress_fault | sticky `SocProtocolFsm.rx_abort OR route_fault` |
-| `[4]` | tx_frame_active | stretched `tx_active` (not the `tx_busy` input) |
+| `[4]` | tx_frame_active | stretched `tx_active \|\| dump_active` — a 36-byte response or a `0xA6` RAM dump holding the byte pipe (not the `tx_busy` input) |
 | `[5]` | stimuli_pending | stretched SoC pending flag |
 | `[6]` | response_armed | stretched SoC armed flag |
 | `[7]` | any_spike | `\|spike_hold` |

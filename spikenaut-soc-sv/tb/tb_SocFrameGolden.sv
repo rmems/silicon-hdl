@@ -92,6 +92,11 @@ module tb_SocFrameGolden #(
     logic [1:0]                        wr_target;
     logic [7:0]                        wr_addr;
     logic [WORD_WIDTH-1:0]             wr_data;
+    logic                              rd_req;
+    logic [1:0]                        rd_target;
+    logic [7:0]                        rd_addr;
+    logic                              rd_ack;
+    logic [WORD_WIDTH-1:0]             rd_dout;
     logic                              rx_busy;
     logic                              rx_abort;
     logic                              tx_frame_active;
@@ -101,6 +106,7 @@ module tb_SocFrameGolden #(
     int stimuli_valid_pulses = 0;
     int rx_abort_pulses = 0;
     int wr_en_pulses = 0;
+    int rd_req_pulses = 0;
 
     logic [7:0]  host_tx_mem    [0:MAX_TX_MEM-1];
     logic [7:0]  soc_rx_mem     [0:MAX_RX_MEM-1];
@@ -131,6 +137,11 @@ module tb_SocFrameGolden #(
         .wr_target       (wr_target),
         .wr_addr         (wr_addr),
         .wr_data         (wr_data),
+        .rd_req          (rd_req),
+        .rd_target       (rd_target),
+        .rd_addr         (rd_addr),
+        .rd_ack          (rd_ack),
+        .rd_dout         (rd_dout),
         .rx_busy         (rx_busy),
         .rx_abort        (rx_abort),
         .tx_frame_active (tx_frame_active)
@@ -139,16 +150,18 @@ module tb_SocFrameGolden #(
     initial clk = 1'b0;
     always #(CLK_PERIOD/2) clk = ~clk;
 
-    // Free-running monitors. A golden replay must never abort a frame or look
-    // like a 0xA5 RAM write, even though mid-payload 0xAA / 0xA5 bytes are
-    // legal Q8.8 data. The sync_valued_payload case exists to make that a real
-    // statement rather than a vacuous one; the sync_coverage_guard below
-    // refuses to run if the committed stream ever stops containing them.
+    // Free-running monitors. A golden replay must never abort a frame, look
+    // like a 0xA5 RAM write, or start a 0xA6 read dump, even though
+    // mid-payload sync-valued bytes are legal Q8.8 data. The
+    // sync_valued_payload case exists to make that a real statement rather
+    // than a vacuous one; the sync_coverage_guard below refuses to run if
+    // the committed stream ever stops containing them.
     always @(negedge clk) begin
         if (rst_n === 1'b1) begin
             if (stimuli_valid === 1'b1) stimuli_valid_pulses++;
             if (rx_abort === 1'b1)      rx_abort_pulses++;
             if (wr_en === 1'b1)         wr_en_pulses++;
+            if (rd_req === 1'b1)        rd_req_pulses++;
         end
     end
 
@@ -396,6 +409,11 @@ module tb_SocFrameGolden #(
         rx_data       = '0;
         rx_valid      = 1'b0;
         tx_busy       = 1'b0;
+        // No 0xA6 frames exist in the golden stream, so the read port never
+        // requests a grant; hold the handshake quiescent.  The rd_req_pulses
+        // monitor above proves the request side stayed idle.
+        rd_ack        = 1'b0;
+        rd_dout       = '0;
         potentials_in = '0;
         spike_flags   = '0;
         aux_state     = '0;
@@ -420,6 +438,8 @@ module tb_SocFrameGolden #(
                   "a back-to-back golden replay must never trip the inter-byte idle timeout");
         check_int(wr_en_pulses, 0,
                   "a golden stimulus replay must never be mistaken for a 0xA5 RAM write");
+        check_int(rd_req_pulses, 0,
+                  "a golden stimulus replay must never be mistaken for a 0xA6 RAM read");
 
         if (errors == 0) begin
             $display("TB_SOC_FRAME_GOLDEN: ALL %0d GOLDEN FRAME PAIRS MATCHED (%0d request + %0d response bytes)",

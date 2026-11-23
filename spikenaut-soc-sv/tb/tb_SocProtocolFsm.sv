@@ -18,6 +18,7 @@ module tb_SocProtocolFsm;
     // Short timeout so the abandon-path case stays cheap in Verilator.
     localparam int IDLE_TIMEOUT_CYCLES = 16;
     localparam logic [7:0] WRITE_SYNC_BYTE = 8'hA5;
+    localparam logic [7:0] READ_SYNC_BYTE  = 8'hA6;
 
     logic clk;
     logic rst_n;
@@ -36,6 +37,11 @@ module tb_SocProtocolFsm;
     logic [1:0]                         wr_target;
     logic [7:0]                         wr_addr;
     logic [WORD_WIDTH-1:0]              wr_data;
+    logic                               rd_req;
+    logic [1:0]                         rd_target;
+    logic [7:0]                         rd_addr;
+    logic                               rd_ack;
+    logic [WORD_WIDTH-1:0]              rd_dout;
     logic                               rx_busy;
     logic                               rx_abort;
     logic                               tx_frame_active;
@@ -47,6 +53,38 @@ module tb_SocProtocolFsm;
     int stimuli_valid_pulses = 0;
     int rx_abort_pulses = 0;
     int wr_en_pulses = 0;
+    int rd_ack_pulses = 0;
+
+    // #113 read-path model.  rd_grant_en gates the port grant: rd_ack marks
+    // the request cycle, and rd_dout returns the addressed word one cycle
+    // later — the registered read latency of WeightRam / NeuronParamRam.
+    logic rd_grant_en;
+    logic [WORD_WIDTH-1:0] rd_mem [0:255];
+
+    assign rd_ack = rd_req && rd_grant_en;
+    always_ff @(posedge clk) begin
+        if (rd_ack)
+            rd_dout <= rd_mem[rd_addr];
+    end
+
+    // Byte-stream monitor (#113).  Sending a 5-byte read frame takes ~10
+    // fabric cycles while the serializer emits a byte every ~2 cycles into
+    // an idle bridge, so sequenced task calls cannot observe every byte of
+    // an interleaved response/dump stream.  Capture each tx_send byte into a
+    // queue instead: stream_rd consumes it in order, and a fixed count is
+    // the proof a stall or rejection emitted nothing.
+    localparam int TX_STREAM_MAX = 4096;
+    logic [7:0] tx_stream [0:TX_STREAM_MAX-1];
+    int tx_stream_count = 0;
+    int stream_rd = 0;
+
+    always @(negedge clk) begin
+        if ((rst_n === 1'b1) && (tx_send === 1'b1) &&
+            (tx_stream_count < TX_STREAM_MAX)) begin
+            tx_stream[tx_stream_count] = tx_data;
+            tx_stream_count++;
+        end
+    end
 
     SocProtocolFsm #(
         .NUM_NEURONS           (NUM_NEURONS),
@@ -71,6 +109,11 @@ module tb_SocProtocolFsm;
         .wr_target       (wr_target),
         .wr_addr         (wr_addr),
         .wr_data         (wr_data),
+        .rd_req          (rd_req),
+        .rd_target       (rd_target),
+        .rd_addr         (rd_addr),
+        .rd_ack          (rd_ack),
+        .rd_dout         (rd_dout),
         .rx_busy         (rx_busy),
         .rx_abort        (rx_abort),
         .tx_frame_active (tx_frame_active)
@@ -109,6 +152,11 @@ module tb_SocProtocolFsm;
         .wr_target     (wr_target_n1),
         .wr_addr       (wr_addr_n1),
         .wr_data       (wr_data_n1),
+        .rd_req        (),
+        .rd_target     (),
+        .rd_addr       (),
+        .rd_ack        (1'b0),
+        .rd_dout       ('0),
         .rx_busy       (),
         .rx_abort      (),
         .tx_frame_active ()
@@ -124,6 +172,8 @@ module tb_SocProtocolFsm;
             rx_abort_pulses++;
         if (wr_en === 1'b1)
             wr_en_pulses++;
+        if (rd_ack === 1'b1)
+            rd_ack_pulses++;
     end
 
     task automatic check(input logic condition, input string msg);
@@ -164,6 +214,15 @@ module tb_SocProtocolFsm;
         end
     endtask
 
+    task automatic check_int(input int unsigned actual,
+                             input int unsigned expected,
+                             input string msg);
+        if (actual !== expected) begin
+            errors++;
+            $display("FAIL: %s (got %0d, expected %0d)", msg, actual, expected);
+        end
+    endtask
+
     task automatic send_n1_rx_byte(input logic [7:0] value);
         begin
             @(negedge clk);
@@ -185,6 +244,78 @@ module tb_SocProtocolFsm;
             send_rx_byte(addr);
             send_rx_byte(data[15:8]);
             send_rx_byte(data[7:0]);
+        end
+    endtask
+
+    task automatic send_read_frame(
+        input logic [7:0] target,
+        input logic [7:0] addr,
+        input logic [15:0] len
+    );
+        begin
+            send_rx_byte(READ_SYNC_BYTE);
+            send_rx_byte(target);
+            send_rx_byte(addr);
+            send_rx_byte(len[15:8]);
+            send_rx_byte(len[7:0]);
+        end
+    endtask
+
+    // Discard everything captured so far; the next expectation applies to
+    // bytes emitted from this point on.
+    task automatic drain_stream();
+        begin
+            stream_rd = tx_stream_count;
+        end
+    endtask
+
+    // Wait for the stream monitor to deliver one byte, then check it.  The
+    // bound covers request/header latency plus a modest rd_ack stall; an
+    // absent byte fails rather than hanging the run.
+    task automatic expect_stream_byte(
+        input logic [7:0] expected,
+        input string msg
+    );
+        int unsigned waited;
+        begin
+            waited = 0;
+            while ((stream_rd >= tx_stream_count) && (waited < WAIT_BOUND * 4)) begin
+                @(negedge clk);
+                waited++;
+            end
+            if (stream_rd >= tx_stream_count) begin
+                errors++;
+                $display("FAIL: %s (no byte arrived within %0d cycles)",
+                         msg, WAIT_BOUND * 4);
+            end else begin
+                check_byte(tx_stream[stream_rd], expected, msg);
+                stream_rd++;
+            end
+        end
+    endtask
+
+    // Check the five echoed header bytes plus `len` big-endian payload
+    // words of one 0xA6 dump frame against the rd_mem model.
+    task automatic expect_stream_dump(
+        input logic [7:0] exp_target,
+        input logic [7:0] exp_addr,
+        input int unsigned len,
+        input string msg
+    );
+        begin
+            expect_stream_byte(READ_SYNC_BYTE, {msg, ": header sync"});
+            expect_stream_byte(exp_target, {msg, ": header target"});
+            expect_stream_byte(exp_addr, {msg, ": header addr"});
+            expect_stream_byte(8'(len[15:8]), {msg, ": header len_hi"});
+            expect_stream_byte(8'(len[7:0]), {msg, ": header len_lo"});
+            for (int w = 0; w < len; w++) begin
+                logic [15:0] exp_word;
+                exp_word = rd_mem[exp_addr + 8'(w)];
+                expect_stream_byte(exp_word[15:8],
+                                   {msg, $sformatf(": word %0d hi", w)});
+                expect_stream_byte(exp_word[7:0],
+                                   {msg, $sformatf(": word %0d lo", w)});
+            end
         end
     endtask
 
@@ -553,6 +684,182 @@ module tb_SocProtocolFsm;
         check_word(wr_data_n1, 16'h1234, "NUM_NEURONS=1 write must assemble Q8.8 big-endian");
         @(negedge clk);
         check(wr_en_n1 === 1'b0, "NUM_NEURONS=1 wr_en must be a one-cycle strobe");
+
+        // ----------------------------------------------------------------
+        // Read path (#113): a 0xA6 frame streams RAM words back through the
+        // same serializer the 36-byte stimulus responses use.  The rd_mem
+        // model makes every address return a distinct word, and the
+        // tx_stream monitor catches bytes that arrive while read commands
+        // are still being sent.
+        // ----------------------------------------------------------------
+        begin : read_tests
+            int baseline_reads;
+            int baseline_aborts;
+            int stall_count;
+
+            for (int i = 0; i < 256; i++)
+                rd_mem[i] = 16'(16'hA000 + i);
+            rd_grant_en = 1'b1;
+
+            // Valid weight read: echoed 5-byte header, then payload words in
+            // ascending address order, big-endian per word.
+            baseline_reads = rd_ack_pulses;
+            drain_stream();
+            send_read_frame(8'h00, 8'h10, 16'd4);
+            expect_stream_dump(8'h00, 8'h10, 4, "weight dump");
+            check(rd_target === 2'd0,
+                  "weight dump must hold rd_target = 0 through the request");
+            check_int(rd_ack_pulses, baseline_reads + 4,
+                      "a 4-word dump must fetch exactly four words");
+            check(tx_frame_active === 1'b0,
+                  "dump must release tx_frame_active after the last word");
+            repeat (3) @(negedge clk);
+            check_int(tx_stream_count, stream_rd,
+                      "dump serializer must stop after the last payload byte");
+
+            // Threshold and leak reads use the same machinery with their own
+            // target echo; a request starting at 0xFE wraps the 8-bit space.
+            drain_stream();
+            send_read_frame(8'h01, 8'h21, 16'd2);
+            expect_stream_dump(8'h01, 8'h21, 2, "threshold dump");
+            check(rd_target === 2'd1,
+                  "threshold dump must hold rd_target = 1 through the request");
+            drain_stream();
+            send_read_frame(8'h02, 8'hFE, 16'd3);
+            expect_stream_dump(8'h02, 8'hFE, 3, "leak dump wrapping at 256");
+
+            // Rejected requests are consumed silently, like invalid write
+            // targets: no header, no rd_req, no lingering tx activity.
+            baseline_reads = rd_ack_pulses;
+            drain_stream();
+            send_read_frame(8'h03, 8'h00, 16'd4);
+            repeat (8) @(negedge clk);
+            check(rd_req === 1'b0, "target 3 (AER table) must not issue a RAM read");
+            check_int(rd_ack_pulses, baseline_reads,
+                      "target 3 read must not fetch any words");
+            check_int(tx_stream_count, stream_rd,
+                      "target 3 read must not emit a dump frame");
+            send_read_frame(8'h00, 8'h00, 16'd0);
+            repeat (8) @(negedge clk);
+            check(rd_req === 1'b0, "length 0 read must not issue a RAM read");
+            check_int(rd_ack_pulses, baseline_reads,
+                      "length 0 read must not fetch any words");
+            check_int(tx_stream_count, stream_rd,
+                      "length 0 read must not emit a dump frame");
+
+            // A read that lands while a response serializes queues behind
+            // the frame; the dump follows the last response byte.  The
+            // stream monitor keeps the interleaved ordering checkable.
+            drain_stream();
+            load_live_snapshot(16'h5500, 16'h00F0, 16'hC0DE);
+            remember_expected();
+            trigger_response();
+            send_read_frame(8'h00, 8'h30, 16'd2);
+            for (int b = 0; b < FRAME_BYTES; b++)
+                expect_stream_byte(expected_response_byte(b),
+                                   "in-flight response must drain before the queued dump");
+            expect_stream_dump(8'h00, 8'h30, 2, "queued dump after response");
+
+            // Grant stall: with the RAM port withheld mid-dump the
+            // serializer holds — no byte emits, no word is skipped — and the
+            // stream resumes unbroken once the grant returns.
+            drain_stream();
+            send_read_frame(8'h00, 8'h40, 16'd3);
+            expect_stream_byte(READ_SYNC_BYTE, "stalled dump: header sync");
+            expect_stream_byte(8'h00, "stalled dump: header target");
+            expect_stream_byte(8'h40, "stalled dump: header addr");
+            expect_stream_byte(8'h00, "stalled dump: header len_hi");
+            expect_stream_byte(8'h03, "stalled dump: header len_lo");
+            expect_stream_byte(rd_mem[8'h40][15:8], "stalled dump: word 0 hi");
+            expect_stream_byte(rd_mem[8'h40][7:0], "stalled dump: word 0 lo");
+            rd_grant_en = 1'b0;
+            stall_count = tx_stream_count;
+            repeat (12) @(negedge clk);
+            check(rd_req === 1'b1, "stalled dump must hold rd_req until granted");
+            check(rd_addr === 8'h41, "stalled dump must hold the pending read address");
+            check_int(tx_stream_count, stall_count,
+                      "stalled dump must not emit bytes while ungranted");
+            rd_grant_en = 1'b1;
+            expect_stream_byte(rd_mem[8'h41][15:8], "stalled dump: resumes at held word 1 hi");
+            expect_stream_byte(rd_mem[8'h41][7:0], "stalled dump: resumes at held word 1 lo");
+            expect_stream_byte(rd_mem[8'h42][15:8], "stalled dump: resumes at held word 2 hi");
+            expect_stream_byte(rd_mem[8'h42][7:0], "stalled dump: resumes at held word 2 lo");
+
+            // A frame_send trigger mid-dump still produces the response —
+            // after the dump completes, as the usual pending snapshot.
+            drain_stream();
+            load_live_snapshot(16'h6600, 16'h0F0F, 16'hDEAD);
+            remember_expected();
+            send_read_frame(8'h00, 8'h50, 16'd2);
+            expect_stream_byte(READ_SYNC_BYTE, "mid-dump trigger: header sync");
+            trigger_response();
+            expect_stream_byte(8'h00, "mid-dump trigger: header target");
+            expect_stream_byte(8'h50, "mid-dump trigger: header addr");
+            expect_stream_byte(8'h00, "mid-dump trigger: header len_hi");
+            expect_stream_byte(8'h02, "mid-dump trigger: header len_lo");
+            expect_stream_byte(rd_mem[8'h50][15:8],
+                               "dump payload must not be disturbed by a mid-dump trigger");
+            expect_stream_byte(rd_mem[8'h50][7:0],
+                               "dump payload must not be disturbed by a mid-dump trigger");
+            expect_stream_byte(rd_mem[8'h51][15:8],
+                               "dump payload must not be disturbed by a mid-dump trigger");
+            expect_stream_byte(rd_mem[8'h51][7:0],
+                               "dump payload must not be disturbed by a mid-dump trigger");
+            for (int b = 0; b < FRAME_BYTES; b++)
+                expect_stream_byte(expected_response_byte(b),
+                                   "mid-dump trigger must stream as a response after the dump");
+            check(tx_frame_active === 1'b0,
+                  "pipe must be idle after dump-then-response");
+
+            // A second read command arriving mid-dump queues latest-wins and
+            // streams its own frame after the first dump.  The first dump is
+            // long enough that the second command lands while it streams.
+            drain_stream();
+            send_read_frame(8'h00, 8'h60, 16'd4);
+            send_read_frame(8'h02, 8'h70, 16'd1);
+            expect_stream_dump(8'h00, 8'h60, 4,
+                               "first dump must complete before the queued second");
+            expect_stream_dump(8'h02, 8'h70, 1, "second dump queued mid-first");
+
+            // An abandoned read frame trips the same idle timeout as writes:
+            // rx_abort, no dump, and a fresh frame still parses afterwards.
+            baseline_reads = rd_ack_pulses;
+            baseline_aborts = rx_abort_pulses;
+            drain_stream();
+            send_rx_byte(READ_SYNC_BYTE);
+            send_rx_byte(8'h00);
+            send_rx_byte(8'h05);
+            repeat (IDLE_TIMEOUT_CYCLES + 4) @(negedge clk);
+            check(rd_req === 1'b0, "abandoned read must not issue a RAM read");
+            check_int(rd_ack_pulses, baseline_reads,
+                      "abandoned read must not fetch words");
+            check_int(rx_abort_pulses, baseline_aborts + 1,
+                      "read idle timeout must pulse rx_abort");
+            check(rx_busy === 1'b0, "read idle timeout must return to RX_WAIT_SYNC");
+            check_int(tx_stream_count, stream_rd,
+                      "abandoned read must not emit a dump frame");
+            send_read_frame(8'h00, 8'h80, 16'd1);
+            expect_stream_dump(8'h00, 8'h80, 1, "fresh read after abandon");
+
+            // Mid-payload READ_SYNC_BYTE inside a stimulus frame is data,
+            // not a resync — the same rule WRITE_SYNC_BYTE already follows.
+            baseline_reads = rd_ack_pulses;
+            send_rx_byte(8'hAA);
+            send_rx_byte(READ_SYNC_BYTE);
+            send_rx_byte(8'h6A);
+            for (int lane = 1; lane < NUM_NEURONS; lane++) begin
+                send_rx_byte(8'(8'h70 + lane));
+                send_rx_byte(8'(8'h80 + lane));
+            end
+            @(negedge clk);
+            check(stimuli_valid === 1'b1,
+                  "stimulus with mid-payload READ_SYNC_BYTE must still commit");
+            check_word(stimuli_out[15:0], {READ_SYNC_BYTE, 8'h6A},
+                       "lane 0 must keep READ_SYNC_BYTE as Q8.8 data, not a read opcode");
+            check_int(rd_ack_pulses, baseline_reads,
+                      "mid-payload READ_SYNC_BYTE must not create a RAM read");
+            rd_grant_en = 1'b0;
+        end
 
         if (errors == 0) begin
             $display("TB_SOCPROTOCOLFSM: ALL TESTS PASSED");

@@ -18,6 +18,7 @@ Linear [RM-288](https://linear.app/rpd-34/issue/RM-288). Parent epic
 | Request frame | **33 bytes** — `0xAA` sync + 16 big-endian Q8.8 stimuli |
 | Response frame | **36 bytes** — 16 potentials + spike-flag word + aux word |
 | Runtime-write frame | **5 bytes** — `0xA5` sync + target + addr + 16-bit data ([#63](https://github.com/rmems/silicon-hdl/issues/63), [#71](https://github.com/rmems/silicon-hdl/issues/71)) |
+| Runtime-read frame | **5 bytes** — `0xA6` sync + target + addr + 16-bit word count; replies `5 + 2·count` bytes ([#113](https://github.com/rmems/silicon-hdl/issues/113)) |
 | Link | 115200 baud, 8N1, no flow control |
 | SoC codec | [`spikenaut-soc-sv/rtl/SocProtocolFsm.sv`](../spikenaut-soc-sv/rtl/SocProtocolFsm.sv) |
 | Host codec | `silicon-bridge` `src/fpga_bridge.rs` (`FpgaBridge::process_stimuli`) |
@@ -85,6 +86,42 @@ Target 3 interprets the data word as `valid[15]`, `terminal[14]`, reserved
 `[13:4]`, and `next_addr[3:0]`. Reserved bits and addresses above 15 are
 rejected. Writes wait until LIF, STDP writeback, and the route lookup engine are
 idle. See [`aer-routing-contract.md`](aer-routing-contract.md).
+
+### Runtime reads — host → SoC, 5 bytes (#113)
+
+The read command is `0xA6, target, address, len_hi, len_lo` and uses the same
+inter-byte idle timeout as the write frame. A valid request streams a **dump
+frame** back on the same UART:
+
+| Byte | Field |
+| --- | --- |
+| `0` | `0xA6` (echoed read sync) |
+| `1` | target (echoed) |
+| `2` | start address (echoed) |
+| `3..4` | word count, big-endian (echoed) |
+| `5..` | `count` × Q8.8 words, big-endian, `address` ascending |
+
+Readable targets are the same numbering as writes — `0` weight, `1` threshold,
+`2` leak — minus the route table, which has no config read port: **target 3 and
+`count = 0` are consumed silently**, mirroring the write path's invalid-target
+rule. The 8-bit address increments per word and wraps at 256.
+
+Each word borrows its single-port RAM for exactly one fabric cycle under the
+same gating as a host write — LIF sweep, STDP writeback, and route lookups must
+all be idle, and a firing write wins a coincident cycle. A blocked grant only
+stalls the dump mid-frame (bytes already sent are unaffected), so a full-bank
+read across a 1 ms tick boundary returns every requested word in order — but
+is *not* an atomic snapshot: banks that live hardware keeps writing (STDP
+weights with SW14 high) can return a torn row across the tick. Dumping the
+learned bank for re-flash is safest with SW14 low or after the session ends.
+
+Dumps share the TX serializer with stimulus responses, so a dump may start
+later than the request: an in-flight 36-byte response drains first, a host
+frame consumed mid-dump still produces its response after the dump ends, and a
+second `0xA6` received mid-dump queues latest-wins behind the current dump.
+Hosts should therefore treat every stream beginning with `0xA6` as a dump and
+every other stream as a response — the two never interleave byte-wise, but a
+response can legitimately precede a requested dump.
 
 ## Golden frame vectors
 

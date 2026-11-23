@@ -293,6 +293,14 @@ module spikenaut_soc_basys3_top #(
     logic [7:0]  wr_pending_addr;
     logic [DATA_WIDTH-1:0] wr_pending_data;
     logic [1:0]  wr_sel_target;
+    // #113 host RAM read path: the protocol FSM asks for one port cycle via
+    // fsm_rd_req; fsm_rd_ack marks the cycle the address is driven and
+    // fsm_rd_dout returns the registered word on the next cycle.
+    logic        fsm_rd_req;
+    logic        fsm_rd_ack;
+    logic [1:0]  fsm_rd_target;
+    logic [7:0]  fsm_rd_addr;
+    logic [DATA_WIDTH-1:0] fsm_rd_dout;
 
     // Busy from the tick that starts a sweep through the cycle that
     // completes it.  Include step_en itself so the first registered RAM
@@ -363,6 +371,22 @@ module spikenaut_soc_basys3_top #(
     assign route_cfg_fault =
         wr_fire && (wr_sel_target == 2'd3) && (|wr_sel_addr[7:4]);
 
+    // #113: a host read is gated the same way as a host write — only granted
+    // while LIF, STDP, and routing are idle — and it yields to a firing
+    // write on the same cycle (the write is a state change; the read simply
+    // retries next cycle).  Target 3 is unreadable (the AER table has no
+    // config read port), so it is never acknowledged.  The RAM output on the
+    // cycle after rd_ack is what the FSM captures.
+    assign fsm_rd_ack = fsm_rd_req && !wr_block && !wr_fire &&
+                        (fsm_rd_target != 2'd3);
+    always_comb begin
+        case (fsm_rd_target)
+            2'd1:    fsm_rd_dout = threshold_param;
+            2'd2:    fsm_rd_dout = leak_param;
+            default: fsm_rd_dout = weight_dout;
+        endcase
+    end
+
     NeuronParamRam #(
         .ADDR_WIDTH  (NEURON_ADDR_W),
         .PARAM_WIDTH (PARAM_WIDTH),
@@ -371,7 +395,9 @@ module spikenaut_soc_basys3_top #(
         .clk  (clk),
         .rst_n (rst),
         .we   (thresh_we),
-        .addr (thresh_we ? wr_sel_addr[NEURON_ADDR_W-1:0] : threshold_addr),
+        .addr (thresh_we ? wr_sel_addr[NEURON_ADDR_W-1:0] :
+               (fsm_rd_ack && (fsm_rd_target == 2'd1)) ? fsm_rd_addr[NEURON_ADDR_W-1:0] :
+               threshold_addr),
         .din  (wr_sel_data),
         .dout (threshold_param)
     );
@@ -384,7 +410,9 @@ module spikenaut_soc_basys3_top #(
         .clk  (clk),
         .rst_n (rst),
         .we   (leak_we),
-        .addr (leak_we ? wr_sel_addr[NEURON_ADDR_W-1:0] : leak_addr),
+        .addr (leak_we ? wr_sel_addr[NEURON_ADDR_W-1:0] :
+               (fsm_rd_ack && (fsm_rd_target == 2'd2)) ? fsm_rd_addr[NEURON_ADDR_W-1:0] :
+               leak_addr),
         .din  (wr_sel_data),
         .dout (leak_param)
     );
@@ -418,6 +446,12 @@ module spikenaut_soc_basys3_top #(
             wram_we   = 1'b1;
             wram_addr = wr_sel_addr[WEIGHT_ADDR_W-1:0];
             wram_din  = wr_sel_data;
+        end else if (fsm_rd_ack && (fsm_rd_target == 2'd0)) begin
+            // #113 host read: steal the weight port for exactly the ack
+            // cycle; dout carries the word next cycle.  wr_fire already
+            // claimed this cycle for a write when it could, so a firing
+            // write always wins.
+            wram_addr = fsm_rd_addr[WEIGHT_ADDR_W-1:0];
         end
     end
 
@@ -563,6 +597,11 @@ module spikenaut_soc_basys3_top #(
         .wr_target       (host_wr_target),
         .wr_addr         (host_wr_addr),
         .wr_data         (host_wr_data),
+        .rd_req          (fsm_rd_req),
+        .rd_target       (fsm_rd_target),
+        .rd_addr         (fsm_rd_addr),
+        .rd_ack          (fsm_rd_ack),
+        .rd_dout         (fsm_rd_dout),
         .rx_busy         (rx_busy),
         .rx_abort        (rx_abort),
         .tx_frame_active (tx_frame_active)
