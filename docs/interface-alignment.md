@@ -339,11 +339,13 @@ Current SoC wiring (`spikenaut-soc-sv/rtl/Basys3_Top.sv`):
   writeback, and routing must all be idle, and a firing write wins a
   coincident cycle), so a dump can stall inside a 1 ms tick without losing
   or reordering a word. Dumps share the TX serializer with stimulus
-  responses: an in-flight 36-byte response drains to its last byte, then a
-  queued dump wins the frame boundary ahead of any pending response
-  snapshot (which still streams once the dump completes, so reads cannot
-  starve); a consumed-frame trigger mid-dump still coalesces into the
-  pending response snapshot, and a second read mid-dump queues latest-wins.
+  responses under yield-when-done arbitration: an in-flight 36-byte
+  response drains to its last byte, then the other stream type wins the
+  frame boundary — a queued dump ahead of a pending response snapshot
+  after a response, and the pending snapshot ahead of a queued dump after
+  a dump — so neither stream can starve; a consumed-frame trigger mid-dump
+  still coalesces into the pending response snapshot, and a second read
+  mid-dump queues latest-wins.
 - One `LifNeuronArray` time-multiplexes 16 neuron slots. It sweeps threshold
   and leak entries `0..15` and maps `WeightRam` as
   `neuron_row * 16 + input_index`. The current shared-event PE maps the

@@ -115,12 +115,14 @@ is *not* an atomic snapshot: banks that live hardware keeps writing (STDP
 weights with SW14 high) can return a torn row across the tick. Dumping the
 learned bank for re-flash is safest with SW14 low or after the session ends.
 
-Dumps share the TX serializer with stimulus responses, so a dump may start
-later than the request: an in-flight 36-byte response drains to its last
-byte, a queued dump then wins the frame boundary ahead of any pending
-response snapshot (which still streams once the dump ends — a bounded read
-can never starve), and a second `0xA6` received mid-dump queues latest-wins
-behind the current dump.
+Dumps share the TX serializer with stimulus responses under a
+yield-when-done rule, so a dump may start later than the request: an
+in-flight 36-byte response drains to its last byte, then the other stream
+type wins the frame boundary — a queued dump ahead of a pending response
+snapshot after a response, and the pending snapshot ahead of a queued dump
+after a dump. Strict alternation under pressure means neither stream
+starves, and a second `0xA6` received mid-dump queues latest-wins behind
+the current dump.
 
 **Identifying a dump requires tracking requests, not the first byte.** A
 response frame begins with a raw membrane potential, which can itself equal
@@ -137,8 +139,9 @@ byte-wise.
 Two scope notes on the readback itself: the command carries no
 authentication — it is a development/parity interface, so deployments that
 expose the UART to untrusted parties should treat the learned bank as
-readable — and the dump returns the raw 8-bit bank contents including rows
-the init image or host writes never touched.
+readable — and the dump returns the raw bank contents across the full
+8-bit address space, including rows the init image or host writes never
+touched.
 
 ## Golden frame vectors
 

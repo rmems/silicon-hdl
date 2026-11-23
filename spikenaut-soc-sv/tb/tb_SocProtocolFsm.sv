@@ -819,18 +819,22 @@ module tb_SocProtocolFsm;
             // Starvation guard: a queued dump wins the frame boundary ahead
             // of a pending response snapshot — the bounded host read can
             // never wait forever behind stimulus traffic.  The held
-            // snapshot still streams once the dump completes.
+            // snapshot still streams once the dump completes, carrying the
+            // second trigger's snapshot (distinct so a replayed first frame
+            // cannot pass).
             drain_stream();
             load_live_snapshot(16'h7700, 16'h0FF0, 16'h5EED);
             remember_expected();
             trigger_response();
             send_read_frame(8'h00, 8'h80, 16'd2);
+            load_live_snapshot(16'h8800, 16'hF00F, 16'hB0DE);
             trigger_response();
             for (int b = 0; b < FRAME_BYTES; b++)
                 expect_stream_byte(expected_response_byte(b),
                                    "in-flight response drains before dump and pending response");
             expect_stream_dump(8'h00, 8'h80, 2,
                                "queued dump must win the boundary over a pending response");
+            remember_expected();
             for (int b = 0; b < FRAME_BYTES; b++)
                 expect_stream_byte(expected_response_byte(b),
                                    "pending snapshot must still stream once the dump drains");

@@ -28,13 +28,15 @@
 //   [5:]   = length x Q8.8        big-endian words, addr ascending
 // Each word is fetched through rd_req/rd_addr/rd_target -> rd_ack -> rd_dout;
 // the SoC grants the RAM port for exactly the cycle rd_ack is high.  Dumps
-// share the serializer with stimulus responses: an in-flight 36-byte response
-// drains to its last byte, a queued dump (latest-wins) then wins the frame
-// boundary ahead of any pending response — the pending snapshot still
-// streams once the dump completes, so reads can never starve — and a
-// trigger arriving mid-dump still coalesces into that snapshot.  Targets
-// >= 3 and length 0 are consumed but emit no dump, matching the write
-// path's silent-drop rule for invalid targets.
+// share the serializer with stimulus responses under yield-when-done
+// arbitration: an in-flight frame always drains to its last byte, then the
+// other stream type wins the boundary — a queued dump (latest-wins) ahead
+// of a pending response snapshot after a response, and the pending
+// snapshot ahead of a queued dump after a dump.  Strict alternation under
+// pressure means neither stream can starve, and a trigger arriving
+// mid-dump still coalesces into the pending snapshot.  Targets >= 3 and
+// length 0 are consumed but emit no dump, matching the write path's
+// silent-drop rule for invalid targets.
 //
 // A response transfer has one active frame and one pending snapshot.  At the
 // Basys 3 default 115200 baud a 36-byte response takes about 3.125 ms, longer
@@ -505,27 +507,12 @@ module SocProtocolFsm #(
                         DUMP_SEND_HI: dump_phase <= DUMP_SEND_LO;
                         DUMP_SEND_LO: begin
                             if (dump_len == 16'd1) begin
-                                // End of dump.  A queued dump wins the pipe
-                                // (bounded and host-requested; a pending
-                                // snapshot still streams afterward), then a
-                                // pending snapshot, then a coincident
-                                // trigger, then idle.
-                                if (dump_pending) begin
-                                    dump_target    <= pd_target;
-                                    dump_addr      <= pd_addr;
-                                    dump_len       <= pd_len;
-                                    dump_hdr_index <= '0;
-                                    dump_phase     <= DUMP_HEADER;
-                                    dump_pending   <= 1'b0;
-                                    if (frame_send) begin
-                                        for (int lane = 0; lane < NUM_NEURONS; lane++)
-                                            pending_potentials[lane] <=
-                                                potentials_in[lane*WORD_WIDTH +: WORD_WIDTH];
-                                        pending_spike_flags <= WORD_WIDTH'(spike_flags);
-                                        pending_aux_state   <= aux_state;
-                                        tx_pending          <= 1'b1;
-                                    end
-                                end else if (tx_pending) begin
+                                // End of dump — yield-when-done: the stream
+                                // type that just finished steps aside, so a
+                                // pending snapshot wins here just as a queued
+                                // dump wins at a response boundary.  Strict
+                                // alternation under pressure; neither starves.
+                                if (tx_pending) begin
                                     for (int lane = 0; lane < NUM_NEURONS; lane++)
                                         active_potentials[lane] <= pending_potentials[lane];
                                     active_spike_flags <= pending_spike_flags;
@@ -551,6 +538,13 @@ module SocProtocolFsm #(
                                     tx_byte_index      <= '0;
                                     tx_active          <= 1'b1;
                                     dump_active        <= 1'b0;
+                                end else if (dump_pending) begin
+                                    dump_target    <= pd_target;
+                                    dump_addr      <= pd_addr;
+                                    dump_len       <= pd_len;
+                                    dump_hdr_index <= '0;
+                                    dump_phase     <= DUMP_HEADER;
+                                    dump_pending   <= 1'b0;
                                 end else begin
                                     dump_active <= 1'b0;
                                 end
@@ -595,12 +589,12 @@ module SocProtocolFsm #(
 
                     if (tx_byte_index == FRAME_BYTES - 1) begin
                         if (dump_pending) begin
-                            // A queued read command wins the frame boundary:
-                            // it is bounded and host-requested, while a held
-                            // pending response is only a snapshot that still
-                            // streams once the dump drains — promoting
-                            // tx_pending first would starve the dump under
-                            // continuous stimulus traffic.
+                            // A queued read command wins this boundary
+                            // (yield-when-done: a response just drained,
+                            // and promoting tx_pending here would starve
+                            // the dump under continuous stimulus traffic);
+                            // the held snapshot still streams once the
+                            // dump drains.
                             dump_target    <= pd_target;
                             dump_addr      <= pd_addr;
                             dump_len       <= pd_len;

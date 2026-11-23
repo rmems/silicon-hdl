@@ -213,6 +213,9 @@ module tb_spikenaut_soc_basys3_top #(
     int unsigned tick_count;
     int unsigned width_run;
     logic suppress_tick_monitor;
+    // Grant pulses while a dump runs — a fsm_rd_ack held past its
+    // one-cycle port window shows up as a count above the word total.
+    int unsigned rd_grant_count;
 
     initial begin
         cyc           = 0;
@@ -220,6 +223,7 @@ module tb_spikenaut_soc_basys3_top #(
         tick_count    = 0;
         width_run     = 0;
         suppress_tick_monitor = 1'b0;
+        rd_grant_count = 0;
     end
 
     always @(negedge clk) begin
@@ -228,6 +232,8 @@ module tb_spikenaut_soc_basys3_top #(
             frame_send_count++;
         if (dut.aer_cfg_we === 1'b1)
             aer_cfg_write_count++;
+        if (dut.u_protocol_fsm.dump_active === 1'b1 && dut.fsm_rd_ack === 1'b1)
+            rd_grant_count++;
         if (!suppress_tick_monitor && dut.step_en === 1'b1) begin
             width_run++;
             tick_count++;
@@ -1589,8 +1595,11 @@ module tb_spikenaut_soc_basys3_top #(
             // doubles as an end-to-end "still healthy after force/release"
             // check.  Addr 8'h05 equals the forced value, so the dump is
             // correct even if a stale addr lingers into the REQ cycle.
+            rd_grant_count = 0;
             uart_send_read_frame(8'h00, 8'h05, 16'd1);
             check_dump_frame(8'h00, 8'h05, 1, "test 14c post-release weight dump");
+            check_int(rd_grant_count, 1,
+                      "test 14c: a one-word dump must grant exactly one port cycle");
             check(dut.fsm_rd_req === 1'b0,
                   "test 14c: read request line must drop once the dump completes");
             check(dut.fsm_rd_ack === 1'b0,
