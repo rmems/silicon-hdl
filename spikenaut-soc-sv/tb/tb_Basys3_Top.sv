@@ -37,9 +37,10 @@
 //                          least one 1 ms tick interrupts a long dump without
 //                          corrupting it, the port grant is gated like the
 //                          write grant mid-sweep, and target 3 stays silent.
-//  15. STDP writeback    — SW14=0 leaves WeightRam untouched by STDP; SW14=1
-//                          applies signed Bi–Poo ±1 to the routed column
-//                          after tick_done, and a host 0xA5 weight write that
+//  15. STDP writeback    — SW14=0 leaves WeightRam untouched by STDP, even
+//                          with live traces; SW14=1 applies the signed
+//                          Bi–Poo LTP +1 update to the routed column after
+//                          tick_done, and a host 0xA5 weight write that
 //                          lands during the walk is held until stdp_busy
 //                          clears (GH#70; restores the SoC-level coverage #103
 //                          added as test 14 and #104 removed, GH#109).
@@ -1662,15 +1663,22 @@ module tb_spikenaut_soc_basys3_top #(
         // still see INIT_FILE / host-written weights. This block first proves
         // a pre-then-post pair is a no-op with the switch low, then flips
         // SW14, replays the pair, and checks the routed column synapse moved
-        // by exactly +1 LSB. A host weight write that lands while stdp_busy
-        // is high must wait, matching test 12's PE-hold pattern. Every
-        // stimulus now resolves through u_aer_router first, so each frame
-        // waits for route resolution before the consuming tick.
+        // by exactly +1 LSB while the source column is untouched. A second
+        // learn-off replay while the traces are still live proves the gate
+        // itself, not empty traces, suppresses the write. A host weight
+        // write that lands while stdp_busy is high must wait, matching test
+        // 12's PE-hold pattern. Every stimulus resolves through u_aer_router
+        // first, so each frame waits for route resolution before the
+        // consuming tick; lane 5 routes to column 10 (non-identity) so the
+        // writeback address can only come from the routed column.
         // ------------------------------------------------------------
         begin
             localparam int STDP_ROW = SPIKE_TEST_NEURON;
-            localparam logic [7:0] STDP_WEIGHT_ADDR = 8'(STDP_ROW * NUM_NEURONS + STDP_ROW);
+            localparam int STDP_PRE_COL = 10;
+            localparam logic [7:0] STDP_WEIGHT_ADDR = 8'(STDP_ROW * NUM_NEURONS + STDP_PRE_COL);
+            localparam logic [7:0] STDP_SOURCE_ADDR = 8'(STDP_ROW * NUM_NEURONS + STDP_ROW);
             localparam logic [15:0] STDP_WEIGHT_SEED = 16'd200;
+            localparam logic [15:0] STDP_SOURCE_SEED = 16'd300;
             localparam logic [7:0] STDP_HOST_ADDR = 8'h06;
             localparam logic [15:0] STDP_HOST_DATA = 16'h3456;
 
@@ -1680,28 +1688,33 @@ module tb_spikenaut_soc_basys3_top #(
                   "test 15: STDP engine must be idle while learn is off");
 
             // Test 12b left entries 0/1 programmed as the multi-hop route and
-            // entries 4/5 as the two-entry cycle; a lane-5 stimulus would now
-            // hop-budget out before reaching column 5. Restore identity
-            // through the real 0xA5 target-3 path before any stimulus below.
+            // entries 4/5 as the two-entry cycle. Restore 0/1/4 to identity
+            // and route lane 5 to column 10 through the real 0xA5 target-3
+            // path -- a non-identity route, so the writeback checks below can
+            // only pass when STDP follows the routed column, not the source
+            // lane.
             uart_send_write_frame(8'h03, 8'h00, 16'hC000);
             @(negedge clk);
             uart_send_write_frame(8'h03, 8'h01, 16'hC001);
             @(negedge clk);
             uart_send_write_frame(8'h03, 8'h04, 16'hC004);
             @(negedge clk);
-            uart_send_write_frame(8'h03, 8'h05, 16'hC005);
+            uart_send_write_frame(8'h03, 8'h05, 16'hC00A);
             @(negedge clk);
-            check(dut.u_aer_router.route_mem[STDP_ROW] === 16'hC005,
-                  "test 15: lane-5 route must be restored to identity");
+            check(dut.u_aer_router.route_mem[STDP_ROW] === 16'hC00A,
+                  "test 15: lane-5 route must target column 10, not identity");
 
             dut.u_wram.mem[STDP_WEIGHT_ADDR]        = STDP_WEIGHT_SEED;
+            dut.u_wram.mem[STDP_SOURCE_ADDR]        = STDP_SOURCE_SEED;
             dut.u_npram_threshold.mem[STDP_ROW]     = 16'h0001;
             dut.u_npram_leak.mem[STDP_ROW]          = 16'h0000;
 
-            expected_input_index = $clog2(NUM_NEURONS)'(STDP_ROW);
+            expected_input_index = $clog2(NUM_NEURONS)'(STDP_PRE_COL);
             uart_send_stimulus_frame(STDP_ROW);
             wait_for_stimuli_pending();
             wait_for_route_resolution();
+            check(dut.stimulus_input_index === $clog2(NUM_NEURONS)'(STDP_PRE_COL),
+                  "test 15: lane-5 stimulus must resolve to routed column 10");
             wait_tick_applied();
             wait_lif_sweep_done();
             check(dut.u_lif_array.spike_bitmap[STDP_ROW] === 1'b1,
@@ -1743,7 +1756,34 @@ module tb_spikenaut_soc_basys3_top #(
             wait_lif_sweep_done();
             wait_stdp_idle();
             check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === 16'(STDP_WEIGHT_SEED + 16'd1),
-                  "test 15: pre-then-post with learn on must LTP the selected synapse");
+                  "test 15: pre-then-post with learn on must LTP the routed synapse");
+            check(dut.u_wram.mem[STDP_SOURCE_ADDR] === STDP_SOURCE_SEED,
+                  "test 15: writeback must not touch the source-lane column");
+
+            // Gate under live traces: drop SW14 and replay the pair. The
+            // earlier learn-off leg cannot distinguish "gated" from "nothing
+            // to write" (empty traces produce no update anyway); with the
+            // traces live a real LTP/LTD would land if the gate leaked.
+            sw = sw & ~16'h4000;
+            repeat (SW_SYNC_LATENCY) @(negedge clk);
+            check(dut.learn_en === 1'b0,
+                  "test 15: SW14 low must disable learn_en after 2FF sync");
+            uart_send_stimulus_frame(STDP_ROW);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check(dut.stdp_busy === 1'b0,
+                  "test 15: learn off with live traces must not start a column walk");
+            check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === 16'(STDP_WEIGHT_SEED + 16'd1),
+                  "test 15: learn off with live traces must not write the synapse");
+
+            // Re-enable for the deferred-host-write check.
+            sw = sw | 16'h4000;
+            repeat (SW_SYNC_LATENCY) @(negedge clk);
+            check(dut.learn_en === 1'b1,
+                  "test 15: SW14 must re-enable learn_en for the write-hold leg");
 
             // Host weight write held across the STDP walk, then committed.
             wait_tick_applied();
@@ -1751,6 +1791,8 @@ module tb_spikenaut_soc_basys3_top #(
             @(negedge clk);
             check(dut.stdp_busy === 1'b1,
                   "test 15: a learn-enabled tick must keep stdp_busy high after the sweep");
+            check(dut.pe_busy === 1'b0,
+                  "test 15: the STDP walk must run while the LIF PE is idle");
             inject_host_strobe(2'd0, STDP_HOST_ADDR, STDP_HOST_DATA);
             check(dut.wr_pending === 1'b1,
                   "test 15: a mid-walk host weight write must be held");
@@ -1758,7 +1800,36 @@ module tb_spikenaut_soc_basys3_top #(
                   "test 15: held host write must not steal the RAM port from STDP");
             check(dut.u_wram.mem[STDP_HOST_ADDR] !== STDP_HOST_DATA,
                   "test 15: held host write must not commit until STDP is idle");
-            wait_stdp_idle();
+            // One-cycle samples cannot prove the hold: watch every fabric
+            // cycle of the walk so a host write that steals the port or
+            // commits early is caught, and so STDP's own writes are seen
+            // only while the LIF PE is idle.
+            begin : held_write_monitor
+                automatic int unsigned held_cycles = 0;
+                while (dut.stdp_busy === 1'b1) begin
+                    @(negedge clk);
+                    // Re-sample busy at the same negedge as the signals
+                    // below: the cycle stdp_busy drops is exactly when the
+                    // deferred write legally fires, so it is out of scope.
+                    if (dut.stdp_busy === 1'b1) begin
+                        held_cycles++;
+                        check(dut.wr_pending === 1'b1,
+                              "test 15: host write must stay pending for the whole walk");
+                        check(dut.weight_we === 1'b0,
+                              "test 15: weight we must stay low for the whole walk");
+                        check(dut.u_wram.mem[STDP_HOST_ADDR] !== STDP_HOST_DATA,
+                              "test 15: host value must not commit while STDP walks");
+                        check(dut.u_wram.addr === dut.stdp_addr,
+                              "test 15: STDP must own the RAM port for the whole walk");
+                        check(dut.pe_busy === 1'b0,
+                              "test 15: the LIF PE must stay idle for the whole walk");
+                        if (held_cycles > 8 * NUM_NEURONS + 16)
+                            $fatal(1, "test 15: stdp_busy never cleared during held-write monitor");
+                    end
+                end
+                check(held_cycles > 0,
+                      "test 15: held-write monitor must observe at least one walk cycle");
+            end
             repeat (4) @(negedge clk);
             check(dut.u_wram.mem[STDP_HOST_ADDR] === STDP_HOST_DATA,
                   "test 15: held host write must commit after STDP is idle");
