@@ -27,8 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stdp_busy`. The output-layer `WeightRam` is unchanged: its `we` stays tied
   to `1'b0`. `tb_StdpWriteback` locks the gate, LTP, and the
   originating-pre-column address after a channel switch. #103 also added SoC
-  TB test 14 (gate, LTP, deferred host write); #104 removed it, so on `main`
-  the only SoC-level STDP check is test 12b (routed pre-column capture).
+  TB test 14 (gate, LTP, deferred host write); #104 removed it, and #109
+  restores that coverage as SoC TB test 15 on the routed path: the SW14 gate
+  end to end (learn off -> no `WeightRam` writes from STDP), routed
+  pre-column capture -> `StdpWriteback` -> `u_wram` LTP write while the LIF
+  PE is idle, and a host `0xA5` write held while `stdp_busy`.
 - RM-259 / #71 bounded AER route-table consumer for the Basys 3 SoC.
   - New canonical AerRouteTable in lib_synapse: 16 x 16-bit aer-route-v1
     entries, four-bit ready/valid source and result, one event in flight,
