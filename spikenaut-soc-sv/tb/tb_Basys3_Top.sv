@@ -1778,6 +1778,18 @@ module tb_spikenaut_soc_basys3_top #(
                   "test 15: learn off with live traces must not start a column walk");
             check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === 16'(STDP_WEIGHT_SEED + 16'd1),
                   "test 15: learn off with live traces must not write the synapse");
+            // The one-shot sample above only catches an immediate launch.
+            // Watch a full-walk-length window so a delayed launch -- and any
+            // write it could sneak in -- cannot slip past the gate check.
+            begin : learn_off_window
+                repeat (8 * NUM_NEURONS + 16) begin
+                    @(negedge clk);
+                    check(dut.stdp_busy === 1'b0,
+                          "test 15: learn off with live traces must never start a walk");
+                end
+            end
+            check(dut.u_wram.mem[STDP_WEIGHT_ADDR] === 16'(STDP_WEIGHT_SEED + 16'd1),
+                  "test 15: learn off with live traces must not write the synapse late");
 
             // Re-enable for the deferred-host-write check.
             sw = sw | 16'h4000;
