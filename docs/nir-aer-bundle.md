@@ -50,12 +50,28 @@ added in [silicon-bridge PR #150](https://github.com/rmems/silicon-bridge/pull/1
 Match the parameter banks using `compatibility.files`. They contain signed
 Q8.8 words. The checked profile truncates toward zero and rejects overflow.
 
-| Bundle image | Consumer and address order |
-| --- | --- |
-| `parameters_weights.mem` | Hidden weight RAM, 16 neuron rows × 16 input columns |
-| `parameters.mem` / `parameters_decay.mem` | Threshold / leak RAM, one word per hidden neuron |
-| `hdl_readout_neuron_major.mem` | OutputLayer, 16 neuron rows × 3 classes. The producer also emits `parameters_output_weights.mem` in class-major order for generic clients. |
-| `aer_routes.mem` | AerRouteTable, one unquantized route entry per source lane |
+| Bundle image | SoC initialization parameter | Consumer and address order |
+| --- | --- | --- |
+| `parameters_weights.mem` | `WEIGHT_INIT_FILE` | Hidden weight RAM, 16 neuron rows × 16 input columns |
+| `parameters.mem` | `THRESH_INIT_FILE` | One threshold per hidden neuron |
+| `parameters_decay.mem` | `LEAK_INIT_FILE` | One word per hidden neuron. See the numerical difference below. |
+| `hdl_readout_neuron_major.mem` | `OUTPUT_WEIGHT_INIT_FILE` | OutputLayer, 16 neuron rows × 3 classes. The producer also emits `parameters_output_weights.mem` in class-major order for generic clients. |
+| `aer_routes.mem` | `ROUTE_INIT_FILE` | AerRouteTable, one unquantized route entry per source lane |
+
+**Decay changes the result.** The NIR exporter computes a retention multiplier
+`1 − dt/τ` for LIF. The RTL applies the leak word as a fixed decrement toward
+zero. In the example export, a positive membrane of `0x0066` (102/256) and
+decay word `0x0099` (153/256) give approximately 0.238 under multiplication.
+The HDL reaches zero on the next idle tick. A trace comparison must account
+for this difference before claiming equivalent neuron dynamics.
+[Producer lowering](https://github.com/rmems/silicon-bridge/blob/b0cdcf8776dbe98fcb1519185edddbc4ce74fb5e/src/nir_map.rs) · [HDL leak datapath](../spikenaut-core-sv/rtl/LifNeuronArray.sv)
+
+The default SoC build selects this repo's committed banks. To build with a
+specific export, use a scratch checkout and point `weight_mem`, `thresh_mem`,
+`decay_mem`, `output_weight_mem` and `route_mem` in the memory initialization
+section of the build script to the corresponding absolute paths above. Those
+variables feed both the Vivado file set and the synthesis parameters.
+[SoC build script](../scripts/build_soc.tcl)
 
 SiliconBridge v3.0 uses a 33-byte stimulus request and a 36-byte response.
 The existing five-byte `0xA5` write selects target 3 for a route entry.
