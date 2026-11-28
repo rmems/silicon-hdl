@@ -140,7 +140,7 @@ finishing epic [#54](https://github.com/rmems/silicon-hdl/issues/54).
 
 | Dependency / input | Why | Status today |
 |--------------------|-----|--------------|
-| Generated `aer-route-v1` image and metadata from `silicon-bridge` | Select the external input address consumed by LIF/STDP | **Consumer wired; producer missing**: 16 x 16-bit table, 4-bit addresses, MAX_HOPS=4, INIT image plus target-3 writes. The committed identity image is a reproducible silicon-hdl fallback marked `nir_derived: false`; cross-repo `nir-rs` producer work is not implemented here. |
+| Generated `aer-route-v1` image and metadata from `silicon-bridge` | Select the external input address consumed by LIF/STDP | The bridge emits the [NIR/AER bundle](nir-aer-bundle.md). The SoC accepts its 16-entry route format at initialization and through target-3 writes. The committed default identity image carries `nir_derived: false`. |
 | Parameter `.mem` / hex images from `silicon-bridge` (in-tree copies under `spikenaut-core-sv/mem/`) | Elaboration / bitstream init via `$readmemh`; runtime UART rewrite via `SocProtocolFsm` | **INIT_FILE wired** (E1/E2). RAMs load when `INIT_FILE` is non-empty and not `"NONE"`; `LifNeuronArray` sweeps threshold/leak `0..15` and weight rows `0, 16, …, 240` for the current input column. Host `0xA5` frames overwrite selected entries at runtime ([#63](https://github.com/rmems/silicon-hdl/issues/63)) |
 | UART traffic from host `silicon-bridge` (or compatible clients) | Physical UART byte pipe via `SiliconBridge`; `SocProtocolFsm` application codec | **0xAA stimulus + 0xA5 RAM write implemented**: 16 Q8.8 words decode atomically and a 36-byte potential/spike/aux response is serialized with `tx_busy` back-pressure safety. Host `0xA5` frames pulse RAM `we`. Host-board E2E remains #64 |
 | Xilinx Vivado (optional) | Synthesis, implementation, bitstream for Basys 3 | Available on self-hosted path |
@@ -231,8 +231,8 @@ Clarifications:
   init (`INIT_FILE` / `$readmemh`) and implements the #62 host frame/readback codec.
   Runtime `0xA5` RAM/route writes are on; the N=16 PE performs its swept read
   addresses after AER resolution, and optional STDP writeback captures the
-  routed column. NIR bundle production, host-board E2E, and multi-active-lane
-  accumulation remain separate sequenced work under
+  routed column. Canonical Spikenaut export, board evidence for that export,
+  and single-tick multi-lane accumulation remain separate work under
   [#54](https://github.com/rmems/silicon-hdl/issues/54) /
   [#64](https://github.com/rmems/silicon-hdl/issues/64).
 

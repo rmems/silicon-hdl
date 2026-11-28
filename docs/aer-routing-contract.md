@@ -19,8 +19,9 @@ depend on Rust or nir-rs.
 Standard NIR edges do not describe physical FPGA hops. The committed identity
 image in this repository is only the silicon-hdl reset/default fixture; it was
 not produced from a `nir-rs` `NirGraph` and carries no Spikenaut provenance.
-The future producer may lower the current feed-forward graph to identity after
-validating that graph and recording its provenance. The synthetic 0 -> 1 -> 2
+The bridge producer derives identity from validated input lane order or accepts
+an explicit hardware routing plan. See the [NIR/AER bundle contract](nir-aer-bundle.md)
+for the supported graph, manifest fields and image layouts. The synthetic 0 -> 1 -> 2
 case proves a hardware capability; it is not topology extracted from NIR.
 
 ## Entry ABI
@@ -38,7 +39,7 @@ budget is four lookups.
 Identity entry i is 0xC000 OR i. The committed default image is
 synapse-link-hdl/mem/aer_routes_identity_n16.mem with matching JSON metadata.
 Its metadata explicitly records `nir_derived: false`; it is not a substitute
-for the pending silicon-bridge/Spikenaut producer artifact.
+for an export of Spikenaut's canonical graph.
 Regenerate it only through:
 
     python3 scripts/gen_aer_route_vectors.py
