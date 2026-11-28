@@ -77,7 +77,7 @@ def test_bridge_route_fixture_matches_export_manifest() -> None:
     image = REPO_ROOT / "testdata" / "bridge_aer" / "aer_routes.mem"
     # metadata.artifact_hashes["aer_routes.mem"] from the pinned bridge export.
     assert hashlib.sha256(image.read_bytes()).hexdigest() == (
-        "d4c50334bcd2d25f196bc1322bf77f96c3b92a24b06722d71c6fc214c7e6ff24"
+        "4ad1136347d14830426bc03d72b66301978d8cbb7a918343efec85ddad28ffc9"
     )
 
 

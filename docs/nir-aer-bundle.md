@@ -93,24 +93,28 @@ the programmed bitstream and observed UART trace against the same bundle.
 
 `tb_AerRouteTable` loads the bridge export at
 [`testdata/bridge_aer/aer_routes.mem`](../testdata/bridge_aer/aer_routes.mem)
-through the RTL's `INIT_FILE`. Lanes 0 and 1 deliver lane 2. Lanes 2–15
-deliver themselves. This synthetic plan makes a fallback to the built-in
-identity table observable. The HDL quality suite runs this test with Verilator.
+through the RTL's `INIT_FILE`. Lanes 0 and 1 forward to entry 2, which
+delivers lane 3. Each terminal entry delivers the next lane modulo 16.
+Every route differs from identity, so a truncated load leaves detectable
+fallback entries. The HDL quality suite runs this test with Verilator.
 
 To reproduce the exact image, use the producer revision and example above.
 In a scratch copy of `examples/nir_aer_export.rs`, replace the line that
-creates `config` with the following explicit plan. Entry 2 is already terminal.
+creates `config` with the following explicit plan.
 
 ```rust
 use silicon_bridge::{AerRouteEntry, AerRouteTable};
-let plan = AerRouteTable::identity()
+let mut plan = AerRouteTable::identity()
     .with_entry(0, AerRouteEntry::forwarding(1)?)?
     .with_entry(1, AerRouteEntry::forwarding(2)?)?;
+for lane in 2..16 {
+    plan = plan.with_entry(lane, AerRouteEntry::terminal((lane + 1) % 16)?)?;
+}
 let config = FpgaParameterExporter::aer_export_config_from_nir(&g, Some(plan))?.allow_replace();
 ```
 
 Run the example again. Compare `nir_aer_out/aer_routes.mem` byte-for-byte
 with the fixture. Its SHA-256 in `metadata.artifact_hashes` is
-`d4c50334bcd2d25f196bc1322bf77f96c3b92a24b06722d71c6fc214c7e6ff24`.
+`4ad1136347d14830426bc03d72b66301978d8cbb7a918343efec85ddad28ffc9`.
 The manifest records `explicit_hardware_plan` and `nir_derived: true`
 because the exporter validated the example graph before applying the plan.

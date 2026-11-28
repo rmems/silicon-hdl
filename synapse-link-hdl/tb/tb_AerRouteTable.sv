@@ -230,11 +230,11 @@ module tb_AerRouteTable #(
               "ADDR_WIDTH=14 terminal entry must route successfully");
         @(negedge clk);
 
-        // The bridge's explicit plan sends lanes 0 and 1 to 2. Keep the
-        // expected addresses independent of the image loaded by $readmemh.
+        // Lanes 0 and 1 forward to entry 2. Every terminal entry delivers
+        // the next lane, so even a partial load differs from the expectation.
         for (int lane = 0; lane < 16; lane++) begin
             logic [ADDR_WIDTH-1:0] expected;
-            expected = (lane < 2) ? 4'd2 : ADDR_WIDTH'(lane);
+            expected = (lane < 2) ? 4'd3 : ADDR_WIDTH'(lane + 1);
             check(init_in_ready, $sformatf("INIT_FILE not ready for lane %0d", lane));
             init_in_addr  = ADDR_WIDTH'(lane);
             init_in_valid = 1'b1;
