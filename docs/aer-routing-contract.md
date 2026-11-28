@@ -12,7 +12,7 @@ depend on Rust or nir-rs.
 
 | Layer | Responsibility |
 | --- | --- |
-| Spikenaut | Treat its canonical NirGraph as the model source, validate the supported Input[16] -> Linear[16x16] -> LIF[16] -> Output[16] shape, and preserve provenance |
+| Spikenaut | Supply the canonical NirGraph and its provenance. Export to the [bridge AER profile](nir-aer-bundle.md#graph-and-route-selection) requires 16 inputs, 16 hidden neurons and a three-class readout. |
 | silicon-bridge | Optionally lower validated NIR plus an explicit hardware route plan into a silicon-hdl-v3 + aer-route-v1 bundle; encode route entries and provide target-3 runtime writes |
 | silicon-hdl | Load and consume the 16-word route image, expose safe runtime writes, route the selected ingress lane before LIF/STDP, and prove the implementation in simulation, Vivado, and on Basys 3 |
 
