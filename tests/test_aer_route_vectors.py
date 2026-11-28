@@ -73,6 +73,14 @@ def test_generated_nonidentity_fixture_is_distinguishable_from_fallback() -> Non
     assert words[2:] == [0xC000 | address for address in range(2, 16)]
 
 
+def test_bridge_route_fixture_matches_export_manifest() -> None:
+    image = REPO_ROOT / "testdata" / "bridge_aer" / "aer_routes.mem"
+    # metadata.artifact_hashes["aer_routes.mem"] from the pinned bridge export.
+    assert hashlib.sha256(image.read_bytes()).hexdigest() == (
+        "4ad1136347d14830426bc03d72b66301978d8cbb7a918343efec85ddad28ffc9"
+    )
+
+
 def test_metadata_pins_the_hardware_abi_and_image_digest() -> None:
     metadata = json.loads(ROUTE_METADATA.read_text())
     words = read_words(ROUTE_IMAGE)

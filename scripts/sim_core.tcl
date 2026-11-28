@@ -196,7 +196,7 @@ foreach tb_top $core_tb_tops {
         ] [get_filesets sim_1]
     } elseif {$tb_top eq "tb_AerRouteTable"} {
         set_property generic \
-            "NONIDENTITY_INIT_FILE=[file normalize [file join $route_mem_dir aer_routes_test_multihop_n16.mem]]" \
+            "NONIDENTITY_INIT_FILE=[file normalize [file join $repo_root testdata bridge_aer aer_routes.mem]]" \
             [get_filesets sim_1]
     } elseif {$tb_top eq "tb_LifNeuronArray"} {
         # #92 bank-data regression $readmemh's the shipped bank directly.
