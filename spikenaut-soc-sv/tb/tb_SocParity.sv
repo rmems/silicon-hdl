@@ -17,11 +17,13 @@
 // Schedule (docs/supervisor-parity.md): after a captured response the TB
 // idles POST_RESPONSE_WAIT cycles, then sends the next 33-byte frame.
 // Response (~3.12 ms) + wait (~0.5 ms) + request (~2.86 ms) puts RX_COMMIT
-// mid-window at ~6.5 ms after the previous consumed tick, so consumed
-// ticks are expected_consumed = BASE_TICK (4) + step*TICKS_PER_FRAME (7) —
-// +/-half-tick margin. A drift in that alignment is reported, not hidden:
-// the observed consumed_tick is written per step and the TB fails if it
-// ever differs from the schedule the reference model assumed.
+// mid-window at ~6.5 ms after the previous frame's FINAL consumed tick, so
+// the next frame's first lane is consumed TICKS_PER_FRAME (7) ticks later —
+// +/-half-tick margin. GH#112: a frame with K nonzero lanes occupies K
+// consecutive consumed ticks, so per-step consumed ticks are cumulative in
+// lane count, not a fixed stride. A drift in that alignment is reported,
+// not hidden: the observed consumed_tick is written per step and the TB
+// fails if it ever differs from the schedule the reference model assumed.
 //
 // $readmemh / $fopen paths are repo-root relative -- run from the repo
 // root. Stimulus is applied and sampled on negedge clk, matching
@@ -83,6 +85,9 @@ module tb_SocParity #(
     logic [15:0] count_img [0:0];
     int          step_count;
     int          observed_fd;
+    // GH#112 lane-aware schedule: the next frame's first lane is consumed
+    // TICKS_PER_FRAME ticks after the previous frame's final lane.
+    int unsigned next_first_consume;
 
     logic [7:0]  captured_frame [0:RESPONSE_BYTES-1];
 
@@ -324,6 +329,7 @@ module tb_SocParity #(
                   "{\"fixture\":\"supervisor_parity_v1\",\"ticks_per_frame\":%0d,\"steps\":[",
                   TICKS_PER_FRAME);
 
+        next_first_consume = BASE_TICK;
         for (int step_index = 0; step_index < step_count; step_index++) begin
             int unsigned send_tick;
             int unsigned consumed_tick;
@@ -331,17 +337,36 @@ module tb_SocParity #(
             logic [15:0] aux_word;
             logic [2:0] output_class;
             int unsigned expected_consumed;
+            int unsigned lane_count;
             bit capture_ok;
+
+            // GH#112: a frame drains one nonzero lane per consumed tick,
+            // lowest first. An all-zero frame still occupies exactly one
+            // consumed (route_drop) tick.
+            lane_count = 0;
+            for (int lane = 0; lane < NUM_NEURONS; lane++) begin
+                if (stimuli[step_index * NUM_NEURONS + lane] !== 16'h0000)
+                    lane_count++;
+            end
+            if (lane_count == 0) lane_count = 1;
+            // The response snapshots the frame's FINAL lane tick; the next
+            // frame's first lane lands TICKS_PER_FRAME ticks after that.
+            expected_consumed  = next_first_consume + lane_count - 1;
+            next_first_consume = expected_consumed + TICKS_PER_FRAME;
 
             uart_send_stimulus_words(step_index * NUM_NEURONS);
             send_tick = tick_count;
             wait_for_stimuli_pending();
             wait_for_route_resolution();
-            wait_tick_applied();
+            for (int lane = 0; lane < lane_count; lane++) begin
+                wait_tick_applied();
+                wait_lif_sweep_done();
+            end
             consumed_tick = tick_count;
-            wait_lif_sweep_done();
-            // frame_send is a one-cycle pulse at tick_done; output_class
-            // commits a few cycles later.
+            check(dut.stimuli_pending === 1'b0,
+                  "multi-lane frame must fully drain before its response");
+            // frame_send is a one-cycle pulse at the final lane's tick_done;
+            // output_class commits a few cycles later.
             check(dut.frame_send === 1'b1,
                   "consumed stimulus frame must arm one response");
             wait_output_class_done();
@@ -356,7 +381,6 @@ module tb_SocParity #(
             spike_word = {captured_frame[32], captured_frame[33]};
             aux_word   = {captured_frame[34], captured_frame[35]};
 
-            expected_consumed = BASE_TICK + step_index * TICKS_PER_FRAME;
             check(consumed_tick === expected_consumed,
                   $sformatf("step %0d consumed at tick %0d, schedule says %0d",
                             step_index, consumed_tick, expected_consumed));

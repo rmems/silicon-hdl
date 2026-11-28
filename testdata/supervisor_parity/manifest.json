@@ -45,27 +45,27 @@
       25,
       32,
       39,
-      46,
-      53,
-      60,
-      67,
-      74,
-      81,
-      88,
-      95,
-      102,
-      109
+      48,
+      55,
+      62,
+      69,
+      76,
+      83,
+      91,
+      98,
+      105,
+      112
     ],
     "base_tick": 4,
-    "rule": "frame i is consumed at tick 4 + i*7; ticks between consumed ticks are leak-only",
-    "pacing": "wait for the full 36-byte response, delay ~0.5 ms, then send the next frame; RX_COMMIT lands ~6.5 ms after the previous consumed tick -> consumed 7 ticks later (+/-500 us margin)"
+    "rule": "a frame with K non-zero lanes is consumed on K consecutive ticks, lowest lane first (GH#112); its response arms on the last lane's tick_done, and the next frame's first lane is consumed 7 ticks after that; the ticks between frames are leak-only",
+    "pacing": "wait for the full 36-byte response, delay ~0.5 ms, then send the next frame; RX_COMMIT lands ~6.5 ms after the previous frame's final consumed tick -> next first lane 7 ticks later (+/-500 us margin)"
   },
   "reset": {
     "state": "all membranes 0, spike flags 0, output_class 0",
     "switches": "sw=0x0000: STDP off (SW14=0), spike-LED view (SW15=0)"
   },
   "semantics": {
-    "stimulus_decode": "lowest non-zero lane wins; magnitudes discarded (binary-event PE)",
+    "stimulus_decode": "every non-zero lane emits one event per tick, lowest first (GH#112); magnitudes discarded (binary-event PE)",
     "routing": "identity AER table (aer_routes.mem)",
     "leak": "signed, symmetric toward 0, every tick",
     "refractory": "spike registered on crossing tick, membrane cleared next tick",
@@ -221,8 +221,8 @@
     },
     {
       "step": 6,
-      "name": "multi_lowest_wins",
-      "why": "lanes 0/2/4 active: lowest lane (0) wins, others discarded",
+      "name": "multi_lanes_0_2_4",
+      "why": "lanes 0/2/4 active: three consecutive event ticks, lane order 0->2->4; response snapshots the lane-4 tick",
       "lanes_q88": [
         "0100",
         "0000",
@@ -359,8 +359,8 @@
     },
     {
       "step": 12,
-      "name": "lane2_multi_with_high",
-      "why": "lanes 2/5: lowest wins (2) -> n1/n3 fire again",
+      "name": "multi_lanes_2_5",
+      "why": "lanes 2/5: lane 2's tick refires n1/n3; lane 5 (zero column) consumes a tick and closes the frame",
       "lanes_q88": [
         "0000",
         "0000",

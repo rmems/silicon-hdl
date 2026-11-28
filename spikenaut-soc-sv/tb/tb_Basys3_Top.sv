@@ -26,6 +26,8 @@
 //                          and one leak param; RAM we is not hard-tied 0.
 //  12. Deferred writes   — a write landing mid-sweep is held until the PE is
 //                          idle and does not steal the RAM port.
+//  12a. Multi-lane frame — a frame with several nonzero lanes drains one
+//                          routed event per tick, lowest lane first (GH#112).
 //  13. Wire-level frame  — (a) status_word[15:13] carries the OutputLayer's
 //                          live one-hot result, by value, not by mirroring the
 //                          hold register that drives it; (b) the real uart_tx
@@ -326,6 +328,21 @@ module tb_spikenaut_soc_basys3_top #(
                     uart_send_byte(8'h00);
                     uart_send_byte(8'h00);
                 end
+            end
+        end
+    endtask
+
+    // Multi-lane variant (GH#112): lane_words supplies the Q8.8 word for
+    // every lane, so several lanes can be nonzero with distinct amplitudes
+    // in one frame.
+    task automatic uart_send_stimulus_mask(
+        input logic [NUM_NEURONS*16-1:0] lane_words
+    );
+        begin
+            uart_send_byte(8'hAA);
+            for (int lane = 0; lane < NUM_NEURONS; lane++) begin
+                uart_send_byte(lane_words[lane*16 + 8 +: 8]);
+                uart_send_byte(lane_words[lane*16 +: 8]);
             end
         end
     endtask
@@ -905,6 +922,210 @@ module tb_spikenaut_soc_basys3_top #(
                   "refractory follow-up tick must not increment the gated response count");
         check(dut.u_lif_array.membrane_potential[SPIKE_TEST_NEURON] === '0,
               "spiking row must reset to zero on the following refractory tick");
+
+        // ------------------------------------------------------------
+        // Test 7b (GH#112): a multi-lane frame drains one routed event per
+        // logical tick, lowest lane first, instead of collapsing every
+        // nonzero lane onto the lowest one.  Lanes {5, 9, 12}: neuron 5's
+        // controlled row (weight 0x0001 / threshold 0x0001 / leak 0, set in
+        // test 7) spikes on the lane-5 event; columns 9 and 12 are all-zero
+        // in merged_v2, so those events integrate nothing new -- but the
+        // sweep still has to present each lane's weight column to all 16
+        // rows, which is what proves the event was delivered.  Lane 12
+        // carries amplitude 0x4000 to prove amplitude stays event-only --
+        // a nonzero word registers one event, its magnitude is ignored.
+        // The host exchange stays one-response-per-request: exactly one
+        // frame_send fires, on the tick_done of the final lane.
+        //
+        // frame_send_count measures the ARMING contract only.  Test 13b is
+        // the wire-level half: it demodulates uart_tx and proves exactly 36
+        // bytes arrive and the line goes quiet.
+        // ------------------------------------------------------------
+        begin
+            int unsigned responses_before;
+            logic [NUM_NEURONS*16-1:0] multi_lane_words;
+            logic [15:0] col12_weight_before;
+
+            multi_lane_words = '0;
+            multi_lane_words[5*16  +: 16] = 16'h0001;
+            multi_lane_words[9*16  +: 16] = 16'h0001;
+            multi_lane_words[12*16 +: 16] = 16'h4000;
+
+            // Patch row 4's column-12 weight to 0x0010 so the lane-12 event
+            // is observable in neuron 4's membrane.  The check below asserts
+            // the membrane lands at exactly the weight value -- lane 12's
+            // 0x4000 amplitude cannot corrupt it (event-only semantics), and
+            // row 4's 0x0198 threshold is far above, so no spike follows.
+            col12_weight_before = dut.u_wram.mem[4 * NUM_NEURONS + 12];
+            dut.u_wram.mem[4 * NUM_NEURONS + 12] = 16'h0010;
+
+            responses_before = frame_send_count;
+            uart_send_stimulus_mask(multi_lane_words);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+            check(dut.stimulus_input_index === 4'd5,
+                  "test 7b: first event must come from the lowest nonzero lane");
+            check(dut.stimulus_event === 1'b1,
+                  "test 7b: lane 5's resolved route must assert a PE event");
+
+            // Lane 5 consume: the frame stays pending with lanes {9,12} left,
+            // and the controlled row commits a second real spike.
+            expected_input_index = 4'd5;
+            seen_weight_row      = '0;
+            wait_for_tick();
+            record_sweep_addresses();
+            @(negedge clk);
+            record_sweep_addresses();
+            check(dut.stimuli_pending === 1'b1,
+                  "test 7b: a multi-lane frame must stay pending after its first consume");
+            check(dut.pending_lane_mask === 16'h1200,
+                  "test 7b: consumed lane 5 must clear its mask bit, leaving lanes 9 and 12");
+            wait_lif_sweep_done();
+            check(seen_weight_row == {NUM_NEURONS{1'b1}},
+                  "test 7b: lane-5 sweep must present column 5 to every neuron row");
+            @(negedge clk);
+            check_int(frame_send_count, responses_before,
+                      "test 7b: a mid-drain lane must not arm a host response");
+            check(dut.u_lif_array.spike_bitmap[SPIKE_TEST_NEURON] === 1'b1,
+                  "test 7b: the lane-5 event must reach the controlled row and spike it");
+
+            // Lane 9 consume: refractory tick for neuron 5; mask drains to
+            // lane 12 only.
+            wait_for_route_resolution();
+            check(dut.stimulus_input_index === 4'd9,
+                  "test 7b: second event must come from lane 9");
+            check(dut.stimulus_event === 1'b1,
+                  "test 7b: lane 9's resolved route must assert a PE event");
+            expected_input_index = 4'd9;
+            seen_weight_row      = '0;
+            wait_for_tick();
+            record_sweep_addresses();
+            @(negedge clk);
+            record_sweep_addresses();
+            check(dut.stimuli_pending === 1'b1,
+                  "test 7b: the frame must still be pending with lane 12 unconsumed");
+            check(dut.pending_lane_mask === 16'h1000,
+                  "test 7b: consumed lane 9 must leave only lane 12");
+            wait_lif_sweep_done();
+            check(seen_weight_row == {NUM_NEURONS{1'b1}},
+                  "test 7b: lane-9 sweep must present column 9 to every neuron row");
+            @(negedge clk);
+            check_int(frame_send_count, responses_before,
+                      "test 7b: the second mid-drain lane must not arm a host response");
+            check(dut.u_lif_array.spike_bitmap[SPIKE_TEST_NEURON] === 1'b0,
+                  "test 7b: the lane-9 tick must be neuron 5's refractory reset");
+
+            // Lane 12 consume: mask drains, pending clears, and the frame's
+            // single response arms on the final lane.
+            wait_for_route_resolution();
+            check(dut.stimulus_input_index === 4'd12,
+                  "test 7b: third event must come from lane 12");
+            check(dut.stimulus_event === 1'b1,
+                  "test 7b: lane 12's resolved route must assert a PE event");
+            expected_input_index = 4'd12;
+            seen_weight_row      = '0;
+            wait_for_tick();
+            record_sweep_addresses();
+            @(negedge clk);
+            record_sweep_addresses();
+            check(dut.stimuli_pending === 1'b0,
+                  "test 7b: pending must clear when the last lane is consumed");
+            check(dut.pending_lane_mask === '0,
+                  "test 7b: lane mask must be empty after the final consume");
+            check(dut.response_armed === 1'b1,
+                  "test 7b: the frame's response must arm on its final lane");
+            wait_lif_sweep_done();
+            check(seen_weight_row == {NUM_NEURONS{1'b1}},
+                  "test 7b: lane-12 sweep must present column 12 to every neuron row");
+            check(dut.frame_send === 1'b1,
+                  "test 7b: the frame's single response must fire on the last lane's tick_done");
+            @(negedge clk);
+            check_int(frame_send_count, responses_before + 1,
+                      "test 7b: a multi-lane frame must produce exactly one host response");
+            check(dut.u_lif_array.membrane_potential[SPIKE_TEST_NEURON] === '0,
+                  "test 7b: neuron 5 must be reset after the lane-12 tick");
+            check(dut.u_lif_array.membrane_potential[4] === 16'h0010,
+                  "test 7b: lane 12 must integrate exactly one weight word -- the 0x4000 amplitude is event-only");
+            dut.u_wram.mem[4 * NUM_NEURONS + 12] = col12_weight_before;
+        end
+
+        // ------------------------------------------------------------
+        // Test 7c (GH#112): same-cycle supersede — a frame accepted on the
+        // very edge that would consume the previous frame's final lane.
+        // consume_pending/stimulus_event are gated on !protocol_stimuli_valid
+        // so the superseded frame emits no lane event and arms no response;
+        // only the replacement frame replies.  The UART transaction is
+        // bypassed for the same reason as test 12b: aligning a real
+        // RX_COMMIT with a consume edge is a fabric-cycle boundary the UART
+        // cannot hit deterministically, so the decoded-frame wires are
+        // forced in the same style.
+        // ------------------------------------------------------------
+        begin
+            int unsigned responses_before;
+            logic [NUM_NEURONS*16-1:0] supersede_words;
+
+            supersede_words = '0;
+            supersede_words[9*16  +: 16] = 16'h0001;
+            supersede_words[12*16 +: 16] = 16'h0001;
+
+            responses_before = frame_send_count;
+            uart_send_stimulus_mask(supersede_words);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+
+            // Drain lane 9 on a real tick; lane 12 remains as the final lane.
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            @(negedge clk);
+            check(dut.pending_lane_mask === 16'h1000,
+                  "test 7c: lane 9 consumed; lane 12 must still be pending");
+
+            // Lane 12 resolved: force the consume tick and a replacement
+            // frame (lane 2) onto the same fabric edge.
+            wait_for_route_resolution();
+            check(dut.stimulus_input_index === 4'd12,
+                  "test 7c: lane 12 must be resolved before the supersede edge");
+            suppress_tick_monitor = 1'b1;
+            force dut.step_en = 1'b1;
+            force_protocol_stimuli = '0;
+            force_protocol_stimuli[2*16 +: 16] = 16'h0001;
+            force dut.protocol_stimuli = force_protocol_stimuli;
+            force dut.protocol_stimuli_valid = 1'b1;
+            @(negedge clk);
+            check(dut.consume_pending === 1'b0,
+                  "test 7c: supersede edge must not consume the old final lane");
+            check(dut.stimulus_event === 1'b0,
+                  "test 7c: supersede edge must not emit the old lane's event");
+            release dut.step_en;
+            release dut.protocol_stimuli_valid;
+            release dut.protocol_stimuli;
+            @(negedge clk);
+            check(dut.pending_lane_mask === 16'h0004,
+                  "test 7c: replacement frame must load its own lane mask");
+            check(dut.response_armed === 1'b0,
+                  "test 7c: superseded frame must not arm a response");
+            check_int(frame_send_count, responses_before,
+                      "test 7c: superseded frame must produce no host response");
+            tick_count = 0;
+            width_run = 0;
+            last_tick_cyc = cyc;
+            suppress_tick_monitor = 1'b0;
+
+            // The replacement frame drains on real ticks and answers once.
+            wait_for_route_resolution();
+            wait_tick_applied();
+            wait_lif_sweep_done();
+            check(dut.frame_send === 1'b1,
+                  "test 7c: the replacement frame must arm its own response");
+            @(negedge clk);
+            check_int(frame_send_count, responses_before + 1,
+                      "test 7c: only the replacement frame may answer the host");
+
+            // Leak tick: clears the replacement lane's spike bits so the
+            // no-input LED precondition test 8 relies on still holds.
+            wait_tick_applied();
+            wait_lif_sweep_done();
+        end
 
         // ------------------------------------------------------------
         // Test 8: LED bus preserves every committed N=16 bitmap bit.
@@ -1508,6 +1729,68 @@ module tb_spikenaut_soc_basys3_top #(
                         errors++;
                         $display("FAIL: test 13b: a %0dth byte started %0d cycles after the frame ended -- the frame is no longer %0d bytes",
                                  RESPONSE_BYTES + 1, quiet, RESPONSE_BYTES);
+                        break;
+                    end
+                    quiet++;
+                end
+            end
+        end
+
+        // ------------------------------------------------------------
+        // Test 13c: the multi-lane wire contract (GH#112).  Test 7b counts
+        // frame_send arming; this demodulates uart_tx for a two-lane frame
+        // and proves exactly one 36-byte frame is serialized -- one reply
+        // per request on the wire, not per drained lane.  Byte contents are
+        // not re-checked (13b covers serialization fidelity); the reply is
+        // the final lane's post-tick snapshot.
+        // ------------------------------------------------------------
+        begin
+            logic [7:0] captured;
+            bit         byte_ok;
+            int         bytes_seen;
+            logic [NUM_NEURONS*16-1:0] wire_multi_words;
+
+            wait_uart_line_idle();
+
+            wire_multi_words = '0;
+            wire_multi_words[5*16 +: 16] = 16'h0001;
+            wire_multi_words[9*16 +: 16] = 16'h0001;
+            uart_send_stimulus_mask(wire_multi_words);
+            wait_for_stimuli_pending();
+            wait_for_route_resolution();
+
+            // One tick per active lane; the response arms on the last one.
+            repeat (2) begin
+                wait_tick_applied();
+                wait_lif_sweep_done();
+            end
+            check(dut.stimuli_pending === 1'b0,
+                  "test 13c: two-lane frame must fully drain before its response");
+            check(dut.frame_send === 1'b1,
+                  "test 13c: multi-lane frame must arm exactly one response");
+
+            bytes_seen = 0;
+            for (int b = 0; b < RESPONSE_BYTES; b++) begin
+                uart_capture_byte(captured, byte_ok);
+                if (!byte_ok) begin
+                    errors++;
+                    $display("FAIL: test 13c: no framed byte %0d of %0d on uart_tx",
+                             b, RESPONSE_BYTES);
+                    break;
+                end
+                bytes_seen++;
+            end
+            check_int(bytes_seen, RESPONSE_BYTES,
+                      "test 13c: multi-lane frame must serialize 36 response bytes");
+
+            begin : no_extra_byte_multi
+                automatic int unsigned quiet = 0;
+                while (quiet < UART_QUIET_CLKS) begin
+                    @(negedge clk);
+                    if (uart_tx_line === 1'b0) begin
+                        errors++;
+                        $display("FAIL: test 13c: a %0dth byte started %0d cycles after the frame ended -- a per-lane reply would sit here",
+                                 RESPONSE_BYTES + 1, quiet);
                         break;
                     end
                     quiet++;

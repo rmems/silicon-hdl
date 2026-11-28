@@ -31,52 +31,52 @@
   },
   {
     "step": 6,
-    "consumed_tick": 46,
+    "consumed_tick": 48,
     "spike_word": 0
   },
   {
     "step": 7,
-    "consumed_tick": 53,
+    "consumed_tick": 55,
     "spike_word": 10
   },
   {
     "step": 8,
-    "consumed_tick": 60,
+    "consumed_tick": 62,
     "spike_word": 10
   },
   {
     "step": 9,
-    "consumed_tick": 67,
+    "consumed_tick": 69,
     "spike_word": 0
   },
   {
     "step": 10,
-    "consumed_tick": 74,
+    "consumed_tick": 76,
     "spike_word": 0
   },
   {
     "step": 11,
-    "consumed_tick": 81,
+    "consumed_tick": 83,
     "spike_word": 0
   },
   {
     "step": 12,
-    "consumed_tick": 88,
-    "spike_word": 10
+    "consumed_tick": 91,
+    "spike_word": 0
   },
   {
     "step": 13,
-    "consumed_tick": 95,
+    "consumed_tick": 98,
     "spike_word": 0
   },
   {
     "step": 14,
-    "consumed_tick": 102,
+    "consumed_tick": 105,
     "spike_word": 256
   },
   {
     "step": 15,
-    "consumed_tick": 109,
+    "consumed_tick": 112,
     "spike_word": 0
   }
 ]

@@ -28,22 +28,27 @@ reference path" deliverable of
 stays outside HDL. `inputs.mem` is flat step-major; `inputs_count.mem` bounds
 the loop.
 
-**Stimulus semantics.** Binary-event PE: the SoC decodes the *lowest non-zero
-lane*, resolves it through the AER table (fixture: identity), and discards
-magnitudes — `0x7FFF` and `0xFF00` integrate the same weight as `0x0001`.
+**Stimulus semantics.** Binary-event PE: the SoC decodes every non-zero lane
+of a consumed frame into a pending mask and emits **one routed event per
+lane per logical tick, lowest lane first** ([#112](https://github.com/rmems/silicon-hdl/issues/112));
+the AER table (fixture: identity) resolves each lane, and magnitudes are
+discarded — `0x7FFF` and `0xFF00` integrate the same weight as `0x0001`.
 An all-zero frame is still consumed and answered, but leak-only
 (`route_drop_pending`).
 
 **Schedule (timestep alignment).** Ticks free-run at 1 kHz; a 36-byte response
-needs ~3.1 ticks. The contract therefore paces exactly one frame per
-**7 ticks**:
+needs ~3.1 ticks. A frame with **K non-zero lanes occupies K consecutive
+consumed ticks** (K ≥ 1; an all-zero frame is K = 1). The response arms on
+the *final* lane's `tick_done`, and the contract paces the next frame's
+first lane exactly **7 ticks** after that:
 
 - first frame: send ~0.5 ms after reset release → RX_COMMIT ~3.4 ms →
-  consumed at **tick 4** (`base_tick`)
+  first lane consumed at **tick 4** (`base_tick`)
 - every later frame: capture the full response, wait ~0.5 ms, send →
-  RX_COMMIT mid-window ~6.5 ms after the previous consumed tick →
-  consumed at `base + i*7` with ±500 µs margin
-- the 6 ticks between consumed ticks are leak-only and part of the model.
+  RX_COMMIT mid-window ~6.5 ms after the previous frame's *final* consumed
+  tick → next first lane 7 ticks later with ±500 µs margin
+- the ticks between a frame's drain and the next frame are leak-only and
+  part of the model.
 
 **Outputs.** Per consumed frame, the 36-byte response = 16 potentials +
 spike-flag word + aux (switch) word — post-tick state of the consuming tick.
@@ -116,7 +121,9 @@ Shadow/replay only — the board never sends process-control commands.
    ~0.5 ms after the board comes out of reset, then send (RX_COMMIT ~3.4 ms
    → consumed at tick 4). For every later step send the 33-byte `0xAA` frame
    **only after** the previous 36-byte response fully arrived plus ~0.5 ms —
-   that lands each frame on consumed tick `4 + i*7` (±0.5 ms margin).
+   that lands each frame's first lane 7 ticks after the previous frame's
+   final consumed tick (±0.5 ms margin; a K-lane frame occupies K
+   consecutive ticks before its response).
 5. Capture each response into the observed.json shape
    (`{step, consumed_tick?, potentials[16], spike_word, aux_word}`; tick index
    is host-inferred from response cadence — record gaps if uncertain).
@@ -132,5 +139,6 @@ unavailable board is pending validation, not completion — per the issue.
   in this fixture).
 - No wall-clock latency claims: the report separates fabric ticks from
   transport by only ever comparing tick-aligned state, never baud time.
-- No multi-lane vector accumulation (binary-event PE per
-  `docs/lif-array-connectivity-model.md` / `docs/interface-alignment.md` §2.2).
+- No single-tick multi-lane vector accumulation — lanes drain one event per
+  tick instead (#112); binary-event PE per
+  `docs/lif-array-connectivity-model.md` / `docs/interface-alignment.md` §2.2.

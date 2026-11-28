@@ -37,61 +37,61 @@
   },
   {
     "step": 6,
-    "consumed_tick": 46,
+    "consumed_tick": 48,
     "output_class": 1,
     "observability": "sim_only"
   },
   {
     "step": 7,
-    "consumed_tick": 53,
+    "consumed_tick": 55,
     "output_class": 1,
     "observability": "sim_only"
   },
   {
     "step": 8,
-    "consumed_tick": 60,
+    "consumed_tick": 62,
     "output_class": 1,
     "observability": "sim_only"
   },
   {
     "step": 9,
-    "consumed_tick": 67,
+    "consumed_tick": 69,
     "output_class": 1,
     "observability": "sim_only"
   },
   {
     "step": 10,
-    "consumed_tick": 74,
+    "consumed_tick": 76,
     "output_class": 1,
     "observability": "sim_only"
   },
   {
     "step": 11,
-    "consumed_tick": 81,
+    "consumed_tick": 83,
     "output_class": 1,
     "observability": "sim_only"
   },
   {
     "step": 12,
-    "consumed_tick": 88,
+    "consumed_tick": 91,
     "output_class": 1,
     "observability": "sim_only"
   },
   {
     "step": 13,
-    "consumed_tick": 95,
+    "consumed_tick": 98,
     "output_class": 1,
     "observability": "sim_only"
   },
   {
     "step": 14,
-    "consumed_tick": 102,
+    "consumed_tick": 105,
     "output_class": 4,
     "observability": "sim_only"
   },
   {
     "step": 15,
-    "consumed_tick": 109,
+    "consumed_tick": 112,
     "output_class": 1,
     "observability": "sim_only"
   }

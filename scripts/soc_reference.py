@@ -7,21 +7,23 @@ one per neuron row, stepped once per logical tick. What this adds on top of
 the neuron model is the SoC's own semantics, mirrored from
 ``Basys3_Top.sv``:
 
-- **Binary-event PE** — the SoC decodes the *lowest non-zero stimulus lane*
-  of a consumed ``0xAA`` frame and resolves it through the AER route table;
-  the Q8.8 stimulus magnitudes themselves are discarded. Every neuron steps
-  with its own ``weight[n][input_index]`` against a shared ``spike_in`` bit
+- **Binary-event PE** — the SoC decodes a consumed ``0xAA`` frame's non-zero
+  lanes into a pending mask and emits *one routed event per lane per logical
+  tick*, lowest lane first (GH#112); the Q8.8 stimulus magnitudes themselves
+  are discarded. Every neuron steps with its own ``weight[n][input_index]``
+  against a shared ``spike_in`` bit
   (``docs/lif-array-connectivity-model.md``).
 - **All-zero frame** — sets ``route_drop_pending``; the frame is still
   consumed at the next tick and still produces a response, but
   ``stimulus_event`` stays low: an observable leak-only tick.
 - **Free-running ticks** — ticks do not wait for the host. The parity
-  contract therefore schedules one stimulus frame per
-  ``TICKS_PER_FRAME`` ticks: the stimulated tick followed by leak-only
-  ticks while the 36-byte response (~3.1 ticks at 115200 baud) is still
-  on the wire. See ``docs/supervisor-parity.md``.
+  contract therefore schedules frames lane-aware: a K-lane frame occupies
+  K consecutive stimulated ticks, then ``TICKS_PER_FRAME - 1`` leak-only
+  ticks while its 36-byte response (~3.1 ticks at 115200 baud) is still
+  on the wire, so the next frame's first lane lands ``TICKS_PER_FRAME``
+  ticks after the *final* lane's tick. See ``docs/supervisor-parity.md``.
 - **Response snapshot** — the 36-byte response carries the post-tick state
-  of the tick that consumed the frame
+  of the tick that consumed the frame's *final* lane
   (``frame_send = lif_tick_done && response_armed``).
 - **OutputLayer readout** — per-tick saturating accumulate of the output
   bank over the tick's ``spike_bitmap``, argmax with lowest-class
@@ -45,12 +47,13 @@ NUM_NEURONS = 16
 NUM_CHANNELS = 16
 NUM_CLASSES = 3
 
-#: Ticks between two consumed stimulus frames in the parity contract. The
-#: host waits for the full 36-byte response (~3.1 ticks), delays ~0.5 ms,
-#: then sends the next request (~2.9 ticks): RX_COMMIT lands mid-window at
-#: ~6.5 ticks after the previous consumed tick, so the next consumed tick is
-#: +7 with ~+/-500 us of margin in both directions. The 6 ticks in between
-#: are leak-only ticks the reference must model.
+#: Ticks between a frame's final consumed tick and the next frame's first
+#: consumed tick in the parity contract. The host waits for the full 36-byte
+#: response (~3.1 ticks), delays ~0.5 ms, then sends the next request
+#: (~2.9 ticks): RX_COMMIT lands mid-window at ~6.5 ticks after the previous
+#: frame's final lane tick, so the next first lane is +7 with ~+/-500 us of
+#: margin in both directions. The ticks in between are leak-only ticks the
+#: reference must model.
 TICKS_PER_FRAME = 7
 
 #: Tick at which the first frame is consumed: the host waits ~0.5 ms after
@@ -95,8 +98,9 @@ class Stimulus:
     """One host ``0xAA`` frame as the SoC decodes it.
 
     ``lanes`` is the 16-word signed Q8.8 stimulus vector. ``spike_in``/lane
-    resolution follows Basys3_Top.sv: lowest non-zero lane wins, then the
-    AER table maps the decoded lane to ``input_index`` (identity by
+    resolution follows Basys3_Top.sv (GH#112): every non-zero lane produces
+    one event, consumed lowest-lane-first across consecutive ticks, and the
+    AER table maps each lane to ``input_index`` (identity by
     default). An all-zero vector is a *dropped* frame — consumed, answered,
     but leak-only.
     """
@@ -109,12 +113,9 @@ class Stimulus:
                 f"Stimulus.lanes: expected {NUM_CHANNELS} words, got {len(self.lanes)}"
             )
 
-    def decoded_lane(self) -> int | None:
-        """Lowest non-zero lane (Basys3_Top.sv ``decoded_input_index``), or None."""
-        for lane, word in enumerate(self.lanes):
-            if word != 0:
-                return lane
-        return None
+    def active_lanes(self) -> tuple[int, ...]:
+        """Every non-zero lane, lowest first (Basys3_Top.sv ``decoded_lane_mask``)."""
+        return tuple(lane for lane, word in enumerate(self.lanes) if word != 0)
 
 
 def output_class_onehot(spike_bitmap: int, output_weights: tuple[int, ...]) -> int:
@@ -200,9 +201,14 @@ def run_fixture(
         trace.append(step_tick(spike_in=False, input_index=None))
 
     for stim in stimuli:
-        lane = stim.decoded_lane()
-        input_index = None if lane is None else route.get(lane, lane)
-        trace.append(step_tick(spike_in=lane is not None, input_index=input_index))
+        # GH#112: one stimulated tick per non-zero lane, lowest first. An
+        # all-zero frame still occupies exactly one consumed tick (route_drop).
+        lanes = stim.active_lanes()
+        if not lanes:
+            trace.append(step_tick(spike_in=False, input_index=None))
+        else:
+            for lane in lanes:
+                trace.append(step_tick(spike_in=True, input_index=route.get(lane, lane)))
         for _ in range(ticks_per_frame - 1):
             trace.append(step_tick(spike_in=False, input_index=None))
 
@@ -220,12 +226,22 @@ def expected_steps(
 ) -> list[TickResult]:
     """Per consumed frame: the tick its 36-byte response snapshots.
 
-    A dropped (all-zero) frame is consumed like a stimulated one — its
+    The response arms on the frame's *final* lane's tick_done (GH#112), so a
+    K-lane frame's snapshot is the last stimulated tick, not the first. A
+    dropped (all-zero) frame is consumed like a stimulated one — its
     response exists but carries a leak tick's state.
     """
     trace = run_fixture(
         stimuli, bank, ticks_per_frame=ticks_per_frame, base_tick=base_tick,
         route=route, semantics=semantics
     )
-    consumed = {base_tick + i * ticks_per_frame for i in range(len(stimuli))}
+    # Walk the same lane-count schedule run_fixture emits: each frame's last
+    # consumed tick is its K stimulated (or one dropped) ticks after the
+    # previous frame's final tick.
+    tick = base_tick - 1
+    consumed: set[int] = set()
+    for stim in stimuli:
+        tick += len(stim.active_lanes()) or 1
+        consumed.add(tick)
+        tick += ticks_per_frame - 1
     return [r for r in trace if r.tick in consumed]

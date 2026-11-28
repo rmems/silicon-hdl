@@ -62,6 +62,21 @@ arrive while a frame is serializing are **coalesced into a single latest-wins
 pending snapshot** — the host sees the most recent state, not a backlog. Plan for
 one response per request, not one per tick.
 
+A request with several nonzero lanes is **not** collapsed: each nonzero lane
+is routed and consumed as its own binary event on successive 1 ms ticks,
+lowest lane first ([#112](https://github.com/rmems/silicon-hdl/issues/112)).
+The exchange stays strictly one-response-per-request: the reply fires on the
+`tick_done` of the frame's **final** lane, so its snapshot is that last
+tick's membrane/spike result — earlier lanes' per-tick spike bitmaps are not
+individually reported. Lane amplitude stays event-only: a nonzero word
+registers the lane, its magnitude is not integrated.
+
+The guarantee applies to requests that are allowed to drain: a newer frame
+accepted while lanes are still pending supersedes them, and the superseded
+frame produces no reply of its own (see
+[`aer-routing-contract.md`](aer-routing-contract.md)). Hosts should therefore
+read the complete 36-byte response before sending the next stimulus request.
+
 ### What is *not* in the frame
 
 [#72](https://github.com/rmems/silicon-hdl/issues/72)'s output-class flags are
