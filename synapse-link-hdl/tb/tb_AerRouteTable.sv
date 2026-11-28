@@ -6,7 +6,7 @@
 
 module tb_AerRouteTable #(
     parameter string NONIDENTITY_INIT_FILE =
-        "synapse-link-hdl/mem/aer_routes_test_multihop_n16.mem"
+        "testdata/bridge_aer/aer_routes.mem"
 );
     localparam int ADDR_WIDTH = 4;
     localparam int MAX_HOPS   = 4;
@@ -230,18 +230,23 @@ module tb_AerRouteTable #(
               "ADDR_WIDTH=14 terminal entry must route successfully");
         @(negedge clk);
 
-        // The generated fixture differs from the built-in identity fallback,
-        // so 0 -> 2 proves $readmemh actually populated this second instance.
-        check(init_in_ready, "INIT_FILE router must be ready after reset");
-        init_in_addr  = 4'd0;
-        init_in_valid = 1'b1;
-        @(negedge clk);
-        init_in_valid = 1'b0;
-        while (!init_out_valid && !init_route_fault)
+        // The bridge's explicit plan sends lanes 0 and 1 to 2. Keep the
+        // expected addresses independent of the image loaded by $readmemh.
+        for (int lane = 0; lane < 16; lane++) begin
+            logic [ADDR_WIDTH-1:0] expected;
+            expected = (lane < 2) ? 4'd2 : ADDR_WIDTH'(lane);
+            check(init_in_ready, $sformatf("INIT_FILE not ready for lane %0d", lane));
+            init_in_addr  = ADDR_WIDTH'(lane);
+            init_in_valid = 1'b1;
             @(negedge clk);
-        check(init_out_valid && !init_route_fault && init_out_addr == 4'd2,
-              "nonidentity INIT_FILE must route source 0 through 1 to 2");
-        @(negedge clk);
+            init_in_valid = 1'b0;
+            for (int tick = 0; tick < MAX_HOPS && !init_out_valid && !init_route_fault; tick++)
+                @(negedge clk);
+            check(init_out_valid && !init_route_fault && init_out_addr == expected,
+                  $sformatf("INIT_FILE lane %0d expected %0d, got %0d (valid=%b fault=%b)",
+                            lane, expected, init_out_addr, init_out_valid, init_route_fault));
+            @(negedge clk);
+        end
 
         // A missing INIT_FILE must produce the backwards-compatible identity
         // table. A wrong default mapping makes every existing SoC stimulus
