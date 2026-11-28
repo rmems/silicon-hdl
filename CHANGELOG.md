@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Documented the [silicon-bridge NIR/AER bundle](docs/nir-aer-bundle.md),
+  including producer compatibility IDs, memory layouts and route provenance
+  ([#74](https://github.com/rmems/silicon-hdl/issues/74)).
 - Closed-loop STDP writeback on the SoC demo path
   ([#103](https://github.com/rmems/silicon-hdl/pull/103), closes
   [#70](https://github.com/rmems/silicon-hdl/issues/70)). New

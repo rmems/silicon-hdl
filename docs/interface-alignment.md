@@ -27,7 +27,7 @@ either side of the contract changes.
 | Real wire-level width mismatch requiring RTL fix | **None found** | No logic change in this work |
 | Vivado resource / timing CI | **Satisfied** | Merged PR [#31](https://github.com/rmems/silicon-hdl/pull/31) (`.github/workflows/vivado-ci.yml`) |
 | Logical timestep / `step_en` | **Documented** | [`docs/timestep-contract.md`](timestep-contract.md); SoC 1 ms divider (#57 / #60) |
-| SoC demo maturity | **Partial** | INIT banks, N=16 LIF, UART readback/writes, optional STDP writeback, bounded AER consumption, and multi-lane stimulus sweeping (#112) are wired. NIR bundle production, single-tick vector accumulation, and RM-259 physical-board proof remain sequenced work. |
+| SoC demo maturity | **Partial** | INIT banks, N=16 LIF, UART readback/writes, optional STDP writeback, bounded AER consumption, and multi-lane stimulus sweeping (#112) are wired. The bridge emits a [NIR/AER bundle](nir-aer-bundle.md). Single-tick vector accumulation and RM-259 proof on a physical board remain open. |
 
 Foundational RTL correctness that supports this alignment landed earlier via
 PR [#11](https://github.com/rmems/silicon-hdl/pull/11) (comment on #8).
